@@ -30,7 +30,6 @@ Source3:        bluetooth.sysconfig
 Source4:        bluetooth.sh
 Source5:        baselibs.conf
 Source7:        bluetooth.modprobe
-BuildRoot:      %{_tmppath}/%{name}-%{version}-build
 
 %define cups_lib_dir %{_prefix}/lib/cups
 
@@ -72,7 +71,7 @@ License:        GPL-2.0+ ; MIT
 Group:          Development/Tools/Debuggers
 Requires:       dbus-python
 Requires:       libbluetooth = %{version}
-Requires:       python-gobject2
+Requires:       python-gobject
 
 %description test
 Contains a few tools for testing various bluetooth functions. The
