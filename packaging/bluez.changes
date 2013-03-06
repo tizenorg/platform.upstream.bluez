@@ -1,0 +1,6 @@
+* Wed Mar 06 2013 William Douglas <william.douglas@intel.com> submit/trunk/20130306.190137@68749bf
+- Correct the dbus service file's systemd unit name for bluez.
+- Fixed requirement on python-gobject
+- add packaging
+- Imported Upstream version 4.101
+
