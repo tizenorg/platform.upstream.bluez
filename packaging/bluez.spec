@@ -23,7 +23,7 @@ Version:        4.101
 Release:        0
 Summary:        Bluetooth Stack for Linux
 License:        GPL-2.0+
-Group:          Hardware/Mobile
+Group:          Connectivity/Bluetooth
 Source:         bluez-%{version}.tar.gz
 Source2:        bluez-coldplug.init
 Source3:        bluetooth.sysconfig
@@ -39,7 +39,7 @@ The Bluetooth stack for Linux.
 %package devel
 Summary:        Files needed for BlueZ development
 License:        GPL-2.0+
-Group:          Development/Sources
+Group:          Development/Libraries
 Requires:       libbluetooth = %{version}
 
 %description devel
@@ -49,7 +49,7 @@ stack.
 %package -n libbluetooth
 Summary:        Bluetooth Libraries
 License:        GPL-2.0+
-Group:          Hardware/Mobile
+Group:          Connectivity/Bluetooth
 
 %description -n libbluetooth
 Bluetooth protocol stack libraries.
@@ -57,7 +57,7 @@ Bluetooth protocol stack libraries.
 %package cups
 Summary:        CUPS Driver for Bluetooth Printers
 License:        GPL-2.0+
-Group:          Hardware/Printing
+Group:          Connectivity/Bluetooth
 Requires:       libbluetooth = %{version}
 
 %description cups
@@ -68,7 +68,7 @@ printers.
 %package test
 Summary:        Tools for testing of various Bluetooth-functions
 License:        GPL-2.0+ ; MIT
-Group:          Development/Tools/Debuggers
+Group:          Development/Tools
 Requires:       dbus-python
 Requires:       libbluetooth = %{version}
 Requires:       python-gobject
@@ -81,7 +81,7 @@ BLUETOOTH trademarks are owned by Bluetooth SIG, Inc., U.S.A.
 %package sbc
 Summary:        Bluetooth Low-Complexity, Sub-Band Codec Utilities
 License:        GPL-2.0+
-Group:          Hardware/Mobile
+Group:          Connectivity/Bluetooth
 Requires:       libbluetooth = %{version}
 Requires:       libsbc = %{version}
 
@@ -95,7 +95,7 @@ The BLUETOOTH trademarks are owned by Bluetooth SIG, Inc., USA.
 %package -n libsbc
 Summary:        Bluetooth Low-Complexity, Sub-Band Codec Library
 License:        GPL-2.0+
-Group:          Hardware/Mobile
+Group:          Connectivity/Bluetooth
 Requires:       libbluetooth = %{version}
 
 %description -n libsbc
@@ -106,7 +106,7 @@ The BLUETOOTH trademarks are owned by Bluetooth SIG, Inc., USA.
 %package alsa
 Summary:        Bluetooth Sound Support
 License:        GPL-2.0+
-Group:          Productivity/Multimedia/Sound/Utilities
+Group:          Connectivity/Bluetooth
 Requires:       libbluetooth = %{version}
 Provides:       bluez-audio:%_libdir/alsa-lib/libasound_module_pcm_bluetooth.so
 
@@ -119,7 +119,7 @@ The BLUETOOTH trademarks are owned by Bluetooth SIG, Inc., USA.
 %package compat
 Summary:        Bluetooth Stack for Linux
 License:        GPL-2.0+
-Group:          Hardware/Mobile
+Group:          Connectivity/Bluetooth
 Requires:       libbluetooth = %{version}
 
 %description compat
@@ -181,9 +181,6 @@ cd ..
 rm -rvf $RPM_BUILD_ROOT/%{_libdir}/gstreamer-*
 install --mode=0755 -D %{S:4} $RPM_BUILD_ROOT/usr/lib/udev/bluetooth.sh
 install --mode=0644 -D %{S:7} $RPM_BUILD_ROOT/%{_sysconfdir}/modprobe.d/50-bluetooth.conf
-# In openSUSE 11.3 there is upstream compliant CUPS 1.4
-# which means to have a fixed "/usr/lib/cups/" directory
-# on all platforms (see Novell/Suse Bugzilla bnc#575544):
 if ! test -e %{buildroot}%{cups_lib_dir}/backend/bluetooth
 then if test -e %{buildroot}%{_libdir}/cups/backend/bluetooth
      then mkdir -p %{buildroot}%{cups_lib_dir}/backend
@@ -207,7 +204,7 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 
 %files
 %defattr(-, root, root)
-%doc COPYING 
+%license COPYING 
 %{_bindir}/hcitool
 %{_bindir}/l2ping
 %{_bindir}/rfcomm
@@ -243,7 +240,7 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 %files -n libbluetooth
 %defattr(-, root, root)
 %{_libdir}/libbluetooth.so.*
-%doc AUTHORS COPYING ChangeLog README
+%license COPYING
 
 %files cups
 %defattr(-,root,root)
