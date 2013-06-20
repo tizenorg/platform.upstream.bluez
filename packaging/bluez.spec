@@ -224,6 +224,7 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 /usr/share/dbus-1/system-services/org.bluez.service
 %dir %{_sysconfdir}/bluetooth
 %config(noreplace) %{_sysconfdir}/bluetooth/main.conf
+%config(noreplace) %{_sysconfdir}/bluetooth/audio.conf
 %config(noreplace) %{_sysconfdir}/bluetooth/rfcomm.conf
 %config %{_sysconfdir}/dbus-1/system.d/bluetooth.conf
 %dir /var/lib/bluetooth
