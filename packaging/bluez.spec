@@ -30,6 +30,7 @@ Source3:        bluetooth.sysconfig
 Source4:        bluetooth.sh
 Source5:        baselibs.conf
 Source7:        bluetooth.modprobe
+Source8:        audio.conf
 
 %define cups_lib_dir %{_prefix}/lib/cups
 
@@ -150,6 +151,9 @@ autoreconf -fiv
 			--enable-thermometer	\
 			--enable-datafiles	\
 			--enable-pcmcia \
+			--enable-health \
+			--enable-dbusoob \
+			--with-telephony=ofono \
             --with-systemdunitdir=%{_unitdir} \
 			%{?with_libcapng}
 make %{?_smp_mflags} all V=1
@@ -181,6 +185,7 @@ cd ..
 rm -rvf $RPM_BUILD_ROOT/%{_libdir}/gstreamer-*
 install --mode=0755 -D %{S:4} $RPM_BUILD_ROOT/usr/lib/udev/bluetooth.sh
 install --mode=0644 -D %{S:7} $RPM_BUILD_ROOT/%{_sysconfdir}/modprobe.d/50-bluetooth.conf
+install --mode=0644 -D %{S:8} $RPM_BUILD_ROOT/%{_sysconfdir}/bluetooth/audio.conf
 if ! test -e %{buildroot}%{cups_lib_dir}/backend/bluetooth
 then if test -e %{buildroot}%{_libdir}/cups/backend/bluetooth
      then mkdir -p %{buildroot}%{cups_lib_dir}/backend
@@ -225,6 +230,7 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 %dir %{_sysconfdir}/bluetooth
 %config(noreplace) %{_sysconfdir}/bluetooth/main.conf
 %config(noreplace) %{_sysconfdir}/bluetooth/rfcomm.conf
+%config(noreplace) %{_sysconfdir}/bluetooth/audio.conf
 %config %{_sysconfdir}/dbus-1/system.d/bluetooth.conf
 %dir /var/lib/bluetooth
 %dir %{_sysconfdir}/modprobe.d
