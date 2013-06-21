@@ -1,3 +1,7 @@
+* Fri Jun 21 2013 Chengyi Zhao <chengyi1.zhao@archermind.com> tizen
+- Fixed the issue:TIVI-1033 [3.0] Failed to enable HFP modem(missing audio conf in bluez)
+- Added audio.conf and modified bluez.spec
+
 * Mon Mar 18 2013 Anas Nashif <anas.nashif@intel.com> upstream/4.101@89d301e
 - Fixed package groups
 
