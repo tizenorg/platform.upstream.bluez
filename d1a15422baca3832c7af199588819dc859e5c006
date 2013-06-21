@@ -1,0 +1,9 @@
+Change-Id: Id1a15422baca3832c7af199588819dc859e5c006
+Code-Review+2: Anas Nashif <anas.nashif@intel.com>
+Code-Review+1: Chengyi Zhao <chengyi1.zhao@archermind.com>
+Verified+1: Chengyi Zhao <chengyi1.zhao@archermind.com>
+Submitted-by: Anas Nashif <anas.nashif@intel.com>
+Submitted-at: Fri, 21 Jun 2013 05:24:32 -0700
+Reviewed-on: https://review.tizen.org/gerrit/4179
+Project: platform/upstream/bluez
+Branch: refs/heads/tizen
