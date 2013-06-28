@@ -33,6 +33,7 @@ Source4:        bluetooth.sh
 Source5:        baselibs.conf
 Source7:        bluetooth.modprobe
 Source8:        audio.conf
+Source1001: 	bluez.manifest
 
 %define cups_lib_dir %{_prefix}/lib/cups
 
@@ -132,6 +133,7 @@ deprecated binaries that might still be needed for compatibility.
 
 %prep
 %setup -q
+cp %{SOURCE1001} .
 
 %build
 autoreconf -fiv
@@ -212,6 +214,7 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 %postun -n libbluetooth -p /sbin/ldconfig
 
 %files
+%manifest %{name}.manifest
 %defattr(-, root, root)
 %license COPYING 
 %{_bindir}/hcitool
@@ -242,23 +245,27 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 %{_unitdir}/bluetooth.service
 
 %files devel
+%manifest %{name}.manifest
 %defattr(-, root, root)
 /usr/include/bluetooth
 %{_libdir}/libbluetooth.so
 %{_libdir}/pkgconfig/bluez.pc
 
 %files -n libbluetooth
+%manifest %{name}.manifest
 %defattr(-, root, root)
 %{_libdir}/libbluetooth.so.*
 %license COPYING
 
 %files cups
+%manifest %{name}.manifest
 %defattr(-,root,root)
 %dir %{cups_lib_dir}
 %dir %{cups_lib_dir}/backend
 %{cups_lib_dir}/backend/bluetooth
 
 %files test
+%manifest %{name}.manifest
 %defattr(-,root,root)
 %{_sbindir}/hciemu
 %{_bindir}/l2test
@@ -278,6 +285,7 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 %{_bindir}/test-telephony
 
 %files alsa
+%manifest %{name}.manifest
 %defattr(-,root,root)
 %dir /usr/share/alsa
 %config /usr/share/alsa/bluetooth.conf
@@ -285,6 +293,7 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 
 
 %files compat
+%manifest %{name}.manifest
 %defattr(-,root,root)
 %{_bindir}/dund
 %{_bindir}/pand
