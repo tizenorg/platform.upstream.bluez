@@ -157,6 +157,7 @@ autoreconf -fiv
 			--enable-pcmcia \
 			--enable-health \
 			--enable-dbusoob \
+			--enable-hidd \
 %if %{with ofono}
 			--with-telephony=ofono \
 %endif
@@ -297,6 +298,7 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 %defattr(-,root,root)
 %{_bindir}/dund
 %{_bindir}/pand
+%{_bindir}/hidd
 
 %docs_package
 
