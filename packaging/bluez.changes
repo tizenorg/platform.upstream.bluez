@@ -1,3 +1,19 @@
+* Tue Aug 20 2013 Ravi kumar Veeramally <ravikumar.veeramally@intel.com>
+- Fixes for PAN after 4.101, fixes received from upstream and pushing them.
+- network: fix network Connect() method parameters
+- network: Fix DBusMessage leaks
+- network: Fix bnep setup failure handle bug
+-    This patch initializes rsp varialbe again for
+-    the remain failure procedure.
+- network: Check full BNEP UUID
+-    This patch fixes an issue where only the 2 bytes
+-    containing the service ID was checked from the BNEP
+-    UUID. Fixes behavior for BT test cases
+-    TP/PAN/MISC/UUID/BV-01-C & TP/PAN/MISC/UUID/BV-02-C.
+- network: NULL dereference fix
+-    Variable ifindex dereferenced on line 242 before
+-    null check on line 249.
+
 * Fri Jun 21 2013 Chengyi Zhao <chengyi1.zhao@archermind.com> tizen
 - Fixed the issue:TIVI-1033 [3.0] Failed to enable HFP modem(missing audio conf in bluez)
 - Added audio.conf and modified bluez.spec
