@@ -84,6 +84,11 @@ struct network_server {
 static GSList *adapters = NULL;
 static gboolean security = TRUE;
 
+#ifdef  __TIZEN_PATCH__
+static gboolean server_disconnected_cb(GIOChannel *chan,
+			GIOCondition cond, gpointer user_data);
+#endif
+
 static struct network_adapter *find_adapter(GSList *list,
 					struct btd_adapter *adapter)
 {
@@ -124,6 +129,22 @@ static struct network_server *find_server_by_uuid(GSList *list,
 
 	return NULL;
 }
+
+#ifdef  __TIZEN_PATCH__
+static struct network_session *find_session(GSList *list, GIOChannel *io)
+{
+	GSList *l;
+
+	for (l = list; l; l = l->next) {
+		struct network_session *session = l->data;
+
+		if (session->io == io)
+			return session;
+	}
+
+	return NULL;
+}
+#endif
 
 static sdp_record_t *server_record_new(const char *name, uint16_t id)
 {
@@ -279,6 +300,17 @@ static int server_connadd(struct network_server *ns,
 
 	info("Added new connection: %s", devname);
 
+#ifdef  __TIZEN_PATCH__
+	{
+		guint watch = 0;
+
+		bnep_if_up(devname);
+
+		watch = g_io_add_watch_full(session->io, G_PRIORITY_DEFAULT,
+					G_IO_HUP | G_IO_ERR | G_IO_NVAL,
+					server_disconnected_cb, ns, NULL);
+	}
+#else
 	if (bnep_add_to_bridge(devname, ns->bridge) < 0) {
 		error("Can't add %s to the bridge %s: %s(%d)",
 				devname, ns->bridge, strerror(errno), errno);
@@ -286,7 +318,7 @@ static int server_connadd(struct network_server *ns,
 	}
 
 	bnep_if_up(devname);
-
+#endif
 	strncpy(session->dev, devname, sizeof(devname));
 
 	ns->sessions = g_slist_append(ns->sessions, session);
@@ -386,6 +418,54 @@ static void setup_destroy(void *user_data)
 	session_free(setup);
 }
 
+#ifdef  __TIZEN_PATCH__
+static gboolean server_disconnected_cb(GIOChannel *chan,
+			GIOCondition cond, gpointer user_data)
+{
+	struct network_server *ns = NULL;
+	struct network_session *session = NULL;
+	char address[20] = {0};
+	GError *gerr = NULL;
+	const char* paddr = address;
+	char *name_str = NULL;
+
+	info("server_disconnected_cb");
+
+	if (!user_data)
+		return FALSE;
+
+	ns = (struct network_server *) user_data;
+
+	session = find_session(ns->sessions, chan);
+	if (session) {
+		name_str = session->dev;
+	}else{
+		info("Session is not exist!");
+	}
+
+	bt_io_get(chan, &gerr, BT_IO_OPT_DEST, &address,
+			BT_IO_OPT_INVALID);
+
+	g_dbus_emit_signal(btd_get_dbus_connection(),
+			adapter_get_path(ns->na->adapter),
+			NETWORK_SERVER_INTERFACE, "PeerDisconnected",
+			DBUS_TYPE_STRING, &name_str,
+			DBUS_TYPE_STRING, &paddr,
+			DBUS_TYPE_INVALID);
+
+	if (session) {
+		ns->sessions = g_slist_remove(ns->sessions, session);
+		session_free(session);
+	}
+
+	if (g_slist_length(ns->sessions) == 0 &&
+		name_str != NULL)
+		bnep_if_down(name_str);
+
+	return FALSE;
+}
+#endif
+
 static gboolean bnep_setup(GIOChannel *chan,
 			GIOCondition cond, gpointer user_data)
 {
@@ -460,9 +540,31 @@ static gboolean bnep_setup(GIOChannel *chan,
 	if (server_connadd(ns, na->setup, dst_role) < 0)
 		goto reply;
 
+#ifndef  __TIZEN_PATCH__
 	na->setup = NULL;
+#endif
 
 	rsp = BNEP_SUCCESS;
+
+#ifdef  __TIZEN_PATCH__
+{
+	// Emit connected signal to BT application
+	const gchar* adapter_path = adapter_get_path(na->adapter);
+	const char* pdev = na->setup->dev;
+	char address[24] = {0};
+	char* paddr = address;
+
+	ba2str(&na->setup->dst,paddr);
+
+	na->setup = NULL;
+
+	g_dbus_emit_signal(btd_get_dbus_connection(), adapter_path,
+			NETWORK_SERVER_INTERFACE, "PeerConnected",
+			DBUS_TYPE_STRING, &pdev,
+			DBUS_TYPE_STRING, &paddr,
+			DBUS_TYPE_INVALID);
+}
+#endif
 
 reply:
 	send_bnep_ctrl_rsp(sk, rsp);
@@ -744,6 +846,16 @@ static void path_unregister(void *data)
 	adapter_free(na);
 }
 
+#ifdef  __TIZEN_PATCH__
+static GDBusSignalTable server_signals[] = {
+	{ GDBUS_SIGNAL("PeerConnected",
+			GDBUS_ARGS({ "device", "s" }, { "address", "s" })) },
+	{ GDBUS_SIGNAL("PeerDisconnected",
+			GDBUS_ARGS({ "device", "s" }, { "address", "s" })) },
+	{ }
+};
+#endif
+
 static const GDBusMethodTable server_methods[] = {
 	{ GDBUS_METHOD("Register",
 			GDBUS_ARGS({ "uuid", "s" }, { "bridge", "s" }), NULL,
@@ -809,15 +921,28 @@ int server_register(struct btd_adapter *adapter, uint16_t id)
 	if (g_slist_length(na->servers) > 0)
 		goto done;
 
+#ifndef  __TIZEN_PATCH__
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					path, NETWORK_SERVER_INTERFACE,
 					server_methods, NULL, NULL,
 					na, path_unregister)) {
 		error("D-Bus failed to register %s interface",
-						NETWORK_SERVER_INTERFACE);
+					NETWORK_SERVER_INTERFACE);
 		server_free(ns);
 		return -1;
 	}
+#else
+	if (!g_dbus_register_interface(btd_get_dbus_connection(),
+					path, NETWORK_SERVER_INTERFACE,
+					server_methods, server_signals,
+					NULL,
+					na, path_unregister)) {
+		error("D-Bus failed to register %s interface",
+					NETWORK_SERVER_INTERFACE);
+		server_free(ns);
+		return -1;
+	}
+#endif
 
 	DBG("Registered interface %s on path %s", NETWORK_SERVER_INTERFACE,
 									path);
