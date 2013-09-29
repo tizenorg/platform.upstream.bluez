@@ -95,6 +95,8 @@ cp %{SOURCE1001} .
 
 %build
 autoreconf -fiv
+
+export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__"
 %configure  --with-pic \
 			--libexecdir=/lib \
 			--disable-usb	\
