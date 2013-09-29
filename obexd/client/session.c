@@ -831,8 +831,17 @@ static void session_terminate_transfer(struct obc_session *session,
 
 	pending_request_free(p);
 
+#ifdef __TIZEN_PATCH__
+	if (session->p == NULL) {
+		if (gerr)
+			obc_session_shutdown(session);
+		else
+			session_process_queue(session);
+	}
+#else
 	if (session->p == NULL)
 		session_process_queue(session);
+#endif
 
 	obc_session_unref(session);
 }
