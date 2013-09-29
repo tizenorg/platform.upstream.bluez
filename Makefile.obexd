@@ -46,7 +46,7 @@ endif
 obexd_builtin_modules += mas
 obexd_builtin_sources += obexd/plugins/mas.c obexd/src/map_ap.h \
 				obexd/plugins/messages.h \
-				obexd/plugins/messages-dummy.c
+				obexd/plugins/messages-tizen.c
 
 obexd_builtin_modules += mns
 obexd_builtin_sources += obexd/client/mns.c obexd/src/map_ap.h \
