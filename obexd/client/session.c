@@ -110,6 +110,7 @@ struct obc_session {
 	guint watch;
 	GQueue *queue;
 	guint process_id;
+	char *folder;
 };
 
 static GSList *sessions = NULL;
@@ -176,6 +177,9 @@ static struct pending_request *pending_request_new(struct obc_session *session,
 
 static void pending_request_free(struct pending_request *p)
 {
+	if (p->req_id > 0)
+		g_obex_cancel_req(p->session->obex, p->req_id, TRUE);
+
 	if (p->destroy)
 		p->destroy(p->data);
 
@@ -242,6 +246,7 @@ static void session_free(struct obc_session *session)
 	g_free(session->owner);
 	g_free(session->source);
 	g_free(session->destination);
+	g_free(session->folder);
 	g_free(session);
 }
 
@@ -255,6 +260,12 @@ void obc_session_unref(struct obc_session *session)
 
 	if (refs > 0)
 		return;
+
+	/* Disconnect transport */
+	if (session->id > 0 && session->transport != NULL) {
+		session->transport->disconnect(session->id);
+		session->id = 0;
+	}
 
 	session_free(session);
 }
@@ -500,6 +511,7 @@ struct obc_session *obc_session_create(const char *source,
 	session->destination = g_strdup(destination);
 	session->channel = channel;
 	session->queue = g_queue_new();
+	session->folder = g_strdup("/");
 
 	if (owner)
 		obc_session_set_owner(session, owner, owner_disconnected);
@@ -551,12 +563,6 @@ void obc_session_shutdown(struct obc_session *session)
 	/* Unregister interfaces */
 	if (session->path)
 		session_unregistered(session);
-
-	/* Disconnect transport */
-	if (session->id > 0 && session->transport != NULL) {
-		session->transport->disconnect(session->id);
-		session->id = 0;
-	}
 
 	obc_session_unref(session);
 }
@@ -708,9 +714,9 @@ static gboolean session_process(gpointer data)
 {
 	struct obc_session *session = data;
 
-	session_process_queue(session);
-
 	session->process_id = 0;
+
+	session_process_queue(session);
 
 	return FALSE;
 }
@@ -939,6 +945,11 @@ const char *obc_session_get_target(struct obc_session *session)
 	return session->driver->target;
 }
 
+const char *obc_session_get_folder(struct obc_session *session)
+{
+	return session->folder;
+}
+
 static void setpath_complete(struct obc_session *session,
 						struct obc_transfer *transfer,
 						GError *err, void *user_data)
@@ -966,12 +977,39 @@ static void setpath_op_complete(struct obc_session *session,
 		data->func(session, NULL, err, data->user_data);
 }
 
+static void setpath_set_folder(struct obc_session *session, const char *cur)
+{
+	char *folder = NULL;
+	const char *delim;
+
+	delim = strrchr(session->folder, '/');
+	if (strlen(cur) == 0 || delim == NULL ||
+			(strcmp(cur, "..") == 0 && delim == session->folder)) {
+		folder = g_strdup("/");
+	} else {
+		if (strcmp(cur, "..") == 0) {
+			folder = g_strndup(session->folder,
+						delim - session->folder);
+		} else {
+			if (g_str_has_suffix(session->folder, "/"))
+				folder = g_strconcat(session->folder,
+								cur, NULL);
+			else
+				folder = g_strconcat(session->folder, "/",
+								cur, NULL);
+		}
+	}
+	g_free(session->folder);
+	session->folder = folder;
+}
+
 static void setpath_cb(GObex *obex, GError *err, GObexPacket *rsp,
 							gpointer user_data)
 {
 	struct pending_request *p = user_data;
 	struct setpath_data *data = p->data;
 	char *next;
+	char *current;
 	guint8 code;
 
 	p->req_id = 0;
@@ -990,6 +1028,9 @@ static void setpath_cb(GObex *obex, GError *err, GObexPacket *rsp,
 		g_clear_error(&gerr);
 		return;
 	}
+
+	current = data->remaining[data->index - 1];
+	setpath_set_folder(p->session, current);
 
 	/* Ignore empty folder names to avoid resetting the current path */
 	while ((next = data->remaining[data->index]) && strlen(next) == 0)
@@ -1282,6 +1323,8 @@ void obc_session_cancel(struct obc_session *session, guint id,
 		return;
 
 	g_obex_cancel_req(session->obex, p->req_id, remove);
+	p->req_id = 0;
+
 	if (!remove)
 		return;
 

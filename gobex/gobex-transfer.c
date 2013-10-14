@@ -207,8 +207,8 @@ static void transfer_response(GObex *obex, GError *err, GObexPacket *rsp,
 
 	rspcode = g_obex_packet_get_operation(rsp, &final);
 	if (rspcode != G_OBEX_RSP_SUCCESS && rspcode != G_OBEX_RSP_CONTINUE) {
-		err = g_error_new(G_OBEX_ERROR, rspcode,
-					"Transfer failed (0x%02x)", rspcode);
+		err = g_error_new(G_OBEX_ERROR, rspcode, "%s",
+						g_obex_strerror(rspcode));
 		goto failed;
 	}
 
@@ -644,7 +644,10 @@ gboolean g_obex_cancel_transfer(guint id, GObexFunc complete_func,
 	transfer->complete_func = complete_func;
 	transfer->user_data = user_data;
 
-	ret = g_obex_pending_req_abort(transfer->obex, NULL);
+	if (transfer->req_id == 0)
+		goto done;
+
+	ret = g_obex_cancel_req(transfer->obex, transfer->req_id, FALSE);
 	if (ret)
 		return TRUE;
 

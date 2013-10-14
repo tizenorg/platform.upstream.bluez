@@ -35,21 +35,10 @@
 #include <sys/stat.h>
 #include <arpa/inet.h>
 
-#include "packet.h"
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/hci.h>
+
 #include "btsnoop.h"
-
-static inline uint64_t ntoh64(uint64_t n)
-{
-	uint64_t h;
-	uint64_t tmp = ntohl(n & 0x00000000ffffffff);
-
-	h = ntohl(n >> 32);
-	h |= tmp << 32;
-
-	return h;
-}
-
-#define hton64(x)     ntoh64(x)
 
 struct btsnoop_hdr {
 	uint8_t		id[8];		/* Identification Pattern */
@@ -77,7 +66,7 @@ static uint32_t btsnoop_type = 0;
 static int btsnoop_fd = -1;
 static uint16_t btsnoop_index = 0xffff;
 
-void btsnoop_create(const char *path)
+void btsnoop_create(const char *path, uint32_t type)
 {
 	struct btsnoop_hdr hdr;
 	ssize_t written;
@@ -90,7 +79,7 @@ void btsnoop_create(const char *path)
 	if (btsnoop_fd < 0)
 		return;
 
-	btsnoop_type = 2001;
+	btsnoop_type = type;
 
 	memcpy(hdr.id, btsnoop_id, sizeof(btsnoop_id));
 	hdr.version = htonl(btsnoop_version);
@@ -104,40 +93,12 @@ void btsnoop_create(const char *path)
 	}
 }
 
-void btsnoop_write(struct timeval *tv, uint16_t index, uint16_t opcode,
+void btsnoop_write(struct timeval *tv, uint32_t flags,
 					const void *data, uint16_t size)
 {
 	struct btsnoop_pkt pkt;
-	uint32_t flags;
 	uint64_t ts;
 	ssize_t written;
-
-	if (!tv)
-		return;
-
-	if (btsnoop_fd < 0)
-		return;
-
-	switch (btsnoop_type) {
-	case 1001:
-		if (btsnoop_index == 0xffff)
-			btsnoop_index = index;
-
-		if (index != btsnoop_index)
-			return;
-
-		flags = packet_get_flags(opcode);
-		if (flags == 0xff)
-			return;
-		break;
-
-	case 2001:
-		flags = (index << 16) | opcode;
-		break;
-
-	default:
-		return;
-	}
 
 	ts = (tv->tv_sec - 946684800ll) * 1000000ll + tv->tv_usec;
 
@@ -158,7 +119,87 @@ void btsnoop_write(struct timeval *tv, uint16_t index, uint16_t opcode,
 	}
 }
 
-int btsnoop_open(const char *path)
+static uint32_t get_flags_from_opcode(uint16_t opcode)
+{
+	switch (opcode) {
+	case BTSNOOP_OPCODE_NEW_INDEX:
+	case BTSNOOP_OPCODE_DEL_INDEX:
+		break;
+	case BTSNOOP_OPCODE_COMMAND_PKT:
+		return 0x02;
+	case BTSNOOP_OPCODE_EVENT_PKT:
+		return 0x03;
+	case BTSNOOP_OPCODE_ACL_TX_PKT:
+		return 0x00;
+	case BTSNOOP_OPCODE_ACL_RX_PKT:
+		return 0x01;
+	case BTSNOOP_OPCODE_SCO_TX_PKT:
+	case BTSNOOP_OPCODE_SCO_RX_PKT:
+		break;
+	}
+
+	return 0xff;
+}
+
+void btsnoop_write_hci(struct timeval *tv, uint16_t index, uint16_t opcode,
+					const void *data, uint16_t size)
+{
+	uint32_t flags;
+
+	if (!tv)
+		return;
+
+	if (btsnoop_fd < 0)
+		return;
+
+	switch (btsnoop_type) {
+	case BTSNOOP_TYPE_HCI:
+		if (btsnoop_index == 0xffff)
+			btsnoop_index = index;
+
+		if (index != btsnoop_index)
+			return;
+
+		flags = get_flags_from_opcode(opcode);
+		if (flags == 0xff)
+			return;
+		break;
+
+	case BTSNOOP_TYPE_EXTENDED_HCI:
+		flags = (index << 16) | opcode;
+		break;
+
+	default:
+		return;
+	}
+
+	btsnoop_write(tv, flags, data, size);
+}
+
+void btsnoop_write_phy(struct timeval *tv, uint16_t frequency,
+					const void *data, uint16_t size)
+{
+	uint32_t flags;
+
+	if (!tv)
+		return;
+
+	if (btsnoop_fd < 0)
+		return;
+
+	switch (btsnoop_type) {
+	case BTSNOOP_TYPE_EXTENDED_PHY:
+		flags = (1 << 16) | frequency;
+		break;
+
+	default:
+		return;
+	}
+
+	btsnoop_write(tv, flags, data, size);
+}
+
+int btsnoop_open(const char *path, uint32_t *type)
 {
 	struct btsnoop_hdr hdr;
 	ssize_t len;
@@ -198,21 +239,48 @@ int btsnoop_open(const char *path)
 
 	btsnoop_type = ntohl(hdr.type);
 
-	switch (btsnoop_type) {
-	case 1001:
-	case 1002:
-		packet_del_filter(PACKET_FILTER_SHOW_INDEX);
-		break;
-
-	case 2001:
-		packet_add_filter(PACKET_FILTER_SHOW_INDEX);
-		break;
-	}
+	if (type)
+		*type = btsnoop_type;
 
 	return 0;
 }
 
-int btsnoop_read(struct timeval *tv, uint16_t *index, uint16_t *opcode,
+static uint16_t get_opcode_from_flags(uint8_t type, uint32_t flags)
+{
+	switch (type) {
+	case HCI_COMMAND_PKT:
+		return BTSNOOP_OPCODE_COMMAND_PKT;
+	case HCI_ACLDATA_PKT:
+		if (flags & 0x01)
+			return BTSNOOP_OPCODE_ACL_RX_PKT;
+		else
+			return BTSNOOP_OPCODE_ACL_TX_PKT;
+	case HCI_SCODATA_PKT:
+		if (flags & 0x01)
+			return BTSNOOP_OPCODE_SCO_RX_PKT;
+		else
+			return BTSNOOP_OPCODE_SCO_TX_PKT;
+	case HCI_EVENT_PKT:
+		return BTSNOOP_OPCODE_EVENT_PKT;
+	case 0xff:
+		if (flags & 0x02) {
+			if (flags & 0x01)
+				return BTSNOOP_OPCODE_EVENT_PKT;
+			else
+				return BTSNOOP_OPCODE_COMMAND_PKT;
+		} else {
+			if (flags & 0x01)
+				return BTSNOOP_OPCODE_ACL_RX_PKT;
+			else
+				return BTSNOOP_OPCODE_ACL_TX_PKT;
+		}
+		break;
+	}
+
+	return 0xff;
+}
+
+int btsnoop_read_hci(struct timeval *tv, uint16_t *index, uint16_t *opcode,
 						void *data, uint16_t *size)
 {
 	struct btsnoop_pkt pkt;
@@ -243,12 +311,12 @@ int btsnoop_read(struct timeval *tv, uint16_t *index, uint16_t *opcode,
 	tv->tv_usec = ts % 1000000ll;
 
 	switch (btsnoop_type) {
-	case 1001:
+	case BTSNOOP_TYPE_HCI:
 		*index = 0;
-		*opcode = packet_get_opcode(0xff, flags);
+		*opcode = get_opcode_from_flags(0xff, flags);
 		break;
 
-	case 1002:
+	case BTSNOOP_TYPE_UART:
 		len = read(btsnoop_fd, &pkt_type, 1);
 		if (len < 0) {
 			perror("Failed to read packet type");
@@ -259,12 +327,68 @@ int btsnoop_read(struct timeval *tv, uint16_t *index, uint16_t *opcode,
 		toread--;
 
 		*index = 0;
-		*opcode = packet_get_opcode(pkt_type, flags);
+		*opcode = get_opcode_from_flags(pkt_type, flags);
 		break;
 
-	case 2001:
+	case BTSNOOP_TYPE_EXTENDED_HCI:
 		*index = flags >> 16;
 		*opcode = flags & 0xffff;
+		break;
+
+	default:
+		fprintf(stderr, "Unknown packet type\n");
+		close(btsnoop_fd);
+		btsnoop_fd = -1;
+		return -1;
+	}
+
+	len = read(btsnoop_fd, data, toread);
+	if (len < 0) {
+		perror("Failed to read data");
+		close(btsnoop_fd);
+		btsnoop_fd = -1;
+		return -1;
+	}
+
+	*size = toread;
+
+	return 0;
+}
+
+int btsnoop_read_phy(struct timeval *tv, uint16_t *frequency,
+						void *data, uint16_t *size)
+{
+	struct btsnoop_pkt pkt;
+	uint32_t toread, flags;
+	uint64_t ts;
+	ssize_t len;
+
+	if (btsnoop_fd < 0)
+		return -1;
+
+	len = read(btsnoop_fd, &pkt, BTSNOOP_PKT_SIZE);
+	if (len == 0)
+		return -1;
+
+	if (len < 0 || len != BTSNOOP_PKT_SIZE) {
+		perror("Failed to read packet");
+		close(btsnoop_fd);
+		btsnoop_fd = -1;
+		return -1;
+	}
+
+	toread = ntohl(pkt.size);
+	flags = ntohl(pkt.flags);
+
+	ts = ntoh64(pkt.ts) - 0x00E03AB44A676000ll;
+	tv->tv_sec = (ts / 1000000ll) + 946684800ll;
+	tv->tv_usec = ts % 1000000ll;
+
+	switch (btsnoop_type) {
+	case BTSNOOP_TYPE_EXTENDED_PHY:
+		if ((flags >> 16) != 1)
+			break;
+		*frequency = flags & 0xffff;
 		break;
 
 	default:

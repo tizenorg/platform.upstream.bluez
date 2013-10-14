@@ -678,20 +678,9 @@ static struct ext_profile *find_ext_profile(const char *owner,
 	return NULL;
 }
 
-static void ext_cancel(struct ext_profile *ext)
-{
-	DBusMessage *msg;
-
-	msg = dbus_message_new_method_call(ext->owner, ext->path,
-						"org.bluez.Profile1", "Cancel");
-	if (msg)
-		g_dbus_send_message(btd_get_dbus_connection(), msg);
-}
-
 static void ext_io_destroy(gpointer p)
 {
 	struct ext_io *ext_io = p;
-	struct ext_profile *ext = ext_io->ext;
 
 	if (ext_io->io_id > 0)
 		g_source_remove(ext_io->io_id);
@@ -711,7 +700,6 @@ static void ext_io_destroy(gpointer p)
 	if (ext_io->pending) {
 		dbus_pending_call_cancel(ext_io->pending);
 		dbus_pending_call_unref(ext_io->pending);
-		ext_cancel(ext);
 	}
 
 	if (ext_io->resolving)
@@ -783,9 +771,6 @@ static void new_conn_reply(DBusPendingCall *call, void *user_data)
 
 	btd_service_connecting_complete(conn->service, -ECONNREFUSED);
 
-	if (dbus_error_has_name(&err, DBUS_ERROR_NO_REPLY))
-		ext_cancel(ext);
-
 	dbus_error_free(&err);
 
 	ext->conns = g_slist_remove(ext->conns, conn);
@@ -816,9 +801,6 @@ static void disconn_reply(DBusPendingCall *call, void *user_data)
 						err.name, err.message);
 
 	btd_service_disconnecting_complete(conn->service, -ECONNREFUSED);
-
-	if (dbus_error_has_name(&err, DBUS_ERROR_NO_REPLY))
-		ext_cancel(ext);
 
 	dbus_error_free(&err);
 
@@ -938,7 +920,7 @@ static bool send_new_connection(struct ext_profile *ext, struct ext_io *conn)
 
 	dbus_message_iter_close_container(&iter, &dict);
 
-	if (!dbus_connection_send_with_reply(btd_get_dbus_connection(),
+	if (!g_dbus_send_message_with_reply(btd_get_dbus_connection(),
 						msg, &conn->pending, -1)) {
 		error("%s: sending NewConnection failed", ext->name);
 		dbus_message_unref(msg);
@@ -1197,7 +1179,7 @@ static void ext_direct_connect(GIOChannel *io, GError *err, gpointer user_data)
 static uint32_t ext_register_record(struct ext_profile *ext,
 							struct ext_io *l2cap,
 							struct ext_io *rfcomm,
-							const bdaddr_t *src)
+							struct btd_adapter *a)
 {
 	sdp_record_t *rec;
 	char *dyn_record = NULL;
@@ -1220,7 +1202,7 @@ static uint32_t ext_register_record(struct ext_profile *ext,
 		return 0;
 	}
 
-	if (add_record_to_server(src, rec) < 0) {
+	if (adapter_service_add(a, rec) < 0) {
 		error("Failed to register service record");
 		sdp_record_free(rec);
 		return 0;
@@ -1322,8 +1304,7 @@ static uint32_t ext_start_servers(struct ext_profile *ext,
 		}
 	}
 
-	return ext_register_record(ext, l2cap, rfcomm,
-						adapter_get_address(adapter));
+	return ext_register_record(ext, l2cap, rfcomm, adapter);
 
 failed:
 	if (l2cap) {
@@ -1390,7 +1371,7 @@ static void ext_remove_records(struct ext_profile *ext,
 
 		ext->records = g_slist_remove(ext->records, r);
 
-		remove_record_from_server(r->handle);
+		adapter_service_remove(adapter, r->handle);
 		btd_adapter_unref(r->adapter);
 		g_free(r);
 	}
@@ -1682,7 +1663,7 @@ static int send_disconn_req(struct ext_profile *ext, struct ext_io *conn)
 	dbus_message_append_args(msg, DBUS_TYPE_OBJECT_PATH, &path,
 							DBUS_TYPE_INVALID);
 
-	if (!dbus_connection_send_with_reply(btd_get_dbus_connection(),
+	if (!g_dbus_send_message_with_reply(btd_get_dbus_connection(),
 						msg, &conn->pending, -1)) {
 		error("%s: sending RequestDisconnection failed", ext->name);
 		dbus_message_unref(msg);
@@ -1997,9 +1978,10 @@ static struct default_settings {
 		.name		= "Message Notification",
 		.channel	= MNS_DEFAULT_CHANNEL,
 		.psm		= BTD_PROFILE_PSM_AUTO,
+		.mode		= BT_IO_MODE_ERTM,
 		.authorize	= true,
 		.get_record	= get_mns_record,
-		.version	= 0x0100
+		.version	= 0x0102
 	},
 };
 

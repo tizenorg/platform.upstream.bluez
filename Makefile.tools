@@ -20,9 +20,13 @@ monitor_btmon_SOURCES = monitor/main.c monitor/bt.h \
 					monitor/btsnoop.h monitor/btsnoop.c \
 					monitor/control.h monitor/control.c \
 					monitor/packet.h monitor/packet.c \
+					monitor/vendor.h monitor/vendor.c \
+					monitor/lmp.h monitor/lmp.c \
 					monitor/l2cap.h monitor/l2cap.c \
 					monitor/uuid.h monitor/uuid.c \
-					monitor/sdp.h monitor/sdp.c
+					monitor/sdp.h monitor/sdp.c \
+					monitor/crc.h monitor/crc.c \
+					monitor/ll.h monitor/ll.c
 monitor_btmon_LDADD = lib/libbluetooth-internal.la
 endif
 
@@ -36,7 +40,8 @@ emulator_btvirt_SOURCES = emulator/main.c monitor/bt.h \
 					emulator/server.h emulator/server.c \
 					emulator/vhci.h emulator/vhci.c \
 					emulator/btdev.h emulator/btdev.c \
-					emulator/bthost.h emulator/bthost.c
+					emulator/bthost.h emulator/bthost.c \
+					emulator/amp.h emulator/amp.c
 
 emulator_b1ee_SOURCES = emulator/b1ee.c monitor/mainloop.h monitor/mainloop.c
 
@@ -136,14 +141,10 @@ tools_sdptool_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 tools_ciptool_LDADD = lib/libbluetooth-internal.la
 
 tools_bccmd_SOURCES = tools/bccmd.c tools/csr.h tools/csr.c \
-			tools/csr_hci.c tools/csr_h4.c tools/csr_3wire.c \
+			tools/csr_hci.c tools/csr_usb.c \
+			tools/csr_h4.c tools/csr_3wire.c \
 			tools/csr_bcsp.c tools/ubcsp.h tools/ubcsp.c
 tools_bccmd_LDADD = lib/libbluetooth-internal.la
-
-if USB
-tools_bccmd_SOURCES += tools/csr_usb.c
-tools_bccmd_LDADD += @USB_LIBS@
-endif
 
 dist_man_MANS += tools/hciattach.1 tools/hciconfig.1 \
 			tools/hcitool.1 tools/hcidump.1 \
@@ -161,7 +162,7 @@ udevdir = @UDEV_DIR@
 
 udev_PROGRAMS = tools/hid2hci
 
-tools_hid2hci_LDADD = @USB_LIBS@ @UDEV_LIBS@
+tools_hid2hci_LDADD = @UDEV_LIBS@
 
 dist_man_MANS += tools/hid2hci.1
 else
@@ -169,11 +170,12 @@ EXTRA_DIST += tools/hid2hci.1
 endif
 
 if EXPERIMENTAL
-noinst_PROGRAMS += tools/bdaddr tools/avinfo tools/avtest tools/scotest \
-			tools/hcieventmask tools/hcisecfilter tools/hwdb \
-			tools/btmgmt tools/btattach tools/btsnoop \
-			tools/btiotest tools/mpris-player \
-			tools/bluetooth-player
+noinst_PROGRAMS += tools/bdaddr tools/avinfo tools/avtest \
+			tools/scotest tools/amptest tools/hwdb \
+			tools/hcieventmask tools/hcisecfilter \
+			tools/btmgmt tools/btinfo tools/btattach \
+			tools/btsnoop tools/btiotest tools/cltest \
+			tools/mpris-player
 
 tools_bdaddr_SOURCES = tools/bdaddr.c src/oui.h src/oui.c
 tools_bdaddr_LDADD = lib/libbluetooth-internal.la @UDEV_LIBS@
@@ -184,14 +186,22 @@ tools_avtest_LDADD = lib/libbluetooth-internal.la
 
 tools_scotest_LDADD = lib/libbluetooth-internal.la
 
-tools_hcieventmask_LDADD = lib/libbluetooth-internal.la
+tools_amptest_LDADD = lib/libbluetooth-internal.la
 
 tools_hwdb_LDADD = lib/libbluetooth-internal.la
+
+tools_hcieventmask_LDADD = lib/libbluetooth-internal.la
 
 tools_btmgmt_SOURCES = tools/btmgmt.c src/glib-helper.c src/eir.c \
 				src/shared/util.h src/shared/util.c \
 				src/shared/mgmt.h src/shared/mgmt.c
 tools_btmgmt_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
+
+tools_btinfo_SOURCES = tools/btinfo.c
+
+tools_btsnoop_SOURCES = tools/btsnoop.c \
+				src/shared/pcap.h src/shared/pcap.c \
+				src/shared/btsnoop.h src/shared/btsnoop.c
 
 tools_btiotest_SOURCES = tools/btiotest.c btio/btio.h btio/btio.c
 tools_btiotest_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
@@ -199,17 +209,16 @@ tools_btiotest_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 tools_mpris_player_SOURCES = tools/mpris-player.c
 tools_mpris_player_LDADD = gdbus/libgdbus-internal.la @GLIB_LIBS@ @DBUS_LIBS@
 
-tools_bluetooth_player_SOURCES = tools/bluetooth-player.c \
-				client/display.h client/display.c
-tools_bluetooth_player_LDADD = gdbus/libgdbus-internal.la \
-				@GLIB_LIBS@ @DBUS_LIBS@ -lreadline
+tools_cltest_SOURCES = tools/cltest.c monitor/mainloop.h monitor/mainloop.c
+tools_cltest_LDADD = lib/libbluetooth-internal.la
 
 EXTRA_DIST += tools/bdaddr.1
 endif
 
 if READLINE
 noinst_PROGRAMS += attrib/gatttool \
-			tools/obex-client-tool tools/obex-server-tool
+			tools/obex-client-tool tools/obex-server-tool \
+			tools/bluetooth-player
 
 attrib_gatttool_SOURCES = attrib/gatttool.c attrib/att.c attrib/gatt.c \
 				attrib/gattrib.c btio/btio.c \
@@ -226,6 +235,11 @@ tools_obex_client_tool_LDADD = lib/libbluetooth-internal.la \
 tools_obex_server_tool_SOURCES = $(gobex_sources) $(btio_sources) \
 						tools/obex-server-tool.c
 tools_obex_server_tool_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
+
+tools_bluetooth_player_SOURCES = tools/bluetooth-player.c \
+				client/display.h client/display.c
+tools_bluetooth_player_LDADD = gdbus/libgdbus-internal.la \
+				@GLIB_LIBS@ @DBUS_LIBS@ -lreadline
 endif
 
 if EXPERIMENTAL

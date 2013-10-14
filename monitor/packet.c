@@ -43,9 +43,12 @@
 
 #include "display.h"
 #include "bt.h"
+#include "ll.h"
 #include "uuid.h"
 #include "l2cap.h"
 #include "control.h"
+#include "btsnoop.h"
+#include "vendor.h"
 #include "packet.h"
 
 #define COLOR_INDEX_LABEL		COLOR_WHITE
@@ -68,10 +71,13 @@
 #define COLOR_UNKNOWN_LE_STATES		COLOR_WHITE_BG
 #define COLOR_UNKNOWN_SERVICE_CLASS	COLOR_WHITE_BG
 
+#define COLOR_PHY_PACKET		COLOR_BLUE
+
 static time_t time_offset = ((time_t) -1);
 static unsigned long filter_mask = 0;
 static bool index_filter = false;
 static uint16_t index_number = 0;
+static uint16_t index_current = 0;
 
 #define MAX_CONN 16
 
@@ -389,13 +395,18 @@ static void print_bdaddr(const uint8_t *bdaddr)
 					bdaddr[5], bdaddr[4], bdaddr[3]);
 }
 
-static void print_addr(const uint8_t *addr, uint8_t addr_type)
+static void print_addr(const char *label, const uint8_t *addr,
+						uint8_t addr_type)
 {
 	const char *str;
 
 	switch (addr_type) {
 	case 0x00:
-		print_bdaddr(addr);
+		print_field("%s: %2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X"
+				" (OUI %2.2X-%2.2X-%2.2X)", label,
+					addr[5], addr[4], addr[3],
+					addr[2], addr[1], addr[0],
+					addr[5], addr[4], addr[3]);
 		break;
 	case 0x01:
 		switch ((addr[5] & 0xc0) >> 6) {
@@ -413,14 +424,14 @@ static void print_addr(const uint8_t *addr, uint8_t addr_type)
 			break;
 		}
 
-		print_field("Address: %2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X"
-					" (%s)", addr[5], addr[4], addr[3],
+		print_field("%s: %2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X (%s)",
+					label, addr[5], addr[4], addr[3],
 					addr[2], addr[1], addr[0], str);
 		break;
 	default:
-		print_field("Address: %2.2X-%2.2X-%2.2X-%2.2X-%2.2X-%2.2X",
-						addr[5], addr[4], addr[3],
-						addr[2], addr[1], addr[0]);
+		print_field("%s: %2.2X-%2.2X-%2.2X-%2.2X-%2.2X-%2.2X",
+					label, addr[5], addr[4], addr[3],
+					addr[2], addr[1], addr[0]);
 		break;
 	}
 }
@@ -476,6 +487,44 @@ static void print_iac(const uint8_t *lap)
 
 	print_field("Access code: 0x%2.2x%2.2x%2.2x%s",
 						lap[2], lap[1], lap[0], str);
+}
+
+static void print_auth_enable(uint8_t enable)
+{
+	const char *str;
+
+	switch (enable) {
+	case 0x00:
+		str = "Authentication not required";
+		break;
+	case 0x01:
+		str = "Authentication required for all connections";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Enable: %s (0x%2.2x)", str, enable);
+}
+
+static void print_encrypt_mode(uint8_t mode)
+{
+	const char *str;
+
+	switch (mode) {
+	case 0x00:
+		str = "Encryption not required";
+		break;
+	case 0x01:
+		str = "Encryption required for all connections";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Mode: %s (0x%2.2x)", str, mode);
 }
 
 static const struct {
@@ -548,6 +597,42 @@ static const char *major_class_phone(uint8_t minor)
 static const struct {
 	uint8_t val;
 	const char *str;
+} major_class_av_table[] = {
+	{ 0x00, "Uncategorized, code for device not assigned"	},
+	{ 0x01, "earable Headset Device"			},
+	{ 0x02, "Hands-free Device"				},
+	{ 0x04, "Microphone"					},
+	{ 0x05, "Loudspeaker"					},
+	{ 0x06, "Headphones"					},
+	{ 0x07, "Portable Audio"				},
+	{ 0x08, "Car audio"					},
+	{ 0x09, "Set-top box"					},
+	{ 0x0a, "HiFi Audio Device"				},
+	{ 0x0b, "VCR"						},
+	{ 0x0c, "Video Camera"					},
+	{ 0x0d, "Camcorder"					},
+	{ 0x0e, "Video Monitor"					},
+	{ 0x0f, "Video Display and Loudspeaker"			},
+	{ 0x10, "Video Conferencing"				},
+	{ 0x12, "Gaming/Toy"					},
+	{ }
+};
+
+static const char *major_class_av(uint8_t minor)
+{
+	int i;
+
+	for (i = 0; major_class_av_table[i].str; i++) {
+		if (major_class_av_table[i].val == minor)
+			return major_class_av_table[i].str;
+	}
+
+	return NULL;
+}
+
+static const struct {
+	uint8_t val;
+	const char *str;
 } major_class_wearable_table[] = {
 	{ 0x01, "Wrist Watch"	},
 	{ 0x02, "Pager"		},
@@ -580,7 +665,8 @@ static const struct {
 	{ 0x02, "Phone (cellular, cordless, payphone, modem)",
 						major_class_phone	},
 	{ 0x03, "LAN /Network Access point"				},
-	{ 0x04, "Audio/Video (headset, speaker, stereo, video, vcr)"	},
+	{ 0x04, "Audio/Video (headset, speaker, stereo, video, vcr)",
+						major_class_av		},
 	{ 0x05, "Peripheral (mouse, joystick, keyboards)"		},
 	{ 0x06, "Imaging (printing, scanner, camera, display)"		},
 	{ 0x07, "Wearable",			major_class_wearable	},
@@ -761,6 +847,25 @@ static void print_inquiry_mode(uint8_t mode)
 	print_field("Mode: %s (0x%2.2x)", str, mode);
 }
 
+static void print_inquiry_scan_type(uint8_t type)
+{
+	const char *str;
+
+	switch (type) {
+	case 0x00:
+		str = "Standard Scan";
+		break;
+	case 0x01:
+		str = "Interlaced Scan";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Type: %s (0x%2.2x)", str, type);
+}
+
 static void print_pscan_type(uint8_t type)
 {
 	const char *str;
@@ -778,6 +883,26 @@ static void print_pscan_type(uint8_t type)
 	}
 
 	print_field("Type: %s (0x%2.2x)", str, type);
+}
+
+static void print_afh_mode(uint8_t mode)
+{
+	const char *str;
+
+	switch (mode) {
+	case 0x00:
+		str = "Disabled";
+		break;
+	case 0x01:
+		str = "Enabled";
+		break;
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Mode: %s (0x%2.2x)", str, mode);
 }
 
 static void print_simple_pairing_mode(uint8_t mode)
@@ -872,6 +997,20 @@ static void print_pscan_mode(uint8_t pscan_mode)
 static void print_clock_offset(uint16_t clock_offset)
 {
 	print_field("Clock offset: 0x%4.4x", btohs(clock_offset));
+}
+
+static void print_clock(uint32_t clock)
+{
+	print_field("Clock: 0x%8.8x", btohl(clock));
+}
+
+static void print_clock_accuracy(uint16_t accuracy)
+{
+	if (btohs(accuracy) == 0xffff)
+		print_field("Accuracy: Unknown (0x%4.4x)", btohs(accuracy));
+	else
+		print_field("Accuracy: %.4f msec (0x%4.4x)",
+				btohs(accuracy) * 0.3125, btohs(accuracy));
 }
 
 static void print_link_type(uint8_t link_type)
@@ -1046,6 +1185,8 @@ static void print_hex_field(const char *label, const uint8_t *data,
 	char str[len * 2 + 1];
 	uint8_t i;
 
+	str[0] = '\0';
+
 	for (i = 0; i < len; i++)
 		sprintf(str + (i * 2), "%2.2x", data[i]);
 
@@ -1073,14 +1214,14 @@ static void print_pin_code(const uint8_t *pin_code, uint8_t pin_len)
 	print_field("PIN code: %s", str);
 }
 
-static void print_hash(const uint8_t *hash)
+static void print_hash(const char *label, const uint8_t *hash)
 {
-	print_key("Hash C", hash);
+	print_key("Hash C from %s", hash);
 }
 
-static void print_randomizer(const uint8_t *randomizer)
+static void print_randomizer(const char *label, const uint8_t *randomizer)
 {
-	print_key("Randomizer R", randomizer);
+	print_key("Randomizer R with %s", randomizer);
 }
 
 static void print_passkey(uint32_t passkey)
@@ -1161,6 +1302,60 @@ static void print_authentication(uint8_t authentication)
 	}
 
 	print_field("Authentication: %s (0x%2.2x)", str, authentication);
+}
+
+static void print_location_domain_aware(uint8_t aware)
+{
+	const char *str;
+
+	switch (aware) {
+	case 0x00:
+		str = "Regulatory domain unknown";
+		break;
+	case 0x01:
+		str = "Regulatory domain known";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Domain aware: %s (0x%2.2x)", str, aware);
+}
+
+static void print_location_domain(const uint8_t *domain)
+{
+	print_field("Domain: %c%c (0x%2.2x%2.2x)",
+		(char) domain[0], (char) domain[1], domain[0], domain[1]);
+}
+
+static void print_location_domain_options(uint8_t options)
+{
+	print_field("Domain options: %c (0x%2.2x)", (char) options, options);
+}
+
+static void print_location_options(uint8_t options)
+{
+	print_field("Options: 0x%2.2x", options);
+}
+
+static void print_flow_control_mode(uint8_t mode)
+{
+	const char *str;
+
+	switch (mode) {
+	case 0x00:
+		str = "Packet based";
+		break;
+	case 0x01:
+		str = "Data block based";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Flow control mode: %s (0x%2.2x)", str, mode);
 }
 
 static void print_flow_direction(uint8_t direction)
@@ -1296,7 +1491,10 @@ static void print_num_reports(uint8_t num_reports)
 
 static void print_rssi(int8_t rssi)
 {
-	print_field("RSSI: %d dBm", rssi);
+	if ((uint8_t) rssi == 0x99 || rssi == 127)
+		print_field("RSSI: invalid (0x%2.2x)", (uint8_t) rssi);
+	else
+		print_field("RSSI: %d dBm (0x%2.2x)", rssi, (uint8_t) rssi);
 }
 
 static void print_slot_625(const char *label, uint16_t value)
@@ -1380,25 +1578,93 @@ static void print_name(const uint8_t *name)
 	print_field("Name: %s", str);
 }
 
-static void print_version(const char *label, uint8_t version, uint16_t revision)
+static void print_channel_map(const uint8_t *map)
 {
-	print_field("%s: %d - 0x%4.4x", label, version, revision);
+	char str[21];
+	int i;
+
+	for (i = 0; i < 10; i++)
+		sprintf(str + (i * 2), "%2.2x", map[i]);
+
+	print_field("Channel map: 0x%s", str);
 }
 
-static void print_hci_version(uint8_t hci_ver, uint16_t hci_rev)
+void packet_print_version(const char *label, uint8_t version,
+				const char *sublabel, uint16_t subversion)
 {
-	print_version("HCI version", hci_ver, hci_rev);
+	const char *str;
+
+	switch (version) {
+	case 0x00:
+		str = "Bluetooth 1.0b";
+		break;
+	case 0x01:
+		str = "Bluetooth 1.1";
+		break;
+	case 0x02:
+		str = "Bluetooth 1.2";
+		break;
+	case 0x03:
+		str = "Bluetooth 2.0";
+		break;
+	case 0x04:
+		str = "Bluetooth 2.1";
+		break;
+	case 0x05:
+		str = "Bluetooth 3.0";
+		break;
+	case 0x06:
+		str = "Bluetooth 4.0";
+		break;
+	case 0x07:
+		str = "Bluetooth 4.1";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("%s: %s (0x%2.2x) - %s %d (0x%4.4x)", label, str, version,
+					sublabel, subversion, subversion);
 }
 
-static void print_lmp_version(uint8_t lmp_ver, uint16_t lmp_subver)
+static void print_hci_version(uint8_t version, uint16_t revision)
 {
-	print_version("LMP version", lmp_ver, lmp_subver);
+	packet_print_version("HCI version", version,
+				"Revision", btohs(revision));
+}
+
+static void print_lmp_version(uint8_t version, uint16_t subversion)
+{
+	packet_print_version("LMP version", version,
+				"Subversion", btohs(subversion));
+}
+
+static void print_pal_version(uint8_t version, uint16_t subversion)
+{
+	const char *str;
+
+	switch (version) {
+	case 0x01:
+		str = "Bluetooth 3.0";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("PAL version: %s (0x%2.2x) - Subversion %d (0x%4.4x)",
+			str, version, btohs(subversion), btohs(subversion));
+}
+
+void packet_print_company(const char *label, uint16_t company)
+{
+	print_field("%s: %s (%d)", label, bt_compidtostr(company), company);
 }
 
 static void print_manufacturer(uint16_t manufacturer)
 {
-	print_field("Manufacturer: %s (%d)",
-				bt_compidtostr(manufacturer), manufacturer);
+	packet_print_company("Manufacturer", btohs(manufacturer));
 }
 
 static const char *get_supported_command(int bit);
@@ -1571,6 +1837,11 @@ static void print_features(uint8_t page, const uint8_t *features_array,
 						"(0x%16.16" PRIx64 ")", mask);
 }
 
+void packet_print_features_ll(const uint8_t *features)
+{
+	print_features(0, features, 0x01);
+}
+
 static const struct {
 	uint8_t bit;
 	const char *str;
@@ -1581,8 +1852,8 @@ static const struct {
 	{  3, "Directed Advertising State"				},
 	{  4, "Passive Scanning State"					},
 	{  5, "Active Scanning State"					},
-	{  6, "Initiating State"					},
-	{  7, "Connection State in Salve Role"				},
+	{  6, "Initiating State and Connection State in Master Role"	},
+	{  7, "Connection State in Slave Role"				},
 	{  8, "Non-connectable Advertising State and "
 				"Passive Scanning State combination"	},
 	{  9, "Scannable Advertising State and "
@@ -1656,6 +1927,11 @@ static void print_le_channel_map(const uint8_t *map)
 	print_field("Channel map: 0x%s", str);
 }
 
+void packet_print_channel_map_ll(const uint8_t *map)
+{
+	print_le_channel_map(map);
+}
+
 static void print_random_number(const uint8_t *number)
 {
 	print_hex_field("Random number", number, 8);
@@ -1683,6 +1959,7 @@ static const struct {
 	{ 15, "Hardware Error"						},
 	{ 16, "Flush Occurred"						},
 	{ 17, "Role Change"						},
+	{ 18, "Number of Completed Packets"				},
 	{ 19, "Mode Change"						},
 	{ 20, "Return Link Keys"					},
 	{ 21, "PIN Code Request"					},
@@ -1749,12 +2026,12 @@ static const struct {
 } events_page2_table[] = {
 	{  0, "Physical Link Complete"					},
 	{  1, "Channel Selected"					},
-	{  2, "Disconnection Physical Link"				},
+	{  2, "Disconnection Physical Link Complete"			},
 	{  3, "Physical Link Loss Early Warning"			},
 	{  4, "Physical Link Recovery"					},
 	{  5, "Logical Link Complete"					},
 	{  6, "Disconnection Logical Link Complete"			},
-	{  7, "Flow Spec Modify Complete"				},
+	{  7, "Flow Specification Modify Complete"			},
 	{  8, "Number of Completed Data Blocks"				},
 	{  9, "AMP Start Test"						},
 	{ 10, "AMP Test End"						},
@@ -1863,19 +2140,86 @@ static void print_fec(uint8_t fec)
 #define BT_EIR_NAME_COMPLETE		0x09
 #define BT_EIR_TX_POWER			0x0a
 #define BT_EIR_CLASS_OF_DEV		0x0d
-#define BT_EIR_SSP_HASH			0x0e
-#define BT_EIR_SSP_RANDOMIZER		0x0f
+#define BT_EIR_SSP_HASH_P192		0x0e
+#define BT_EIR_SSP_RANDOMIZER_P192	0x0f
 #define BT_EIR_DEVICE_ID		0x10
 #define BT_EIR_SMP_TK			0x10
 #define BT_EIR_SMP_OOB_FLAGS		0x11
-#define BT_EIR_SLAVE_CONN_INT		0x12
+#define BT_EIR_SLAVE_CONN_INTERVAL	0x12
 #define BT_EIR_SERVICE_UUID16		0x14
 #define BT_EIR_SERVICE_UUID128		0x15
 #define BT_EIR_SERVICE_DATA		0x16
-#define BT_EIR_RANDOM_ADDRESS		0x17
-#define BT_EIR_PUBLIC_ADDRESS		0x18
+#define BT_EIR_PUBLIC_ADDRESS		0x17
+#define BT_EIR_RANDOM_ADDRESS		0x18
 #define BT_EIR_GAP_APPEARANCE		0x19
+#define BT_EIR_ADVERTISING_INTERVAL	0x1a
+#define BT_EIR_LE_DEVICE_ADDRESS	0x1b
+#define BT_EIR_LE_ROLE			0x1c
+#define BT_EIR_SSP_HASH_P256		0x1d
+#define BT_EIR_SSP_RANDOMIZER_P256	0x1e
+#define BT_EIR_3D_INFO_DATA		0x3d
 #define BT_EIR_MANUFACTURER_DATA	0xff
+
+static void print_manufacturer_apple(const void *data, uint8_t data_len)
+{
+	uint8_t type = *((uint8_t *) data);
+	uint8_t len;
+	const uint8_t *uuid;
+	uint16_t minor, major;
+	int8_t tx_power;
+	char identifier[100];
+
+	if (data_len < 1)
+		return;
+
+	switch (type) {
+	case 0x01:
+		snprintf(identifier, sizeof(identifier) - 1, "%s",
+						(const char *) (data + 1));
+		print_field("  Identifier: %s", identifier);
+		break;
+	case 0x02:
+		len = *((uint8_t *) (data + 1));
+		if (len != 0x15) {
+			print_hex_field("  Data", data, data_len);
+			break;
+		}
+
+		uuid = data + 2;
+		print_field("  iBeacon: %8.8x-%4.4x-%4.4x-%4.4x-%8.8x%4.4x",
+				bt_get_le32(&uuid[12]), bt_get_le16(&uuid[10]),
+				bt_get_le16(&uuid[8]), bt_get_le16(&uuid[6]),
+				bt_get_le32(&uuid[2]), bt_get_le16(&uuid[0]));
+
+		major = bt_get_le16(data + 18);
+		minor = bt_get_le16(data + 20);
+		print_field("  Version: %u.%u", major, minor);
+
+		tx_power = *(int8_t *) (data + 22);
+		print_field("  TX power: %d dB", tx_power);
+		break;
+	default:
+		print_hex_field("  Data", data, data_len);
+		break;
+	}
+}
+
+static void print_manufacturer_data(const void *data, uint8_t data_len)
+{
+	uint16_t company = bt_get_le16(data);
+
+	packet_print_company("Company", company);
+
+	switch (company) {
+	case 76:
+	case 19456:
+		print_manufacturer_apple(data + 2, data_len - 2);
+		break;
+	default:
+		print_hex_field("  Data", data + 2, data_len - 2);
+		break;
+	}
+}
 
 static void print_uuid16_list(const char *label, const void *data,
 							uint8_t data_len)
@@ -1916,7 +2260,7 @@ static void print_uuid128_list(const char *label, const void *data,
 	for (i = 0; i < count; i++) {
 		const uint8_t *uuid = data + (i * 16);
 
-		print_field("  %.8x-%.4x-%.4x-%.4x-%.8x%.4x",
+		print_field("  %8.8x-%4.4x-%4.4x-%4.4x-%8.8x%4.4x",
 				bt_get_le32(&uuid[12]), bt_get_le16(&uuid[10]),
 				bt_get_le16(&uuid[8]), bt_get_le16(&uuid[6]),
 				bt_get_le32(&uuid[2]), bt_get_le16(&uuid[0]));
@@ -1935,9 +2279,20 @@ static const struct {
 	{ }
 };
 
+static const struct {
+	uint8_t bit;
+	const char *str;
+} eir_3d_table[] = {
+	{ 0, "Association Notification"					},
+	{ 1, "Battery Level Reporting"					},
+	{ 2, "Send Battery Level Report on Start-up Synchronization"	},
+	{ 7, "Factory Test Mode"					},
+	{ }
+};
+
 static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 {
-	uint8_t len = 0;
+	uint16_t len = 0;
 
 	if (eir_len == 0)
 		return;
@@ -2039,6 +2394,8 @@ static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 			break;
 
 		case BT_EIR_TX_POWER:
+			if (data_len < 1)
+				break;
 			print_field("TX power: %d dBm", (int8_t) *data);
 			break;
 
@@ -2048,12 +2405,16 @@ static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 			print_dev_class(data);
 			break;
 
-		case BT_EIR_SSP_HASH:
-			print_hex_field("SSP Hash", data, data_len);
+		case BT_EIR_SSP_HASH_P192:
+			if (data_len < 16)
+				break;
+			print_hash("P-192", data);
 			break;
 
-		case BT_EIR_SSP_RANDOMIZER:
-			print_hex_field("SSP Rand", data, data_len);
+		case BT_EIR_SSP_RANDOMIZER_P192:
+			if (data_len < 16)
+				break;
+			print_randomizer("P-192", data);
 			break;
 
 		case BT_EIR_DEVICE_ID:
@@ -2076,7 +2437,7 @@ static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 			print_field("SMP OOB Flags: 0x%2.2x", *data);
 			break;
 
-		case BT_EIR_SLAVE_CONN_INT:
+		case BT_EIR_SLAVE_CONN_INTERVAL:
 			if (data_len < 4)
 				break;
 			print_field("Slave Conn. Interval: 0x%4.4x - 0x%4.4x",
@@ -2109,13 +2470,13 @@ static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 		case BT_EIR_RANDOM_ADDRESS:
 			if (data_len < 6)
 				break;
-			print_addr(data, 0x01);
+			print_addr("Random Address", data, 0x01);
 			break;
 
 		case BT_EIR_PUBLIC_ADDRESS:
 			if (data_len < 6)
 				break;
-			print_addr(data, 0x00);
+			print_addr("Public Address", data, 0x00);
 			break;
 
 		case BT_EIR_GAP_APPEARANCE:
@@ -2124,11 +2485,47 @@ static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 			print_field("Appearance: 0x%4.4x", bt_get_le16(data));
 			break;
 
+		case BT_EIR_SSP_HASH_P256:
+			if (data_len < 16)
+				break;
+			print_hash("P-256", data);
+			break;
+
+		case BT_EIR_SSP_RANDOMIZER_P256:
+			if (data_len < 16)
+				break;
+			print_randomizer("P-256", data);
+			break;
+
+		case BT_EIR_3D_INFO_DATA:
+			print_hex_field("3D Information Data", data, data_len);
+			if (data_len < 2)
+				break;
+
+			flags = *data;
+			mask = flags;
+
+			print_field("  Features: 0x%2.2x", flags);
+
+			for (i = 0; eir_3d_table[i].str; i++) {
+				if (flags & (1 << eir_3d_table[i].bit)) {
+					print_field("    %s",
+							eir_3d_table[i].str);
+					mask &= ~(1 << eir_3d_table[i].bit);
+				}
+			}
+
+			if (mask)
+				print_text(COLOR_UNKNOWN_FEATURE_BIT,
+					"      Unknown features (0x%2.2x)", mask);
+
+			print_field("  Path Loss Threshold: %d", data[1]);
+			break;
+
 		case BT_EIR_MANUFACTURER_DATA:
 			if (data_len < 2)
 				break;
-			print_manufacturer(bt_get_le16(data));
-			print_hex_field("  Data", data + 2, data_len - 2);
+			print_manufacturer_data(data, data_len);
 			break;
 
 		default:
@@ -2142,6 +2539,16 @@ static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 
 	if (len < eir_len && eir[0] != 0)
 		packet_hexdump(eir, eir_len - len);
+}
+
+void packet_print_addr(const char *label, const void *data, bool random)
+{
+	print_addr(label ? : "Address", data, random ? 0x01 : 0x00);
+}
+
+void packet_print_ad(const void *data, uint8_t size)
+{
+	print_eir(data, size, true);
 }
 
 void packet_hexdump(const unsigned char *buf, uint16_t len)
@@ -2192,15 +2599,6 @@ void packet_control(struct timeval *tv, uint16_t index, uint16_t opcode,
 	control_message(opcode, data, size);
 }
 
-#define MONITOR_NEW_INDEX	0
-#define MONITOR_DEL_INDEX	1
-#define MONITOR_COMMAND_PKT	2
-#define MONITOR_EVENT_PKT	3
-#define MONITOR_ACL_TX_PKT	4
-#define MONITOR_ACL_RX_PKT	5
-#define MONITOR_SCO_TX_PKT	6
-#define MONITOR_SCO_RX_PKT	7
-
 struct monitor_new_index {
 	uint8_t  type;
 	uint8_t  bus;
@@ -2215,67 +2613,11 @@ struct monitor_new_index {
 #define MAX_INDEX 16
 
 struct index_data {
+	uint8_t  type;
 	bdaddr_t bdaddr;
 };
 
 static struct index_data index_list[MAX_INDEX];
-
-uint32_t packet_get_flags(uint16_t opcode)
-{
-	switch (opcode) {
-	case MONITOR_NEW_INDEX:
-	case MONITOR_DEL_INDEX:
-		break;
-	case MONITOR_COMMAND_PKT:
-		return 0x02;
-	case MONITOR_EVENT_PKT:
-		return 0x03;
-	case MONITOR_ACL_TX_PKT:
-		return 0x00;
-	case MONITOR_ACL_RX_PKT:
-		return 0x01;
-	case MONITOR_SCO_TX_PKT:
-	case MONITOR_SCO_RX_PKT:
-		break;
-	}
-
-	return 0xff;
-}
-
-uint16_t packet_get_opcode(uint8_t type, uint32_t flags)
-{
-	switch (type) {
-	case HCI_COMMAND_PKT:
-		return MONITOR_COMMAND_PKT;
-	case HCI_ACLDATA_PKT:
-		if (flags & 0x01)
-			return MONITOR_ACL_RX_PKT;
-		else
-			return MONITOR_ACL_TX_PKT;
-	case HCI_SCODATA_PKT:
-		if (flags & 0x01)
-			return MONITOR_SCO_RX_PKT;
-		else
-			return MONITOR_SCO_TX_PKT;
-	case HCI_EVENT_PKT:
-		return MONITOR_EVENT_PKT;
-	case 0xff:
-		if (flags & 0x02) {
-			if (flags & 0x01)
-				return MONITOR_EVENT_PKT;
-			else
-				return MONITOR_COMMAND_PKT;
-		} else {
-			if (flags & 0x01)
-				return MONITOR_ACL_RX_PKT;
-			else
-				return MONITOR_ACL_TX_PKT;
-		}
-		break;
-	}
-
-	return 0xff;
-}
 
 void packet_monitor(struct timeval *tv, uint16_t index, uint16_t opcode,
 					const void *data, uint16_t size)
@@ -2286,21 +2628,24 @@ void packet_monitor(struct timeval *tv, uint16_t index, uint16_t opcode,
 	if (index_filter && index_number != index)
 		return;
 
+	index_current = index;
+
 	if (tv && time_offset == ((time_t) -1))
 		time_offset = tv->tv_sec;
 
 	switch (opcode) {
-	case MONITOR_NEW_INDEX:
+	case BTSNOOP_OPCODE_NEW_INDEX:
 		ni = data;
 
 		if (index < MAX_INDEX) {
+			index_list[index].type = ni->type;
 			bacpy(&index_list[index].bdaddr, &ni->bdaddr);
 		}
 
 		ba2str(&ni->bdaddr, str);
 		packet_new_index(tv, index, str, ni->type, ni->bus, ni->name);
 		break;
-	case MONITOR_DEL_INDEX:
+	case BTSNOOP_OPCODE_DEL_INDEX:
 		if (index < MAX_INDEX)
 			ba2str(&index_list[index].bdaddr, str);
 		else
@@ -2308,22 +2653,22 @@ void packet_monitor(struct timeval *tv, uint16_t index, uint16_t opcode,
 
 		packet_del_index(tv, index, str);
 		break;
-	case MONITOR_COMMAND_PKT:
+	case BTSNOOP_OPCODE_COMMAND_PKT:
 		packet_hci_command(tv, index, data, size);
 		break;
-	case MONITOR_EVENT_PKT:
+	case BTSNOOP_OPCODE_EVENT_PKT:
 		packet_hci_event(tv, index, data, size);
 		break;
-	case MONITOR_ACL_TX_PKT:
+	case BTSNOOP_OPCODE_ACL_TX_PKT:
 		packet_hci_acldata(tv, index, false, data, size);
 		break;
-	case MONITOR_ACL_RX_PKT:
+	case BTSNOOP_OPCODE_ACL_RX_PKT:
 		packet_hci_acldata(tv, index, true, data, size);
 		break;
-	case MONITOR_SCO_TX_PKT:
+	case BTSNOOP_OPCODE_SCO_TX_PKT:
 		packet_hci_scodata(tv, index, false, data, size);
 		break;
-	case MONITOR_SCO_RX_PKT:
+	case BTSNOOP_OPCODE_SCO_RX_PKT:
 		packet_hci_scodata(tv, index, true, data, size);
 		break;
 	default:
@@ -2333,6 +2678,22 @@ void packet_monitor(struct timeval *tv, uint16_t index, uint16_t opcode,
 		packet_hexdump(data, size);
 		break;
 	}
+}
+
+void packet_simulator(struct timeval *tv, uint16_t frequency,
+					const void *data, uint16_t size)
+{
+	char str[10];
+
+	if (tv && time_offset == ((time_t) -1))
+		time_offset = tv->tv_sec;
+
+	sprintf(str, "%u MHz", frequency);
+
+	print_packet(tv, 0, '*', COLOR_PHY_PACKET,
+					"Physical packet:", NULL, str);
+
+	ll_packet(frequency, data, size);
 }
 
 static void null_cmd(const void *data, uint8_t size)
@@ -2652,8 +3013,8 @@ static void remote_oob_data_request_reply_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_remote_oob_data_request_reply *cmd = data;
 
 	print_bdaddr(cmd->bdaddr);
-	print_hash(cmd->hash);
-	print_randomizer(cmd->randomizer);
+	print_hash("P-192", cmd->hash);
+	print_randomizer("P-192", cmd->randomizer);
 }
 
 static void remote_oob_data_request_neg_reply_cmd(const void *data, uint8_t size)
@@ -2925,10 +3286,85 @@ static void set_event_mask_cmd(const void *data, uint8_t size)
 static void set_event_filter_cmd(const void *data, uint8_t size)
 {
 	uint8_t type = *((const uint8_t *) data);
+	uint8_t filter;
+	const char *str;
 
-	print_field("Type: 0x%2.2x", type);
+	switch (type) {
+	case 0x00:
+		str = "Clear All Filters";
+		break;
+	case 0x01:
+		str = "Inquiry Result";
+		break;
+	case 0x02:
+		str = "Connection Setup";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
 
-	packet_hexdump(data + 1, size - 1);
+	print_field("Type: %s (0x%2.2x)", str, type);
+
+	switch (type) {
+	case 0x00:
+		if (size > 1) {
+			print_text(COLOR_ERROR, "  invalid parameter size");
+			packet_hexdump(data + 1, size - 1);
+		}
+		break;
+
+	case 0x01:
+		filter = *((const uint8_t *) (data + 1));
+
+		switch (filter) {
+		case 0x00:
+			str = "Return responses from all devices";
+			break;
+		case 0x01:
+			str = "Device with specific Class of Device";
+			break;
+		case 0x02:
+			str = "Device with specific BD_ADDR";
+			break;
+		default:
+			str = "Reserved";
+			break;
+		}
+
+		print_field("Filter: %s (0x%2.2x)", str, filter);
+		packet_hexdump(data + 2, size - 2);
+		break;
+
+	case 0x02:
+		filter = *((const uint8_t *) (data + 1));
+
+		switch (filter) {
+		case 0x00:
+			str = "Allow connections all devices";
+			break;
+		case 0x01:
+			str = "Allow connections with specific Class of Device";
+			break;
+		case 0x02:
+			str = "Allow connections with specific BD_ADDR";
+			break;
+		default:
+			str = "Reserved";
+			break;
+		}
+
+		print_field("Filter: %s (0x%2.2x)", str, filter);
+		packet_hexdump(data + 2, size - 2);
+		break;
+
+	default:
+		filter = *((const uint8_t *) (data + 1));
+
+		print_field("Filter: Reserved (0x%2.2x)", filter);
+		packet_hexdump(data + 2, size - 2);
+		break;
+	}
 }
 
 static void flush_cmd(const void *data, uint8_t size)
@@ -3088,6 +3524,53 @@ static void write_page_scan_activity_cmd(const void *data, uint8_t size)
 	print_window(cmd->window);
 }
 
+static void read_inquiry_scan_activity_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_inquiry_scan_activity *rsp = data;
+
+	print_status(rsp->status);
+	print_interval(rsp->interval);
+	print_window(rsp->window);
+}
+
+static void write_inquiry_scan_activity_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_inquiry_scan_activity *cmd = data;
+
+	print_interval(cmd->interval);
+	print_window(cmd->window);
+}
+
+static void read_auth_enable_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_auth_enable *rsp = data;
+
+	print_status(rsp->status);
+	print_auth_enable(rsp->enable);
+}
+
+static void write_auth_enable_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_auth_enable *cmd = data;
+
+	print_auth_enable(cmd->enable);
+}
+
+static void read_encrypt_mode_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_encrypt_mode *rsp = data;
+
+	print_status(rsp->status);
+	print_encrypt_mode(rsp->mode);
+}
+
+static void write_encrypt_mode_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_encrypt_mode *cmd = data;
+
+	print_encrypt_mode(cmd->mode);
+}
+
 static void read_class_of_dev_rsp(const void *data, uint8_t size)
 {
 	const struct bt_hci_rsp_read_class_of_dev *rsp = data;
@@ -3118,6 +3601,108 @@ static void write_voice_setting_cmd(const void *data, uint8_t size)
 	print_voice_setting(cmd->setting);
 }
 
+static void host_buffer_size_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_host_buffer_size *cmd = data;
+
+	print_field("ACL MTU: %-4d ACL max packet: %d",
+				btohs(cmd->acl_mtu), btohs(cmd->acl_max_pkt));
+	print_field("SCO MTU: %-4d SCO max packet: %d",
+				cmd->sco_mtu, btohs(cmd->sco_max_pkt));
+}
+
+static void read_link_supv_timeout_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_read_link_supv_timeout *cmd = data;
+
+	print_handle(cmd->handle);
+}
+
+static void read_link_supv_timeout_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_link_supv_timeout *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+	print_timeout(rsp->timeout);
+}
+
+static void write_link_supv_timeout_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_link_supv_timeout *cmd = data;
+
+	print_handle(cmd->handle);
+	print_timeout(cmd->timeout);
+}
+
+static void write_link_supv_timeout_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_write_link_supv_timeout *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+}
+
+static void read_num_supported_iac_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_num_supported_iac *rsp = data;
+
+	print_status(rsp->status);
+	print_field("Number of IAC: %d", rsp->num_iac);
+}
+
+static void read_page_scan_period_mode_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_page_scan_period_mode *rsp = data;
+
+	print_status(rsp->status);
+	print_pscan_period_mode(rsp->mode);
+}
+
+static void write_page_scan_period_mode_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_page_scan_period_mode *cmd = data;
+
+	print_pscan_period_mode(cmd->mode);
+}
+
+static void read_page_scan_mode_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_page_scan_mode *rsp = data;
+
+	print_status(rsp->status);
+	print_pscan_mode(rsp->mode);
+}
+
+static void write_page_scan_mode_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_page_scan_mode *cmd = data;
+
+	print_pscan_mode(cmd->mode);
+}
+
+static void set_afh_host_classification_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_set_afh_host_classification *cmd = data;
+
+	print_channel_map(cmd->map);
+}
+
+static void read_inquiry_scan_type_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_inquiry_scan_type *rsp = data;
+
+	print_status(rsp->status);
+	print_inquiry_scan_type(rsp->type);
+}
+
+static void write_inquiry_scan_type_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_inquiry_scan_type *cmd = data;
+
+	print_inquiry_scan_type(cmd->type);
+}
+
 static void read_inquiry_mode_rsp(const void *data, uint8_t size)
 {
 	const struct bt_hci_rsp_read_inquiry_mode *rsp = data;
@@ -3146,6 +3731,21 @@ static void write_page_scan_type_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_write_page_scan_type *cmd = data;
 
 	print_pscan_type(cmd->type);
+}
+
+static void read_afh_assessment_mode_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_afh_assessment_mode *rsp = data;
+
+	print_status(rsp->status);
+	print_afh_mode(rsp->mode);
+}
+
+static void write_afh_assessment_mode_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_afh_assessment_mode *cmd = data;
+
+	print_afh_mode(cmd->mode);
 }
 
 static void read_ext_inquiry_response_rsp(const void *data, uint8_t size)
@@ -3187,12 +3787,28 @@ static void write_simple_pairing_mode_cmd(const void *data, uint8_t size)
 	print_simple_pairing_mode(cmd->mode);
 }
 
+static void read_local_oob_data_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_local_oob_data *rsp = data;
+
+	print_status(rsp->status);
+	print_hash("P-192", rsp->hash);
+	print_randomizer("P-192", rsp->randomizer);
+}
+
 static void read_inquiry_resp_tx_power_rsp(const void *data, uint8_t size)
 {
 	const struct bt_hci_rsp_read_inquiry_resp_tx_power *rsp = data;
 
 	print_status(rsp->status);
 	print_field("TX power: %d dBm", rsp->level);
+}
+
+static void write_inquiry_tx_power_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_inquiry_tx_power *cmd = data;
+
+	print_field("TX power: %d dBm", cmd->level);
 }
 
 static void enhanced_flush_cmd(const void *data, uint8_t size)
@@ -3219,6 +3835,42 @@ static void set_event_mask_page2_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_set_event_mask_page2 *cmd = data;
 
 	print_event_mask_page2(cmd->mask);
+}
+
+static void read_location_data_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_location_data *rsp = data;
+
+	print_status(rsp->status);
+	print_location_domain_aware(rsp->domain_aware);
+	print_location_domain(rsp->domain);
+	print_location_domain_options(rsp->domain_options);
+	print_location_options(rsp->options);
+}
+
+static void write_location_data_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_location_data *cmd = data;
+
+	print_location_domain_aware(cmd->domain_aware);
+	print_location_domain(cmd->domain);
+	print_location_domain_options(cmd->domain_options);
+	print_location_options(cmd->options);
+}
+
+static void read_flow_control_mode_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_flow_control_mode *rsp = data;
+
+	print_status(rsp->status);
+	print_flow_control_mode(rsp->mode);
+}
+
+static void write_flow_control_mode_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_flow_control_mode *cmd = data;
+
+	print_flow_control_mode(cmd->mode);
 }
 
 static void read_le_host_supported_rsp(const void *data, uint8_t size)
@@ -3255,7 +3907,16 @@ static void read_local_version_rsp(const void *data, uint8_t size)
 
 	print_status(rsp->status);
 	print_hci_version(rsp->hci_ver, rsp->hci_rev);
-	print_lmp_version(rsp->lmp_ver, rsp->lmp_subver);
+
+	switch (index_list[index_current].type) {
+	case HCI_BREDR:
+		print_lmp_version(rsp->lmp_ver, rsp->lmp_subver);
+		break;
+	case HCI_AMP:
+		print_pal_version(rsp->lmp_ver, rsp->lmp_subver);
+		break;
+	}
+
 	print_manufacturer(rsp->manufacturer);
 }
 
@@ -3340,6 +4001,118 @@ static void read_data_block_size_rsp(const void *data, uint8_t size)
 	print_field("Max ACL length: %d", btohs(rsp->max_acl_len));
 	print_field("Block length: %d", btohs(rsp->block_len));
 	print_field("Num blocks: %d", btohs(rsp->num_blocks));
+}
+
+static void read_failed_contact_counter_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_read_failed_contact_counter *cmd = data;
+
+	print_handle(cmd->handle);
+}
+
+static void read_failed_contact_counter_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_failed_contact_counter *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+	print_field("Counter: %u", htobs(rsp->counter));
+}
+
+static void reset_failed_contact_counter_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_reset_failed_contact_counter *cmd = data;
+
+	print_handle(cmd->handle);
+}
+
+static void reset_failed_contact_counter_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_reset_failed_contact_counter *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+}
+
+static void read_link_quality_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_read_link_quality *cmd = data;
+
+	print_handle(cmd->handle);
+}
+
+static void read_link_quality_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_link_quality *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+	print_field("Link quality: 0x%2.2x", rsp->link_quality);
+}
+
+static void read_rssi_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_read_rssi *cmd = data;
+
+	print_handle(cmd->handle);
+}
+
+static void read_rssi_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_rssi *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+	print_rssi(rsp->rssi);
+}
+
+static void read_afh_channel_map_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_read_afh_channel_map *cmd = data;
+
+	print_handle(cmd->handle);
+}
+
+static void read_afh_channel_map_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_afh_channel_map *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+	print_afh_mode(rsp->mode);
+	print_channel_map(rsp->map);
+}
+
+static void read_clock_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_read_clock *cmd = data;
+	const char *str;
+
+	print_handle(cmd->handle);
+
+	switch (cmd->type) {
+	case 0x00:
+		str = "Local clock";
+		break;
+	case 0x01:
+		str = "Piconet clock";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Type: %s (0x%2.2x)", str, cmd->type);
+}
+
+static void read_clock_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_clock *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+	print_clock(rsp->clock);
+	print_clock_accuracy(rsp->accuracy);
 }
 
 static void read_encrypt_key_size_cmd(const void *data, uint8_t size)
@@ -3458,7 +4231,92 @@ static void le_set_random_address_cmd(const void *data, uint8_t size)
 {
 	const struct bt_hci_cmd_le_set_random_address *cmd = data;
 
-	print_addr(cmd->addr, 0x01);
+	print_addr("Address", cmd->addr, 0x01);
+}
+
+static void le_set_adv_parameters_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_set_adv_parameters *cmd = data;
+	const char *str;
+
+	print_slot_625("Min advertising interval", cmd->min_interval);
+	print_slot_625("Max advertising interval", cmd->max_interval);
+
+	switch (cmd->type) {
+	case 0x00:
+		str = "Connectable undirected - ADV_IND";
+		break;
+	case 0x01:
+		str = "Connectable directed - ADV_DIRECT_IND";
+		break;
+	case 0x02:
+		str = "Scannable undirected - ADV_SCAN_IND";
+		break;
+	case 0x03:
+		str = "Non connectable undirect - ADV_NONCONN_IND";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Type: %s (0x%2.2x)", str, cmd->type);
+
+	print_addr_type("Own address type", cmd->own_addr_type);
+	print_addr_type("Direct address type", cmd->direct_addr_type);
+	print_addr("Direct address", cmd->direct_addr, cmd->direct_addr_type);
+
+	switch (cmd->channel_map) {
+	case 0x01:
+		str = "37";
+		break;
+	case 0x02:
+		str = "38";
+		break;
+	case 0x03:
+		str = "37, 38";
+		break;
+	case 0x04:
+		str = "39";
+		break;
+	case 0x05:
+		str = "37, 39";
+		break;
+	case 0x06:
+		str = "38, 39";
+		break;
+	case 0x07:
+		str = "37, 38, 39";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Channel map: %s (0x%2.2x)", str, cmd->channel_map);
+
+	switch (cmd->filter_policy) {
+	case 0x00:
+		str = "Allow Scan Request from Any, "
+			"Allow Connect Request from Any";
+		break;
+	case 0x01:
+		str = "Allow Scan Request from White List Only, "
+			"Allow Connect Request from Any";
+		break;
+	case 0x02:
+		str = "Allow Scan Request from Any, "
+			"Allow Connect Request from White List Only";
+		break;
+	case 0x03:
+		str = "Allow Scan Request from White List Only, "
+			"Allow Connect Request from White List Only";
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Filter policy: %s (0x%2.2x)", str, cmd->filter_policy);
 }
 
 static void le_read_adv_tx_power_rsp(const void *data, uint8_t size)
@@ -3477,9 +4335,9 @@ static void le_set_adv_data_cmd(const void *data, uint8_t size)
 	print_eir(cmd->data, cmd->len, true);
 }
 
-static void le_set_scan_response_data_cmd(const void *data, uint8_t size)
+static void le_set_scan_rsp_data_cmd(const void *data, uint8_t size)
 {
-	const struct bt_hci_cmd_le_set_scan_response_data *cmd = data;
+	const struct bt_hci_cmd_le_set_scan_rsp_data *cmd = data;
 
 	print_field("Length: %d", cmd->len);
 	print_eir(cmd->data, cmd->len, true);
@@ -3600,7 +4458,7 @@ static void le_create_conn_cmd(const void *data, uint8_t size)
 	print_field("Filter policy: %s (0x%2.2x)", str, cmd->filter_policy);
 
 	print_addr_type("Peer address type", cmd->peer_addr_type);
-	print_addr(cmd->peer_addr, cmd->peer_addr_type);
+	print_addr("Peer address", cmd->peer_addr, cmd->peer_addr_type);
 	print_addr_type("Own address type", cmd->own_addr_type);
 
 	print_slot_125("Min connection interval", cmd->min_interval);
@@ -3625,7 +4483,7 @@ static void le_add_to_white_list_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_le_add_to_white_list *cmd = data;
 
 	print_addr_type("Address type", cmd->addr_type);
-	print_addr(cmd->addr, cmd->addr_type);
+	print_addr("Address", cmd->addr, cmd->addr_type);
 }
 
 static void le_remove_from_white_list_cmd(const void *data, uint8_t size)
@@ -3633,7 +4491,7 @@ static void le_remove_from_white_list_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_le_remove_from_white_list *cmd = data;
 
 	print_addr_type("Address type", cmd->addr_type);
-	print_addr(cmd->addr, cmd->addr_type);
+	print_addr("Address", cmd->addr, cmd->addr_type);
 }
 
 static void le_conn_update_cmd(const void *data, uint8_t size)
@@ -3704,7 +4562,7 @@ static void le_rand_rsp(const void *data, uint8_t size)
 	print_random_number(rsp->number);
 }
 
-static void le_start_encrypt(const void *data, uint8_t size)
+static void le_start_encrypt_cmd(const void *data, uint8_t size)
 {
 	const struct bt_hci_cmd_le_start_encrypt *cmd = data;
 
@@ -3713,27 +4571,25 @@ static void le_start_encrypt(const void *data, uint8_t size)
 	print_field("Encryption diversifier: 0x%4.4x",
 					btohs(cmd->diversifier));
 	print_key("Long term key", cmd->ltk);
-
 }
 
-static void le_ltk_req_reply(const void *data, uint8_t size)
+static void le_ltk_req_reply_cmd(const void *data, uint8_t size)
 {
 	const struct bt_hci_cmd_le_ltk_req_reply *cmd = data;
 
 	print_handle(cmd->handle);
 	print_key("Long term key", cmd->ltk);
-
 }
 
 static void le_ltk_req_reply_rsp(const void *data, uint8_t size)
 {
-	const struct bt_hci_cmd_le_ltk_req_reply_rsp *rsp = data;
+	const struct bt_hci_rsp_le_ltk_req_reply *rsp = data;
 
 	print_status(rsp->status);
 	print_handle(rsp->handle);
 }
 
-static void le_ltk_req_neg_reply(const void *data, uint8_t size)
+static void le_ltk_req_neg_reply_cmd(const void *data, uint8_t size)
 {
 	const struct bt_hci_cmd_le_ltk_req_neg_reply *cmd = data;
 
@@ -3742,7 +4598,7 @@ static void le_ltk_req_neg_reply(const void *data, uint8_t size)
 
 static void le_ltk_req_neg_reply_rsp(const void *data, uint8_t size)
 {
-	const struct bt_hci_cmd_le_ltk_req_neg_reply_rsp *rsp = data;
+	const struct bt_hci_rsp_le_ltk_req_neg_reply *rsp = data;
 
 	print_status(rsp->status);
 	print_handle(rsp->handle);
@@ -3754,6 +4610,32 @@ static void le_read_supported_states_rsp(const void *data, uint8_t size)
 
 	print_status(rsp->status);
 	print_le_states(rsp->states);
+}
+
+static void le_receiver_test_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_receiver_test *cmd = data;
+
+	print_field("RX frequency: %d MHz (0x%2.2x)",
+				(cmd->frequency * 2) + 2402, cmd->frequency);
+}
+
+static void le_transmitter_test_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_transmitter_test *cmd = data;
+
+	print_field("TX frequency: %d MHz (0x%2.2x)",
+				(cmd->frequency * 2) + 2402, cmd->frequency);
+	print_field("Test data length: %d bytes", cmd->data_len);
+	print_field("Packet payload: 0x%2.2x", cmd->payload);
+}
+
+static void le_test_end_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_le_test_end *rsp = data;
+
+	print_status(rsp->status);
+	print_field("Number of packets: %d", btohs(rsp->num_packets));
 }
 
 struct opcode_data {
@@ -3810,19 +4692,14 @@ static const struct opcode_data opcode_table[] = {
 				status_bdaddr_rsp, 7, true },
 	{ 0x040f,  14, "Change Connection Packet Type",
 				change_conn_pkt_type_cmd, 4, true },
-	/* reserved command */
 	{ 0x0411,  15, "Authentication Requested",
 				auth_requested_cmd, 2, true },
-	/* reserved command */
 	{ 0x0413,  16, "Set Connection Encryption",
 				set_conn_encrypt_cmd, 3, true },
-	/* reserved command */
 	{ 0x0415,  17, "Change Connection Link Key",
 				change_conn_link_key_cmd, 2, true },
-	/* reserved command */
 	{ 0x0417,  18, "Master Link Key",
 				master_link_key_cmd, 1, true },
-	/* reserved command */
 	{ 0x0419,  19, "Remote Name Request",
 				remote_name_request_cmd, 10, true },
 	{ 0x041a,  20, "Remote Name Request Cancel",
@@ -3834,13 +4711,11 @@ static const struct opcode_data opcode_table[] = {
 				read_remote_ext_features_cmd, 3, true },
 	{ 0x041d,  23, "Read Remote Version Information",
 				read_remote_version_cmd, 2, true },
-	/* reserved command */
 	{ 0x041f,  24, "Read Clock Offset",
 				read_clock_offset_cmd, 2, true },
 	{ 0x0420,  25, "Read LMP Handle",
 				read_lmp_handle_cmd, 2, true,
 				read_lmp_handle_rsp, 8, true },
-	/* reserved commands */
 	{ 0x0428, 131, "Setup Synchronous Connection",
 				setup_sync_conn_cmd, 17, true },
 	{ 0x0429, 132, "Accept Synchronous Connection",
@@ -3865,7 +4740,6 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x0430, 156, "Remote OOB Data Request Reply",
 				remote_oob_data_request_reply_cmd, 38, true,
 				status_bdaddr_rsp, 7, true },
-	/* reserved commands */
 	{ 0x0433, 159, "Remote OOB Data Request Neg Reply",
 				remote_oob_data_request_neg_reply_cmd, 6, true,
 				status_bdaddr_rsp, 7, true },
@@ -3901,7 +4775,6 @@ static const struct opcode_data opcode_table[] = {
 	/* OGF 2 - Link Policy */
 	{ 0x0801,  33, "Holde Mode",
 				hold_mode_cmd, 6, true },
-	/* reserved command */
 	{ 0x0803,  34, "Sniff Mode",
 				sniff_mode_cmd, 10, true },
 	{ 0x0804,  35, "Exit Sniff Mode",
@@ -3912,19 +4785,17 @@ static const struct opcode_data opcode_table[] = {
 				exit_park_state_cmd, 2, true },
 	{ 0x0807,  38, "QoS Setup",
 				qos_setup_cmd, 20, true },
-	/* reserved command */
 	{ 0x0809,  39, "Role Discovery",
 				role_discovery_cmd, 2, true,
 				role_discovery_rsp, 4, true },
-	/* reserved command */
 	{ 0x080b,  40, "Switch Role",
 				switch_role_cmd, 7, true },
 	{ 0x080c,  41, "Read Link Policy Settings",
 				read_link_policy_cmd, 2, true,
 				read_link_policy_rsp, 5, true },
 	{ 0x080d,  42, "Write Link Policy Settings",
-				write_link_policy_cmd, 2, true,
-				write_link_policy_rsp, 2, true },
+				write_link_policy_cmd, 4, true,
+				write_link_policy_rsp, 3, true },
 	{ 0x080e,  43, "Read Default Link Policy Settings",
 				null_cmd, 0, true,
 				read_default_link_policy_rsp, 3, true },
@@ -3941,15 +4812,12 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x0c01,  46, "Set Event Mask",
 				set_event_mask_cmd, 8, true,
 				status_rsp, 1, true },
-	/* reserved command */
 	{ 0x0c03,  47, "Reset",
 				null_cmd, 0, true,
 				status_rsp, 1, true },
-	/* reserved command */
 	{ 0x0c05,  48, "Set Event Filter",
 				set_event_filter_cmd, 1, false,
 				status_rsp, 1, true },
-	/* reserved commands */
 	{ 0x0c08,  49, "Flush",
 				flush_cmd, 2, true,
 				flush_rsp, 3, true },
@@ -3962,11 +4830,9 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x0c0b,  52, "Create New Unit Key",
 				null_cmd, 0, true,
 				status_rsp, 1, true },
-	/* reserved command */
 	{ 0x0c0d,  53, "Read Stored Link Key",
 				read_stored_link_key_cmd, 7, true,
 				read_stored_link_key_rsp, 5, true },
-	/* reserved commands */
 	{ 0x0c11,  54, "Write Stored Link Key",
 				write_stored_link_key_cmd, 1, false,
 				write_stored_link_key_rsp, 2, true },
@@ -4003,12 +4869,24 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x0c1c,  65, "Write Page Scan Activity",
 				write_page_scan_activity_cmd, 4, true,
 				status_rsp, 1, true },
-	{ 0x0c1d,  66, "Read Inquiry Scan Activity" },
-	{ 0x0c1e,  67, "Write Inquiry Scan Activity" },
-	{ 0x0c1f,  68, "Read Authentication Enable" },
-	{ 0x0c20,  69, "Write Authentication Enable" },
-	{ 0x0c21,  70, "Read Encryption Mode" },
-	{ 0x0c22,  71, "Write Encryption Mode" },
+	{ 0x0c1d,  66, "Read Inquiry Scan Activity",
+				null_cmd, 0, true,
+				read_inquiry_scan_activity_rsp, 5, true },
+	{ 0x0c1e,  67, "Write Inquiry Scan Activity",
+				write_inquiry_scan_activity_cmd, 4, true,
+				status_rsp, 1, true },
+	{ 0x0c1f,  68, "Read Authentication Enable",
+				null_cmd, 0, true,
+				read_auth_enable_rsp, 2, true },
+	{ 0x0c20,  69, "Write Authentication Enable",
+				write_auth_enable_cmd, 1, true,
+				status_rsp, 1, true },
+	{ 0x0c21,  70, "Read Encryption Mode",
+				null_cmd, 0, true,
+				read_encrypt_mode_rsp, 2, true },
+	{ 0x0c22,  71, "Write Encryption Mode",
+				write_encrypt_mode_cmd, 1, true,
+				status_rsp, 1, true },
 	{ 0x0c23,  72, "Read Class of Device",
 				null_cmd, 0, true,
 				read_class_of_dev_rsp, 4, true },
@@ -4030,25 +4908,43 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x0c2d,  82, "Read Transmit Power Level" },
 	{ 0x0c2e,  83, "Read Sync Flow Control Enable" },
 	{ 0x0c2f,  84, "Write Sync Flow Control Enable" },
-	/* reserved command */
 	{ 0x0c31,  85, "Set Host Controller To Host Flow" },
-	/* reserved command */
-	{ 0x0c33,  86, "Host Buffer Size" },
-	/* reserved command */
+	{ 0x0c33,  86, "Host Buffer Size",
+				host_buffer_size_cmd, 7, true,
+				status_rsp, 1, true },
 	{ 0x0c35,  87, "Host Number of Completed Packets" },
-	{ 0x0c36,  88, "Read Link Supervision Timeout" },
-	{ 0x0c37,  89, "Write Link Supervision Timeout" },
-	{ 0x0c38,  90, "Read Number of Supported IAC" },
+	{ 0x0c36,  88, "Read Link Supervision Timeout",
+				read_link_supv_timeout_cmd, 2, true,
+				read_link_supv_timeout_rsp, 5, true },
+	{ 0x0c37,  89, "Write Link Supervision Timeout",
+				write_link_supv_timeout_cmd, 4, true,
+				write_link_supv_timeout_rsp, 3, true },
+	{ 0x0c38,  90, "Read Number of Supported IAC",
+				null_cmd, 0, true,
+				read_num_supported_iac_rsp, 2, true },
 	{ 0x0c39,  91, "Read Current IAC LAP" },
 	{ 0x0c3a,  92, "Write Current IAC LAP" },
-	{ 0x0c3b,  93, "Read Page Scan Period Mode" },
-	{ 0x0c3c,  94, "Write Page Scan Period Mode" },
-	{ 0x0c3d,  95, "Read Page Scan Mode" },
-	{ 0x0c3e,  96, "Write Page Scan Mode" },
-	{ 0x0c3f,  97, "Set AFH Host Channel Classification" },
-	/* reserved commands */
-	{ 0x0c42, 100, "Read Inquiry Scan Type" },
-	{ 0x0c43, 101, "Write Inquiry Scan Type" },
+	{ 0x0c3b,  93, "Read Page Scan Period Mode",
+				null_cmd, 0, true,
+				read_page_scan_period_mode_rsp, 2, true },
+	{ 0x0c3c,  94, "Write Page Scan Period Mode",
+				write_page_scan_period_mode_cmd, 1, true,
+				status_rsp, 1, true },
+	{ 0x0c3d,  95, "Read Page Scan Mode",
+				null_cmd, 0, true,
+				read_page_scan_mode_rsp, 2, true },
+	{ 0x0c3e,  96, "Write Page Scan Mode",
+				write_page_scan_mode_cmd, 1, true,
+				status_rsp, 1, true },
+	{ 0x0c3f,  97, "Set AFH Host Channel Classification",
+				set_afh_host_classification_cmd, 10, true,
+				status_rsp, 1, true },
+	{ 0x0c42, 100, "Read Inquiry Scan Type",
+				null_cmd, 0, true,
+				read_inquiry_scan_type_rsp, 2, true },
+	{ 0x0c43, 101, "Write Inquiry Scan Type",
+				write_inquiry_scan_type_cmd, 1, true,
+				status_rsp, 1, true },
 	{ 0x0c44, 102, "Read Inquiry Mode",
 				null_cmd, 0, true,
 				read_inquiry_mode_rsp, 2, true },
@@ -4061,9 +4957,12 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x0c47, 105, "Write Page Scan Type",
 				write_page_scan_type_cmd, 1, true,
 				status_rsp, 1, true },
-	{ 0x0c48, 106, "Read AFH Channel Assessment Mode" },
-	{ 0x0c49, 107, "Write AFH Channel Assessment Mode" },
-	/* reserved commands */
+	{ 0x0c48, 106, "Read AFH Channel Assessment Mode",
+				null_cmd, 0, true,
+				read_afh_assessment_mode_rsp, 2, true },
+	{ 0x0c49, 107, "Write AFH Channel Assessment Mode",
+				write_afh_assessment_mode_cmd, 1, true,
+				status_rsp, 1, true },
 	{ 0x0c51, 136, "Read Extended Inquiry Response",
 				null_cmd, 0, true,
 				read_ext_inquiry_response_rsp, 242, true },
@@ -4072,21 +4971,23 @@ static const struct opcode_data opcode_table[] = {
 				status_rsp, 1, true },
 	{ 0x0c53, 138, "Refresh Encryption Key",
 				refresh_encrypt_key_cmd, 2, true },
-	/* reserved command */
 	{ 0x0c55, 141, "Read Simple Pairing Mode",
 				null_cmd, 0, true,
 				read_simple_pairing_mode_rsp, 2, true },
 	{ 0x0c56, 142, "Write Simple Pairing Mode",
 				write_simple_pairing_mode_cmd, 1, true,
 				status_rsp, 1, true },
-	{ 0x0c57, 143, "Read Local OOB Data" },
+	{ 0x0c57, 143, "Read Local OOB Data",
+				null_cmd, 0, true,
+				read_local_oob_data_rsp, 33, true },
 	{ 0x0c58, 144, "Read Inquiry Response TX Power Level",
 				null_cmd, 0, true,
 				read_inquiry_resp_tx_power_rsp, 2, true },
-	{ 0x0c59, 145, "Write Inquiry Transmit Power Level" },
+	{ 0x0c59, 145, "Write Inquiry Transmit Power Level",
+				write_inquiry_tx_power_cmd, 1, true,
+				status_rsp, 1, true },
 	{ 0x0c5a, 146, "Read Default Erroneous Reporting" },
 	{ 0x0c5b, 147, "Write Default Erroneous Reporting" },
-	/* reserved commands */
 	{ 0x0c5f, 158, "Enhanced Flush",
 				enhanced_flush_cmd, 3, true },
 	{ 0x0c60, 162, "Send Keypress Notification" },
@@ -4095,10 +4996,18 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x0c63, 178, "Set Event Mask Page 2",
 				set_event_mask_page2_cmd, 8, true,
 				status_rsp, 1, true },
-	{ 0x0c64, 179, "Read Location Data" },
-	{ 0x0c65, 180, "Write Location Data" },
-	{ 0x0c66, 184, "Read Flow Control Mode" },
-	{ 0x0c67, 185, "Write Flow Control Mode" },
+	{ 0x0c64, 179, "Read Location Data",
+				null_cmd, 0, true,
+				read_location_data_rsp, 6, true },
+	{ 0x0c65, 180, "Write Location Data",
+				write_location_data_cmd, 5, true,
+				status_rsp, 1, true },
+	{ 0x0c66, 184, "Read Flow Control Mode",
+				null_cmd, 0, true,
+				read_flow_control_mode_rsp, 2, true },
+	{ 0x0c67, 185, "Write Flow Control Mode",
+				write_flow_control_mode_cmd, 1, true,
+				status_rsp, 1, true },
 	{ 0x0c68, 192, "Read Enhanced Transmit Power Level" },
 	{ 0x0c69, 194, "Read Best Effort Flush Timeout" },
 	{ 0x0c6a, 195, "Write Best Effort Flush Timeout" },
@@ -4110,7 +5019,7 @@ static const struct opcode_data opcode_table[] = {
 				write_le_host_supported_cmd, 2, true,
 				status_rsp, 1, true },
 	{ 0x0c6e, 238, "Set MWS Channel Parameters" },
-	{ 0x0c6f, 239, "Set External Fram Configuration" },
+	{ 0x0c6f, 239, "Set External Frame Configuration" },
 	{ 0x0c70, 240, "Set MWS Signaling" },
 	{ 0x0c71, 241, "Set MWS Transport Layer" },
 	{ 0x0c72, 242, "Set MWS Scan Frequency Table" },
@@ -4139,11 +5048,9 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x1005, 119, "Read Buffer Size",
 				null_cmd, 0, true,
 				read_buffer_size_rsp, 8, true },
-	/* reserved command */
 	{ 0x1007, 120, "Read Country Code",
 				null_cmd, 0, true,
 				read_country_code_rsp, 2, true },
-	/* reserved command */
 	{ 0x1009, 121, "Read BD ADDR",
 				null_cmd, 0, true,
 				read_bd_addr_rsp, 7, true },
@@ -4153,13 +5060,24 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x100b, 237, "Read Local Supported Codecs" },
 
 	/* OGF 5 - Status Parameter */
-	{ 0x1401, 122, "Read Failed Contact Counter" },
-	{ 0x1402, 123, "Reset Failed Contact Counter" },
-	{ 0x1403, 124, "Read Link Quality" },
-	/* reserved command */
-	{ 0x1405, 125, "Read RSSI" },
-	{ 0x1406, 126, "Read AFH Channel Map" },
-	{ 0x1407, 127, "Read Clock" },
+	{ 0x1401, 122, "Read Failed Contact Counter",
+				read_failed_contact_counter_cmd, 2, true,
+				read_failed_contact_counter_rsp, 5, true },
+	{ 0x1402, 123, "Reset Failed Contact Counter",
+				reset_failed_contact_counter_cmd, 2, true,
+				reset_failed_contact_counter_rsp, 3, true },
+	{ 0x1403, 124, "Read Link Quality",
+				read_link_quality_cmd, 2, true,
+				read_link_quality_rsp, 4, true },
+	{ 0x1405, 125, "Read RSSI",
+				read_rssi_cmd, 2, true,
+				read_rssi_rsp, 4, true },
+	{ 0x1406, 126, "Read AFH Channel Map",
+				read_afh_channel_map_cmd, 2, true,
+				read_afh_channel_map_rsp, 14, true },
+	{ 0x1407, 127, "Read Clock",
+				read_clock_cmd, 3, true,
+				read_clock_rsp, 9, true },
 	{ 0x1408, 164, "Read Encryption Key Size",
 				read_encrypt_key_size_cmd, 2, true,
 				read_encrypt_key_size_rsp, 4, true },
@@ -4178,9 +5096,10 @@ static const struct opcode_data opcode_table[] = {
 	/* OGF 6 - Testing */
 	{ 0x1801, 128, "Read Loopback Mode" },
 	{ 0x1802, 129, "Write Loopback Mode" },
-	{ 0x1803, 130, "Enable Device Under Test Mode" },
+	{ 0x1803, 130, "Enable Device Under Test Mode",
+				null_cmd, 0, true,
+				status_rsp, 1, true },
 	{ 0x1804, 157, "Write Simple Pairing Debug Mode" },
-	/* reserved commands */
 	{ 0x1807, 189, "Enable AMP Receiver Reports" },
 	{ 0x1808, 190, "AMP Test End" },
 	{ 0x1809, 191, "AMP Test" },
@@ -4195,11 +5114,12 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x2003, 202, "LE Read Local Supported Features",
 				null_cmd, 0, true,
 				le_read_local_features_rsp, 9, true },
-	/* reserved command */
 	{ 0x2005, 204, "LE Set Random Address",
 				le_set_random_address_cmd, 6, true,
 				status_rsp, 1, true },
-	{ 0x2006, 205, "LE Set Advertising Parameters"	},
+	{ 0x2006, 205, "LE Set Advertising Parameters",
+				le_set_adv_parameters_cmd, 15, true,
+				status_rsp, 1, true },
 	{ 0x2007, 206, "LE Read Advertising Channel TX Power",
 				null_cmd, 0, true,
 				le_read_adv_tx_power_rsp, 2, true },
@@ -4207,7 +5127,7 @@ static const struct opcode_data opcode_table[] = {
 				le_set_adv_data_cmd, 32, true,
 				status_rsp, 1, true },
 	{ 0x2009, 208, "LE Set Scan Response Data",
-				le_set_scan_response_data_cmd, 32, true,
+				le_set_scan_rsp_data_cmd, 32, true,
 				status_rsp, 1, true },
 	{ 0x200a, 209, "LE Set Advertise Enable",
 				le_set_adv_enable_cmd, 1, true,
@@ -4252,19 +5172,25 @@ static const struct opcode_data opcode_table[] = {
 				null_cmd, 0, true,
 				le_rand_rsp, 9, true },
 	{ 0x2019, 224, "LE Start Encryption",
-				le_start_encrypt, 28, true },
+				le_start_encrypt_cmd, 28, true },
 	{ 0x201a, 225, "LE Long Term Key Request Reply",
-				le_ltk_req_reply, 18, true,
+				le_ltk_req_reply_cmd, 18, true,
 				le_ltk_req_reply_rsp, 3, true },
 	{ 0x201b, 226, "LE Long Term Key Request Neg Reply",
-				le_ltk_req_neg_reply, 2, true,
+				le_ltk_req_neg_reply_cmd, 2, true,
 				le_ltk_req_neg_reply_rsp, 3, true },
 	{ 0x201c, 227, "LE Read Supported States",
 				null_cmd, 0, true,
 				le_read_supported_states_rsp, 9, true },
-	{ 0x201d, 228, "LE Receiver Test" },
-	{ 0x201e, 229, "LE Transmitter Test" },
-	{ 0x201f, 230, "LE Test End" },
+	{ 0x201d, 228, "LE Receiver Test",
+				le_receiver_test_cmd, 1, true,
+				status_rsp, 1, true },
+	{ 0x201e, 229, "LE Transmitter Test",
+				le_transmitter_test_cmd, 3, true,
+				status_rsp, 1, true },
+	{ 0x201f, 230, "LE Test End",
+				null_cmd, 0, true,
+				le_test_end_rsp, 3, true },
 	{ }
 };
 
@@ -4979,9 +5905,9 @@ static void le_conn_complete_evt(const void *data, uint8_t size)
 	print_handle(evt->handle);
 	print_role(evt->role);
 	print_addr_type("Peer address type", evt->peer_addr_type);
-	print_addr(evt->peer_addr, evt->peer_addr_type);
+	print_addr("Peer address", evt->peer_addr, evt->peer_addr_type);
 	print_slot_125("Connection interval", evt->interval);
-        print_slot_125("Connection latency", evt->latency);
+	print_slot_125("Connection latency", evt->latency);
 	print_field("Supervision timeout: %d msec (0x%4.4x)",
 		btohs(evt->supv_timeout) * 10, btohs(evt->supv_timeout));
 	print_field("Master clock accuracy: 0x%2.2x", evt->clock_accuracy);
@@ -5022,7 +5948,7 @@ static void le_adv_report_evt(const void *data, uint8_t size)
 
 	print_field("Event type: %s (0x%2.2x)", str, evt->event_type);
 	print_addr_type("Address type", evt->addr_type);
-	print_addr(evt->addr, evt->addr_type);
+	print_addr("Address", evt->addr, evt->addr_type);
 	print_field("Data length: %d", evt->data_len);
 	print_eir(evt->data, evt->data_len, true);
 
@@ -5138,6 +6064,11 @@ static void le_meta_event_evt(const void *data, uint8_t size)
 	subevent_data->func(data + 1, size - 1);
 }
 
+static void vendor_evt(const void *data, uint8_t size)
+{
+	vendor_event(0xffff, data, size);
+}
+
 struct event_data {
 	uint8_t event;
 	const char *str;
@@ -5217,7 +6148,6 @@ static const struct event_data event_table[] = {
 				inquiry_result_with_rssi_evt, 1, false },
 	{ 0x23, "Read Remote Extended Features",
 				remote_ext_features_complete_evt, 13, true },
-	/* reserved events */
 	{ 0x2c, "Synchronous Connect Complete",
 				sync_conn_complete_evt, 17, true },
 	{ 0x2d, "Synchronous Connect Changed",
@@ -5240,12 +6170,10 @@ static const struct event_data event_table[] = {
 				remote_oob_data_request_evt, 6, true },
 	{ 0x36, "Simple Pairing Complete",
 				simple_pairing_complete_evt, 7, true },
-	/* reserved event */
 	{ 0x38, "Link Supervision Timeout Changed",
 				link_supv_timeout_changed_evt, 4, true },
 	{ 0x39, "Enhanced Flush Complete",
 				enhanced_flush_complete_evt, 2, true },
-	/* reserved event */
 	{ 0x3b, "User Passkey Notification",
 				user_passkey_notify_evt, 10, true },
 	{ 0x3c, "Keypress Notification",
@@ -5254,7 +6182,6 @@ static const struct event_data event_table[] = {
 				remote_host_features_notify_evt, 14, true },
 	{ 0x3e, "LE Meta Event",
 				le_meta_event_evt, 1, false },
-	/* reserved event */
 	{ 0x40, "Physical Link Complete",
 				phy_link_complete_evt, 2, true },
 	{ 0x41, "Channel Selected",
@@ -5269,19 +6196,19 @@ static const struct event_data event_table[] = {
 				logic_link_complete_evt, 5, true },
 	{ 0x46, "Disconnect Logical Link Complete",
 				disconn_logic_link_complete_evt, 4, true },
-	{ 0x47, "Flow Spec Modify Complete",
+	{ 0x47, "Flow Specification Modify Complete",
 				flow_spec_modify_complete_evt, 3, true },
-	{ 0x48, "Number Of Completed Data Blocks",
+	{ 0x48, "Number of Completed Data Blocks",
 				num_completed_data_blocks_evt, 3, false },
-	{ 0x49, "AMP Start Test"			},
-	{ 0x4a, "AMP Test End"				},
-	{ 0x4b, "AMP Receiver Report"			},
+	{ 0x49, "AMP Start Test" },
+	{ 0x4a, "AMP Test End" },
+	{ 0x4b, "AMP Receiver Report" },
 	{ 0x4c, "Short Range Mode Change Complete",
 				short_range_mode_change_evt, 3, true },
 	{ 0x4d, "AMP Status Change",
 				amp_status_change_evt, 2, true },
-	{ 0xfe, "Testing"				},
-	{ 0xff, "Vendor"				},
+	{ 0xfe, "Testing" },
+	{ 0xff, "Vendor", vendor_evt, 0, false },
 	{ }
 };
 

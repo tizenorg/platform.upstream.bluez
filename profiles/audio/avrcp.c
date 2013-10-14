@@ -263,7 +263,7 @@ static void avrcp_register_notification(struct avrcp *session, uint8_t event);
 static sdp_record_t *avrcp_ct_record(void)
 {
 	sdp_list_t *svclass_id, *pfseq, *apseq, *apseq1, *root;
-	uuid_t root_uuid, l2cap, avctp, avrct;
+	uuid_t root_uuid, l2cap, avctp, avrct, avrctr;
 	sdp_profile_desc_t profile[1];
 	sdp_list_t *aproto, *aproto1, *proto[2], *proto1[2];
 	sdp_record_t *record;
@@ -287,6 +287,8 @@ static sdp_record_t *avrcp_ct_record(void)
 	/* Service Class ID List */
 	sdp_uuid16_create(&avrct, AV_REMOTE_SVCLASS_ID);
 	svclass_id = sdp_list_append(0, &avrct);
+	sdp_uuid16_create(&avrctr, AV_REMOTE_CONTROLLER_SVCLASS_ID);
+	svclass_id = sdp_list_append(svclass_id, &avrctr);
 	sdp_set_service_classes(record, svclass_id);
 
 	/* Protocol Descriptor List */
@@ -3797,7 +3799,7 @@ static void avrcp_target_server_remove(struct btd_profile *p,
 		return;
 
 	if (server->tg_record_id != 0) {
-		remove_record_from_server(server->tg_record_id);
+		adapter_service_remove(adapter, server->tg_record_id);
 		server->tg_record_id = 0;
 	}
 
@@ -3829,7 +3831,7 @@ done:
 		return -1;
 	}
 
-	if (add_record_to_server(adapter_get_address(adapter), record) < 0) {
+	if (adapter_service_add(adapter, record) < 0) {
 		error("Unable to register AVRCP target service record");
 		avrcp_target_server_remove(p, adapter);
 		sdp_record_free(record);
@@ -3880,7 +3882,7 @@ static void avrcp_controller_server_remove(struct btd_profile *p,
 		return;
 
 	if (server->ct_record_id != 0) {
-		remove_record_from_server(server->ct_record_id);
+		adapter_service_remove(adapter, server->ct_record_id);
 		server->ct_record_id = 0;
 	}
 
@@ -3912,7 +3914,7 @@ done:
 		return -1;
 	}
 
-	if (add_record_to_server(adapter_get_address(adapter), record) < 0) {
+	if (adapter_service_add(adapter, record) < 0) {
 		error("Unable to register AVRCP service record");
 		avrcp_controller_server_remove(p, adapter);
 		sdp_record_free(record);

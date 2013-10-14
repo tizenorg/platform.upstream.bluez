@@ -157,7 +157,7 @@ src_bluetoothd_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic \
 				-Wl,--version-script=$(srcdir)/src/bluetooth.ver
 
 src_bluetoothd_DEPENDENCIES = lib/libbluetooth-internal.la \
-						src/bluetooth.service
+				gdbus/libgdbus-internal.la src/bluetooth.service
 
 src_bluetoothd_CFLAGS = $(AM_CFLAGS) -DBLUETOOTH_PLUGIN_BUILTIN \
 					-DPLUGINDIR=\""$(build_plugindir)"\"
@@ -179,6 +179,7 @@ test_scripts =
 
 include Makefile.tools
 include Makefile.obexd
+include Makefile.android
 
 if HID2HCI
 rulesdir = @UDEV_DIR@/rules.d
@@ -219,7 +220,7 @@ AM_CPPFLAGS = -I$(builddir)/lib -I$(builddir)/src -I$(srcdir)/src \
 			-I$(srcdir)/gdbus -I$(srcdir)/btio
 
 
-unit_tests = unit/test-eir unit/test-uuid unit/test-textfile
+unit_tests = unit/test-eir unit/test-uuid unit/test-textfile unit/test-crc
 
 unit_test_eir_SOURCES = unit/test-eir.c src/eir.c src/glib-helper.c
 unit_test_eir_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
@@ -229,6 +230,9 @@ unit_test_uuid_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 
 unit_test_textfile_SOURCES = unit/test-textfile.c src/textfile.h src/textfile.c
 unit_test_textfile_LDADD = @GLIB_LIBS@
+
+unit_test_crc_SOURCES = unit/test-crc.c monitor/crc.h monitor/crc.c
+unit_test_crc_LDADD = @GLIB_LIBS@
 
 unit_tests += unit/test-mgmt
 
@@ -290,13 +294,14 @@ pkgconfig_DATA = lib/bluez.pc
 endif
 
 DISTCHECK_CONFIGURE_FLAGS = --disable-datafiles --enable-library \
-				--disable-systemd --disable-udev --disable-usb
+					--disable-systemd --disable-udev \
+					--enable-android
 
 DISTCLEANFILES = $(pkgconfig_DATA)
 
 MAINTAINERCLEANFILES = Makefile.in \
 	aclocal.m4 configure config.h.in config.sub config.guess \
-	ltmain.sh depcomp compile missing install-sh mkinstalldirs
+	ltmain.sh depcomp compile missing install-sh mkinstalldirs test-driver
 
 SED_PROCESS = $(AM_V_GEN)$(MKDIR_P) $(dir $@) && \
 		$(SED) -e 's,@libexecdir\@,$(libexecdir),g' \

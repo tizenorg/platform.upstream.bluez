@@ -1,5 +1,5 @@
 AC_PREREQ(2.60)
-AC_INIT(bluez, 5.8)
+AC_INIT(bluez, 5.9)
 
 AM_INIT_AUTOMAKE([foreign subdir-objects color-tests silent-rules
 					tar-pax no-dist-gzip dist-xz])
@@ -39,6 +39,12 @@ AC_ARG_ENABLE(threads, AC_HELP_STRING([--enable-threads],
 
 AC_CHECK_FUNC(signalfd, dummy=yes,
 			AC_MSG_ERROR(signalfd support is required))
+
+AC_CHECK_LIB(rt, clock_gettime, dummy=yes,
+			AC_MSG_ERROR(realtime clock support is required))
+
+AC_CHECK_LIB(pthread, pthread_create, dummy=yes,
+			AC_MSG_ERROR(posix thread support is required))
 
 AC_CHECK_LIB(dl, dlopen, dummy=yes,
 			AC_MSG_ERROR(dynamic linking loader is required))
@@ -116,25 +122,6 @@ AC_ARG_ENABLE(monitor, AC_HELP_STRING([--disable-monitor],
 		[disable Bluetooth monitor]), [enable_monitor=${enableval}])
 AM_CONDITIONAL(MONITOR, test "${enable_monitor}" != "no")
 
-AC_ARG_ENABLE(usb, AC_HELP_STRING([--disable-usb],
-			[disable USB support]), [enable_usb=${enableval}])
-if (test "${enable_tools}" != "no" && test "${enable_usb}" != "no"  ); then
-	PKG_CHECK_MODULES(USB, libusb, dummy=yes,
-			AC_MSG_ERROR(USB library support is required))
-	AC_SUBST(USB_CFLAGS)
-	AC_SUBST(USB_LIBS)
-	AC_CHECK_LIB(usb, usb_get_busses, dummy=yes,
-		AC_DEFINE(NEED_USB_GET_BUSSES, 1,
-			[Define to 1 if you need the usb_get_busses() function.]
-))
-	AC_CHECK_LIB(usb, usb_interrupt_read, dummy=yes,
-		AC_DEFINE(NEED_USB_INTERRUPT_READ, 1,
-			[Define to 1 if you need the usb_interrupt_read() functi
-on.]))
-	AC_DEFINE(HAVE_LIBUSB, 1, [Define to 1 if you have USB library.])
-fi
-AM_CONDITIONAL(USB, test "${enable_usb}" != "no")
-
 AC_ARG_ENABLE(udev, AC_HELP_STRING([--disable-udev],
 		[disable udev device support]), [enable_udev=${enableval}])
 if (test "${enable_tools}" != "no" && test "${enable_udev}" != "no"); then
@@ -161,7 +148,7 @@ fi
 AC_SUBST(UDEV_DIR, [${path_udevdir}])
 
 AM_CONDITIONAL(HID2HCI, test "${enable_tools}" != "no" &&
-		test "${enable_udev}" != "no" && test "${enable_usb}" != "no")
+						test "${enable_udev}" != "no")
 
 AC_ARG_ENABLE(cups, AC_HELP_STRING([--disable-cups],
                 [disable CUPS printer support]), [enable_cups=${enableval}])
@@ -254,5 +241,10 @@ fi
 AC_DEFINE_UNQUOTED(CONFIGDIR, "${configdir}",
 			[Directory for the configuration files])
 AC_SUBST(CONFIGDIR, "${configdir}")
+
+AC_ARG_ENABLE(android, AC_HELP_STRING([--enable-android],
+			[enable BlueZ for Android]),
+					[enable_android=${enableval}])
+AM_CONDITIONAL(ANDROID, test "${enable_android}" = "yes")
 
 AC_OUTPUT(Makefile src/bluetoothd.8 lib/bluez.pc)

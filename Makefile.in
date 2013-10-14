@@ -116,41 +116,40 @@ DIST_COMMON = README $(am__configure_deps) $(am__include_HEADERS_DIST) \
 @EXPERIMENTAL_TRUE@	tools/bdaddr tools/avinfo tools/avtest \
 @EXPERIMENTAL_TRUE@	tools/scotest tools/hcieventmask \
 @EXPERIMENTAL_TRUE@	tools/hcisecfilter tools/hwdb tools/btmgmt \
-@EXPERIMENTAL_TRUE@	tools/btattach tools/btsnoop tools/btiotest \
-@EXPERIMENTAL_TRUE@	tools/mpris-player tools/bluetooth-player
+@EXPERIMENTAL_TRUE@	tools/btinfo tools/btattach tools/btsnoop \
+@EXPERIMENTAL_TRUE@	tools/btiotest tools/mpris-player
 @TOOLS_TRUE@am__append_16 = tools/hciattach tools/hciconfig tools/hcitool tools/hcidump \
 @TOOLS_TRUE@			tools/rfcomm tools/rctest tools/l2test tools/l2ping \
 @TOOLS_TRUE@			tools/sdptool tools/ciptool tools/bccmd
 
-@TOOLS_TRUE@@USB_TRUE@am__append_17 = tools/csr_usb.c
-@TOOLS_TRUE@@USB_TRUE@am__append_18 = @USB_LIBS@
-@TOOLS_TRUE@am__append_19 = tools/hciattach.1 tools/hciconfig.1 \
+@TOOLS_TRUE@am__append_17 = tools/hciattach.1 tools/hciconfig.1 \
 @TOOLS_TRUE@			tools/hcitool.1 tools/hcidump.1 \
 @TOOLS_TRUE@			tools/rfcomm.1 tools/rctest.1 tools/l2ping.1 \
 @TOOLS_TRUE@			tools/sdptool.1 tools/ciptool.1 tools/bccmd.1
 
-@TOOLS_FALSE@am__append_20 = tools/hciattach.1 tools/hciconfig.1 \
+@TOOLS_FALSE@am__append_18 = tools/hciattach.1 tools/hciconfig.1 \
 @TOOLS_FALSE@			tools/hcitool.1 tools/hcidump.1 \
 @TOOLS_FALSE@			tools/rfcomm.1 tools/rctest.1 tools/l2ping.1 \
 @TOOLS_FALSE@			tools/sdptool.1 tools/ciptool.1 tools/bccmd.1
 
 @HID2HCI_TRUE@udev_PROGRAMS = tools/hid2hci$(EXEEXT)
-@HID2HCI_TRUE@am__append_21 = tools/hid2hci.1
-@HID2HCI_FALSE@am__append_22 = tools/hid2hci.1
-@EXPERIMENTAL_TRUE@am__append_23 = tools/bdaddr.1
-@READLINE_TRUE@am__append_24 = attrib/gatttool \
-@READLINE_TRUE@			tools/obex-client-tool tools/obex-server-tool
+@HID2HCI_TRUE@am__append_19 = tools/hid2hci.1
+@HID2HCI_FALSE@am__append_20 = tools/hid2hci.1
+@EXPERIMENTAL_TRUE@am__append_21 = tools/bdaddr.1
+@READLINE_TRUE@am__append_22 = attrib/gatttool \
+@READLINE_TRUE@			tools/obex-client-tool tools/obex-server-tool \
+@READLINE_TRUE@			tools/bluetooth-player
 
-@EXPERIMENTAL_TRUE@am__append_25 = profiles/iap/iapd
+@EXPERIMENTAL_TRUE@am__append_23 = profiles/iap/iapd
 @CUPS_TRUE@cups_PROGRAMS = profiles/cups/bluetooth$(EXEEXT)
-@EXPERIMENTAL_TRUE@am__append_26 = pcsuite
-@EXPERIMENTAL_TRUE@am__append_27 = obexd/plugins/pcsuite.c
-@OBEX_TRUE@am__append_28 = irmc pbap
-@OBEX_TRUE@am__append_29 = obexd/plugins/irmc.c obexd/plugins/pbap.c \
+@EXPERIMENTAL_TRUE@am__append_24 = pcsuite
+@EXPERIMENTAL_TRUE@am__append_25 = obexd/plugins/pcsuite.c
+@OBEX_TRUE@am__append_26 = irmc pbap
+@OBEX_TRUE@am__append_27 = obexd/plugins/irmc.c obexd/plugins/pbap.c \
 @OBEX_TRUE@	obexd/plugins/vcard.h obexd/plugins/vcard.c \
 @OBEX_TRUE@	obexd/plugins/phonebook.h \
 @OBEX_TRUE@	obexd/plugins/phonebook-dummy.c
-@HID2HCI_TRUE@am__append_30 = $(rules_DATA)
+@HID2HCI_TRUE@am__append_28 = $(rules_DATA)
 TESTS = $(am__EXEEXT_7)
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
@@ -279,18 +278,20 @@ plugins_external_dummy_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
 @EXPERIMENTAL_TRUE@	tools/hcieventmask$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/hcisecfilter$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/hwdb$(EXEEXT) tools/btmgmt$(EXEEXT) \
+@EXPERIMENTAL_TRUE@	tools/btinfo$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/btattach$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/btsnoop$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/btiotest$(EXEEXT) \
-@EXPERIMENTAL_TRUE@	tools/mpris-player$(EXEEXT) \
-@EXPERIMENTAL_TRUE@	tools/bluetooth-player$(EXEEXT)
+@EXPERIMENTAL_TRUE@	tools/mpris-player$(EXEEXT)
 @READLINE_TRUE@am__EXEEXT_5 = attrib/gatttool$(EXEEXT) \
 @READLINE_TRUE@	tools/obex-client-tool$(EXEEXT) \
-@READLINE_TRUE@	tools/obex-server-tool$(EXEEXT)
+@READLINE_TRUE@	tools/obex-server-tool$(EXEEXT) \
+@READLINE_TRUE@	tools/bluetooth-player$(EXEEXT)
 @EXPERIMENTAL_TRUE@am__EXEEXT_6 = profiles/iap/iapd$(EXEEXT)
 am__EXEEXT_7 = unit/test-eir$(EXEEXT) unit/test-uuid$(EXEEXT) \
-	unit/test-textfile$(EXEEXT) unit/test-mgmt$(EXEEXT) \
-	unit/test-sdp$(EXEEXT) unit/test-gdbus-client$(EXEEXT) \
+	unit/test-textfile$(EXEEXT) unit/test-crc$(EXEEXT) \
+	unit/test-mgmt$(EXEEXT) unit/test-sdp$(EXEEXT) \
+	unit/test-gdbus-client$(EXEEXT) \
 	unit/test-gobex-header$(EXEEXT) \
 	unit/test-gobex-packet$(EXEEXT) unit/test-gobex$(EXEEXT) \
 	unit/test-gobex-transfer$(EXEEXT) \
@@ -344,16 +345,21 @@ am__monitor_btmon_SOURCES_DIST = monitor/main.c monitor/bt.h \
 	monitor/display.c monitor/hcidump.h monitor/hcidump.c \
 	monitor/btsnoop.h monitor/btsnoop.c monitor/control.h \
 	monitor/control.c monitor/packet.h monitor/packet.c \
+	monitor/vendor.h monitor/vendor.c monitor/lmp.h monitor/lmp.c \
 	monitor/l2cap.h monitor/l2cap.c monitor/uuid.h monitor/uuid.c \
-	monitor/sdp.h monitor/sdp.c
+	monitor/sdp.h monitor/sdp.c monitor/crc.h monitor/crc.c \
+	monitor/ll.h monitor/ll.c
 @MONITOR_TRUE@am_monitor_btmon_OBJECTS = monitor/main.$(OBJEXT) \
 @MONITOR_TRUE@	monitor/mainloop.$(OBJEXT) \
 @MONITOR_TRUE@	monitor/display.$(OBJEXT) \
 @MONITOR_TRUE@	monitor/hcidump.$(OBJEXT) \
 @MONITOR_TRUE@	monitor/btsnoop.$(OBJEXT) \
 @MONITOR_TRUE@	monitor/control.$(OBJEXT) \
-@MONITOR_TRUE@	monitor/packet.$(OBJEXT) monitor/l2cap.$(OBJEXT) \
-@MONITOR_TRUE@	monitor/uuid.$(OBJEXT) monitor/sdp.$(OBJEXT)
+@MONITOR_TRUE@	monitor/packet.$(OBJEXT) \
+@MONITOR_TRUE@	monitor/vendor.$(OBJEXT) monitor/lmp.$(OBJEXT) \
+@MONITOR_TRUE@	monitor/l2cap.$(OBJEXT) monitor/uuid.$(OBJEXT) \
+@MONITOR_TRUE@	monitor/sdp.$(OBJEXT) monitor/crc.$(OBJEXT) \
+@MONITOR_TRUE@	monitor/ll.$(OBJEXT)
 monitor_btmon_OBJECTS = $(am_monitor_btmon_OBJECTS)
 @MONITOR_TRUE@monitor_btmon_DEPENDENCIES =  \
 @MONITOR_TRUE@	lib/libbluetooth-internal.la
@@ -617,18 +623,15 @@ tools_avtest_OBJECTS = tools/avtest.$(OBJEXT)
 @EXPERIMENTAL_TRUE@tools_avtest_DEPENDENCIES =  \
 @EXPERIMENTAL_TRUE@	lib/libbluetooth-internal.la
 am__tools_bccmd_SOURCES_DIST = tools/bccmd.c tools/csr.h tools/csr.c \
-	tools/csr_hci.c tools/csr_h4.c tools/csr_3wire.c \
-	tools/csr_bcsp.c tools/ubcsp.h tools/ubcsp.c tools/csr_usb.c
-@TOOLS_TRUE@@USB_TRUE@am__objects_17 = tools/csr_usb.$(OBJEXT)
+	tools/csr_hci.c tools/csr_usb.c tools/csr_h4.c \
+	tools/csr_3wire.c tools/csr_bcsp.c tools/ubcsp.h tools/ubcsp.c
 @TOOLS_TRUE@am_tools_bccmd_OBJECTS = tools/bccmd.$(OBJEXT) \
 @TOOLS_TRUE@	tools/csr.$(OBJEXT) tools/csr_hci.$(OBJEXT) \
-@TOOLS_TRUE@	tools/csr_h4.$(OBJEXT) tools/csr_3wire.$(OBJEXT) \
-@TOOLS_TRUE@	tools/csr_bcsp.$(OBJEXT) tools/ubcsp.$(OBJEXT) \
-@TOOLS_TRUE@	$(am__objects_17)
+@TOOLS_TRUE@	tools/csr_usb.$(OBJEXT) tools/csr_h4.$(OBJEXT) \
+@TOOLS_TRUE@	tools/csr_3wire.$(OBJEXT) tools/csr_bcsp.$(OBJEXT) \
+@TOOLS_TRUE@	tools/ubcsp.$(OBJEXT)
 tools_bccmd_OBJECTS = $(am_tools_bccmd_OBJECTS)
-am__DEPENDENCIES_1 =
-@TOOLS_TRUE@tools_bccmd_DEPENDENCIES = lib/libbluetooth-internal.la \
-@TOOLS_TRUE@	$(am__DEPENDENCIES_1)
+@TOOLS_TRUE@tools_bccmd_DEPENDENCIES = lib/libbluetooth-internal.la
 am__tools_bdaddr_SOURCES_DIST = tools/bdaddr.c src/oui.h src/oui.c
 @EXPERIMENTAL_TRUE@am_tools_bdaddr_OBJECTS = tools/bdaddr.$(OBJEXT) \
 @EXPERIMENTAL_TRUE@	src/oui.$(OBJEXT)
@@ -637,15 +640,19 @@ tools_bdaddr_OBJECTS = $(am_tools_bdaddr_OBJECTS)
 @EXPERIMENTAL_TRUE@	lib/libbluetooth-internal.la
 am__tools_bluetooth_player_SOURCES_DIST = tools/bluetooth-player.c \
 	client/display.h client/display.c
-@EXPERIMENTAL_TRUE@am_tools_bluetooth_player_OBJECTS =  \
-@EXPERIMENTAL_TRUE@	tools/bluetooth-player.$(OBJEXT) \
-@EXPERIMENTAL_TRUE@	client/display.$(OBJEXT)
+@READLINE_TRUE@am_tools_bluetooth_player_OBJECTS =  \
+@READLINE_TRUE@	tools/bluetooth-player.$(OBJEXT) \
+@READLINE_TRUE@	client/display.$(OBJEXT)
 tools_bluetooth_player_OBJECTS = $(am_tools_bluetooth_player_OBJECTS)
-@EXPERIMENTAL_TRUE@tools_bluetooth_player_DEPENDENCIES =  \
-@EXPERIMENTAL_TRUE@	gdbus/libgdbus-internal.la
+@READLINE_TRUE@tools_bluetooth_player_DEPENDENCIES =  \
+@READLINE_TRUE@	gdbus/libgdbus-internal.la
 tools_btattach_SOURCES = tools/btattach.c
 tools_btattach_OBJECTS = tools/btattach.$(OBJEXT)
 tools_btattach_LDADD = $(LDADD)
+am__tools_btinfo_SOURCES_DIST = tools/btinfo.c
+@EXPERIMENTAL_TRUE@am_tools_btinfo_OBJECTS = tools/btinfo.$(OBJEXT)
+tools_btinfo_OBJECTS = $(am_tools_btinfo_OBJECTS)
+tools_btinfo_LDADD = $(LDADD)
 am__tools_btiotest_SOURCES_DIST = tools/btiotest.c btio/btio.h \
 	btio/btio.c
 @EXPERIMENTAL_TRUE@am_tools_btiotest_OBJECTS =  \
@@ -664,8 +671,12 @@ am__tools_btmgmt_SOURCES_DIST = tools/btmgmt.c src/glib-helper.c \
 tools_btmgmt_OBJECTS = $(am_tools_btmgmt_OBJECTS)
 @EXPERIMENTAL_TRUE@tools_btmgmt_DEPENDENCIES =  \
 @EXPERIMENTAL_TRUE@	lib/libbluetooth-internal.la
-tools_btsnoop_SOURCES = tools/btsnoop.c
-tools_btsnoop_OBJECTS = tools/btsnoop.$(OBJEXT)
+am__tools_btsnoop_SOURCES_DIST = tools/btsnoop.c src/shared/pcap.h \
+	src/shared/pcap.c src/shared/btsnoop.h src/shared/btsnoop.c
+@EXPERIMENTAL_TRUE@am_tools_btsnoop_OBJECTS = tools/btsnoop.$(OBJEXT) \
+@EXPERIMENTAL_TRUE@	src/shared/pcap.$(OBJEXT) \
+@EXPERIMENTAL_TRUE@	src/shared/btsnoop.$(OBJEXT)
+tools_btsnoop_OBJECTS = $(am_tools_btsnoop_OBJECTS)
 tools_btsnoop_LDADD = $(LDADD)
 tools_ciptool_SOURCES = tools/ciptool.c
 tools_ciptool_OBJECTS = tools/ciptool.$(OBJEXT)
@@ -811,12 +822,12 @@ am__tools_obex_client_tool_SOURCES_DIST = gobex/gobex.h gobex/gobex.c \
 	gobex/gobex-transfer.c gobex/gobex-debug.h \
 	gobex/gobex-apparam.c gobex/gobex-apparam.h btio/btio.h \
 	btio/btio.c tools/obex-client-tool.c
-am__objects_18 = gobex/gobex.$(OBJEXT) gobex/gobex-defs.$(OBJEXT) \
+am__objects_17 = gobex/gobex.$(OBJEXT) gobex/gobex-defs.$(OBJEXT) \
 	gobex/gobex-packet.$(OBJEXT) gobex/gobex-header.$(OBJEXT) \
 	gobex/gobex-transfer.$(OBJEXT) gobex/gobex-apparam.$(OBJEXT)
-am__objects_19 = btio/btio.$(OBJEXT)
-@READLINE_TRUE@am_tools_obex_client_tool_OBJECTS = $(am__objects_18) \
-@READLINE_TRUE@	$(am__objects_19) \
+am__objects_18 = btio/btio.$(OBJEXT)
+@READLINE_TRUE@am_tools_obex_client_tool_OBJECTS = $(am__objects_17) \
+@READLINE_TRUE@	$(am__objects_18) \
 @READLINE_TRUE@	tools/obex-client-tool.$(OBJEXT)
 tools_obex_client_tool_OBJECTS = $(am_tools_obex_client_tool_OBJECTS)
 @READLINE_TRUE@tools_obex_client_tool_DEPENDENCIES =  \
@@ -827,8 +838,8 @@ am__tools_obex_server_tool_SOURCES_DIST = gobex/gobex.h gobex/gobex.c \
 	gobex/gobex-transfer.c gobex/gobex-debug.h \
 	gobex/gobex-apparam.c gobex/gobex-apparam.h btio/btio.h \
 	btio/btio.c tools/obex-server-tool.c
-@READLINE_TRUE@am_tools_obex_server_tool_OBJECTS = $(am__objects_18) \
-@READLINE_TRUE@	$(am__objects_19) \
+@READLINE_TRUE@am_tools_obex_server_tool_OBJECTS = $(am__objects_17) \
+@READLINE_TRUE@	$(am__objects_18) \
 @READLINE_TRUE@	tools/obex-server-tool.$(OBJEXT)
 tools_obex_server_tool_OBJECTS = $(am_tools_obex_server_tool_OBJECTS)
 @READLINE_TRUE@tools_obex_server_tool_DEPENDENCIES =  \
@@ -865,6 +876,10 @@ am__tools_sdptool_SOURCES_DIST = tools/sdptool.c src/sdp-xml.h \
 @TOOLS_TRUE@	src/sdp-xml.$(OBJEXT)
 tools_sdptool_OBJECTS = $(am_tools_sdptool_OBJECTS)
 @TOOLS_TRUE@tools_sdptool_DEPENDENCIES = lib/libbluetooth-internal.la
+am_unit_test_crc_OBJECTS = unit/test-crc.$(OBJEXT) \
+	monitor/crc.$(OBJEXT)
+unit_test_crc_OBJECTS = $(am_unit_test_crc_OBJECTS)
+unit_test_crc_DEPENDENCIES =
 am_unit_test_eir_OBJECTS = unit/test-eir.$(OBJEXT) src/eir.$(OBJEXT) \
 	src/glib-helper.$(OBJEXT)
 unit_test_eir_OBJECTS = $(am_unit_test_eir_OBJECTS)
@@ -872,24 +887,24 @@ unit_test_eir_DEPENDENCIES = lib/libbluetooth-internal.la
 am_unit_test_gdbus_client_OBJECTS = unit/test-gdbus-client.$(OBJEXT)
 unit_test_gdbus_client_OBJECTS = $(am_unit_test_gdbus_client_OBJECTS)
 unit_test_gdbus_client_DEPENDENCIES = gdbus/libgdbus-internal.la
-am_unit_test_gobex_OBJECTS = $(am__objects_18) unit/util.$(OBJEXT) \
+am_unit_test_gobex_OBJECTS = $(am__objects_17) unit/util.$(OBJEXT) \
 	unit/test-gobex.$(OBJEXT)
 unit_test_gobex_OBJECTS = $(am_unit_test_gobex_OBJECTS)
 unit_test_gobex_DEPENDENCIES =
-am_unit_test_gobex_apparam_OBJECTS = $(am__objects_18) \
+am_unit_test_gobex_apparam_OBJECTS = $(am__objects_17) \
 	unit/util.$(OBJEXT) unit/test-gobex-apparam.$(OBJEXT)
 unit_test_gobex_apparam_OBJECTS =  \
 	$(am_unit_test_gobex_apparam_OBJECTS)
 unit_test_gobex_apparam_DEPENDENCIES =
-am_unit_test_gobex_header_OBJECTS = $(am__objects_18) \
+am_unit_test_gobex_header_OBJECTS = $(am__objects_17) \
 	unit/util.$(OBJEXT) unit/test-gobex-header.$(OBJEXT)
 unit_test_gobex_header_OBJECTS = $(am_unit_test_gobex_header_OBJECTS)
 unit_test_gobex_header_DEPENDENCIES =
-am_unit_test_gobex_packet_OBJECTS = $(am__objects_18) \
+am_unit_test_gobex_packet_OBJECTS = $(am__objects_17) \
 	unit/util.$(OBJEXT) unit/test-gobex-packet.$(OBJEXT)
 unit_test_gobex_packet_OBJECTS = $(am_unit_test_gobex_packet_OBJECTS)
 unit_test_gobex_packet_DEPENDENCIES =
-am_unit_test_gobex_transfer_OBJECTS = $(am__objects_18) \
+am_unit_test_gobex_transfer_OBJECTS = $(am__objects_17) \
 	unit/util.$(OBJEXT) unit/test-gobex-transfer.$(OBJEXT)
 unit_test_gobex_transfer_OBJECTS =  \
 	$(am_unit_test_gobex_transfer_OBJECTS)
@@ -951,8 +966,9 @@ SOURCES = $(profiles_sap_libsap_a_SOURCES) \
 	$(nodist_src_bluetoothd_SOURCES) tools/avinfo.c tools/avtest.c \
 	$(tools_bccmd_SOURCES) $(tools_bdaddr_SOURCES) \
 	$(tools_bluetooth_player_SOURCES) tools/btattach.c \
-	$(tools_btiotest_SOURCES) $(tools_btmgmt_SOURCES) \
-	tools/btsnoop.c tools/ciptool.c $(tools_gap_tester_SOURCES) \
+	$(tools_btinfo_SOURCES) $(tools_btiotest_SOURCES) \
+	$(tools_btmgmt_SOURCES) $(tools_btsnoop_SOURCES) \
+	tools/ciptool.c $(tools_gap_tester_SOURCES) \
 	$(tools_hciattach_SOURCES) $(tools_hciconfig_SOURCES) \
 	$(tools_hcidump_SOURCES) tools/hcieventmask.c \
 	tools/hcisecfilter.c $(tools_hcitool_SOURCES) tools/hid2hci.c \
@@ -962,9 +978,9 @@ SOURCES = $(profiles_sap_libsap_a_SOURCES) \
 	$(tools_obex_client_tool_SOURCES) \
 	$(tools_obex_server_tool_SOURCES) tools/rctest.c \
 	tools/rfcomm.c $(tools_sco_tester_SOURCES) tools/scotest.c \
-	$(tools_sdptool_SOURCES) $(unit_test_eir_SOURCES) \
-	$(unit_test_gdbus_client_SOURCES) $(unit_test_gobex_SOURCES) \
-	$(unit_test_gobex_apparam_SOURCES) \
+	$(tools_sdptool_SOURCES) $(unit_test_crc_SOURCES) \
+	$(unit_test_eir_SOURCES) $(unit_test_gdbus_client_SOURCES) \
+	$(unit_test_gobex_SOURCES) $(unit_test_gobex_apparam_SOURCES) \
 	$(unit_test_gobex_header_SOURCES) \
 	$(unit_test_gobex_packet_SOURCES) \
 	$(unit_test_gobex_transfer_SOURCES) $(unit_test_lib_SOURCES) \
@@ -987,9 +1003,11 @@ DIST_SOURCES = $(am__profiles_sap_libsap_a_SOURCES_DIST) \
 	tools/avtest.c $(am__tools_bccmd_SOURCES_DIST) \
 	$(am__tools_bdaddr_SOURCES_DIST) \
 	$(am__tools_bluetooth_player_SOURCES_DIST) tools/btattach.c \
+	$(am__tools_btinfo_SOURCES_DIST) \
 	$(am__tools_btiotest_SOURCES_DIST) \
-	$(am__tools_btmgmt_SOURCES_DIST) tools/btsnoop.c \
-	tools/ciptool.c $(am__tools_gap_tester_SOURCES_DIST) \
+	$(am__tools_btmgmt_SOURCES_DIST) \
+	$(am__tools_btsnoop_SOURCES_DIST) tools/ciptool.c \
+	$(am__tools_gap_tester_SOURCES_DIST) \
 	$(am__tools_hciattach_SOURCES_DIST) \
 	$(am__tools_hciconfig_SOURCES_DIST) \
 	$(am__tools_hcidump_SOURCES_DIST) tools/hcieventmask.c \
@@ -1002,8 +1020,9 @@ DIST_SOURCES = $(am__profiles_sap_libsap_a_SOURCES_DIST) \
 	$(am__tools_obex_server_tool_SOURCES_DIST) tools/rctest.c \
 	tools/rfcomm.c $(am__tools_sco_tester_SOURCES_DIST) \
 	tools/scotest.c $(am__tools_sdptool_SOURCES_DIST) \
-	$(unit_test_eir_SOURCES) $(unit_test_gdbus_client_SOURCES) \
-	$(unit_test_gobex_SOURCES) $(unit_test_gobex_apparam_SOURCES) \
+	$(unit_test_crc_SOURCES) $(unit_test_eir_SOURCES) \
+	$(unit_test_gdbus_client_SOURCES) $(unit_test_gobex_SOURCES) \
+	$(unit_test_gobex_apparam_SOURCES) \
 	$(unit_test_gobex_header_SOURCES) \
 	$(unit_test_gobex_packet_SOURCES) \
 	$(unit_test_gobex_transfer_SOURCES) $(unit_test_lib_SOURCES) \
@@ -1142,8 +1161,6 @@ SYSTEMD_USERUNITDIR = @SYSTEMD_USERUNITDIR@
 UDEV_CFLAGS = @UDEV_CFLAGS@
 UDEV_DIR = @UDEV_DIR@
 UDEV_LIBS = @UDEV_LIBS@
-USB_CFLAGS = @USB_CFLAGS@
-USB_LIBS = @USB_LIBS@
 VERSION = @VERSION@
 WARNING_CFLAGS = @WARNING_CFLAGS@
 abs_builddir = @abs_builddir@
@@ -1203,16 +1220,16 @@ lib_LTLIBRARIES = $(am__append_2)
 noinst_LIBRARIES = $(am__append_7)
 noinst_LTLIBRARIES = lib/libbluetooth-internal.la \
 	gdbus/libgdbus-internal.la
-dist_man_MANS = $(am__append_19) $(am__append_21)
+dist_man_MANS = $(am__append_17) $(am__append_19)
 dist_noinst_MANS = 
 CLEANFILES = $(builtin_files) src/bluetooth.service \
 	obexd/src/builtin.h $(builtin_files) obexd/src/obex.service \
-	$(am__append_30)
+	$(am__append_28)
 EXTRA_DIST = src/bluetooth.service.in src/org.bluez.service \
 	src/genbuiltin src/bluetooth.conf src/main.conf \
 	profiles/network/network.conf profiles/input/input.conf \
-	profiles/proximity/proximity.conf $(am__append_20) \
-	$(am__append_22) $(am__append_23) obexd/src/obex.service.in \
+	profiles/proximity/proximity.conf $(am__append_18) \
+	$(am__append_20) $(am__append_21) obexd/src/obex.service.in \
 	obexd/src/org.bluez.obex.service obexd/src/genbuiltin \
 	tools/hid2hci.rules $(test_scripts) doc/assigned-numbers.txt \
 	doc/supported-features.txt doc/mgmt-api.txt \
@@ -1339,7 +1356,7 @@ src_bluetoothd_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic \
 				-Wl,--version-script=$(srcdir)/src/bluetooth.ver
 
 src_bluetoothd_DEPENDENCIES = lib/libbluetooth-internal.la \
-						src/bluetooth.service
+				gdbus/libgdbus-internal.la src/bluetooth.service
 
 src_bluetoothd_CFLAGS = $(AM_CFLAGS) -DBLUETOOTH_PLUGIN_BUILTIN \
 					-DPLUGINDIR=\""$(build_plugindir)"\"
@@ -1374,9 +1391,13 @@ test_scripts = test/sap_client.py test/bluezutils.py test/dbusdef.py \
 @MONITOR_TRUE@					monitor/btsnoop.h monitor/btsnoop.c \
 @MONITOR_TRUE@					monitor/control.h monitor/control.c \
 @MONITOR_TRUE@					monitor/packet.h monitor/packet.c \
+@MONITOR_TRUE@					monitor/vendor.h monitor/vendor.c \
+@MONITOR_TRUE@					monitor/lmp.h monitor/lmp.c \
 @MONITOR_TRUE@					monitor/l2cap.h monitor/l2cap.c \
 @MONITOR_TRUE@					monitor/uuid.h monitor/uuid.c \
-@MONITOR_TRUE@					monitor/sdp.h monitor/sdp.c
+@MONITOR_TRUE@					monitor/sdp.h monitor/sdp.c \
+@MONITOR_TRUE@					monitor/crc.h monitor/crc.c \
+@MONITOR_TRUE@					monitor/ll.h monitor/ll.c
 
 @MONITOR_TRUE@monitor_btmon_LDADD = lib/libbluetooth-internal.la
 @EXPERIMENTAL_TRUE@emulator_btvirt_SOURCES = emulator/main.c monitor/bt.h \
@@ -1468,14 +1489,14 @@ test_scripts = test/sap_client.py test/bluezutils.py test/dbusdef.py \
 @TOOLS_TRUE@tools_sdptool_SOURCES = tools/sdptool.c src/sdp-xml.h src/sdp-xml.c
 @TOOLS_TRUE@tools_sdptool_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 @TOOLS_TRUE@tools_ciptool_LDADD = lib/libbluetooth-internal.la
-@TOOLS_TRUE@tools_bccmd_SOURCES = tools/bccmd.c tools/csr.h \
-@TOOLS_TRUE@	tools/csr.c tools/csr_hci.c tools/csr_h4.c \
-@TOOLS_TRUE@	tools/csr_3wire.c tools/csr_bcsp.c tools/ubcsp.h \
-@TOOLS_TRUE@	tools/ubcsp.c $(am__append_17)
-@TOOLS_TRUE@tools_bccmd_LDADD = lib/libbluetooth-internal.la \
-@TOOLS_TRUE@	$(am__append_18)
+@TOOLS_TRUE@tools_bccmd_SOURCES = tools/bccmd.c tools/csr.h tools/csr.c \
+@TOOLS_TRUE@			tools/csr_hci.c tools/csr_usb.c \
+@TOOLS_TRUE@			tools/csr_h4.c tools/csr_3wire.c \
+@TOOLS_TRUE@			tools/csr_bcsp.c tools/ubcsp.h tools/ubcsp.c
+
+@TOOLS_TRUE@tools_bccmd_LDADD = lib/libbluetooth-internal.la
 @HID2HCI_TRUE@udevdir = @UDEV_DIR@
-@HID2HCI_TRUE@tools_hid2hci_LDADD = @USB_LIBS@ @UDEV_LIBS@
+@HID2HCI_TRUE@tools_hid2hci_LDADD = @UDEV_LIBS@
 @EXPERIMENTAL_TRUE@tools_bdaddr_SOURCES = tools/bdaddr.c src/oui.h src/oui.c
 @EXPERIMENTAL_TRUE@tools_bdaddr_LDADD = lib/libbluetooth-internal.la @UDEV_LIBS@
 @EXPERIMENTAL_TRUE@tools_avinfo_LDADD = lib/libbluetooth-internal.la
@@ -1488,16 +1509,15 @@ test_scripts = test/sap_client.py test/bluezutils.py test/dbusdef.py \
 @EXPERIMENTAL_TRUE@				src/shared/mgmt.h src/shared/mgmt.c
 
 @EXPERIMENTAL_TRUE@tools_btmgmt_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
+@EXPERIMENTAL_TRUE@tools_btinfo_SOURCES = tools/btinfo.c
+@EXPERIMENTAL_TRUE@tools_btsnoop_SOURCES = tools/btsnoop.c \
+@EXPERIMENTAL_TRUE@				src/shared/pcap.h src/shared/pcap.c \
+@EXPERIMENTAL_TRUE@				src/shared/btsnoop.h src/shared/btsnoop.c
+
 @EXPERIMENTAL_TRUE@tools_btiotest_SOURCES = tools/btiotest.c btio/btio.h btio/btio.c
 @EXPERIMENTAL_TRUE@tools_btiotest_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 @EXPERIMENTAL_TRUE@tools_mpris_player_SOURCES = tools/mpris-player.c
 @EXPERIMENTAL_TRUE@tools_mpris_player_LDADD = gdbus/libgdbus-internal.la @GLIB_LIBS@ @DBUS_LIBS@
-@EXPERIMENTAL_TRUE@tools_bluetooth_player_SOURCES = tools/bluetooth-player.c \
-@EXPERIMENTAL_TRUE@				client/display.h client/display.c
-
-@EXPERIMENTAL_TRUE@tools_bluetooth_player_LDADD = gdbus/libgdbus-internal.la \
-@EXPERIMENTAL_TRUE@				@GLIB_LIBS@ @DBUS_LIBS@ -lreadline
-
 @READLINE_TRUE@attrib_gatttool_SOURCES = attrib/gatttool.c attrib/att.c attrib/gatt.c \
 @READLINE_TRUE@				attrib/gattrib.c btio/btio.c \
 @READLINE_TRUE@				attrib/gatttool.h attrib/interactive.c \
@@ -1515,6 +1535,12 @@ test_scripts = test/sap_client.py test/bluezutils.py test/dbusdef.py \
 @READLINE_TRUE@						tools/obex-server-tool.c
 
 @READLINE_TRUE@tools_obex_server_tool_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
+@READLINE_TRUE@tools_bluetooth_player_SOURCES = tools/bluetooth-player.c \
+@READLINE_TRUE@				client/display.h client/display.c
+
+@READLINE_TRUE@tools_bluetooth_player_LDADD = gdbus/libgdbus-internal.la \
+@READLINE_TRUE@				@GLIB_LIBS@ @DBUS_LIBS@ -lreadline
+
 @EXPERIMENTAL_TRUE@profiles_iap_iapd_SOURCES = profiles/iap/main.c
 @EXPERIMENTAL_TRUE@profiles_iap_iapd_LDADD = gdbus/libgdbus-internal.la @GLIB_LIBS@ @DBUS_LIBS@
 @CUPS_TRUE@cupsdir = $(libdir)/cups/backend
@@ -1533,12 +1559,12 @@ test_scripts = test/sap_client.py test/bluezutils.py test/dbusdef.py \
 @SYSTEMD_TRUE@dbussessionbusdir = @DBUS_SESSIONBUSDIR@
 @SYSTEMD_TRUE@dbussessionbus_DATA = obexd/src/org.bluez.obex.service
 obex_plugindir = $(libdir)/obex/plugins
-obexd_builtin_modules = filesystem bluetooth $(am__append_26) opp ftp \
-	$(am__append_28) mas mns
+obexd_builtin_modules = filesystem bluetooth $(am__append_24) opp ftp \
+	$(am__append_26) mas mns
 obexd_builtin_sources = obexd/plugins/filesystem.c \
 	obexd/plugins/filesystem.h obexd/plugins/bluetooth.c \
-	$(am__append_27) obexd/plugins/opp.c obexd/plugins/ftp.c \
-	obexd/plugins/ftp.h $(am__append_29) obexd/plugins/mas.c \
+	$(am__append_25) obexd/plugins/opp.c obexd/plugins/ftp.c \
+	obexd/plugins/ftp.h $(am__append_27) obexd/plugins/mas.c \
 	obexd/src/map_ap.h obexd/plugins/messages.h \
 	obexd/plugins/messages-dummy.c obexd/client/mns.c \
 	obexd/src/map_ap.h obexd/client/map-event.h
@@ -1594,8 +1620,9 @@ AM_CPPFLAGS = -I$(builddir)/lib -I$(builddir)/src -I$(srcdir)/src \
 			-I$(srcdir)/gdbus -I$(srcdir)/btio
 
 unit_tests = unit/test-eir unit/test-uuid unit/test-textfile \
-	unit/test-mgmt unit/test-sdp unit/test-gdbus-client \
-	unit/test-gobex-header unit/test-gobex-packet unit/test-gobex \
+	unit/test-crc unit/test-mgmt unit/test-sdp \
+	unit/test-gdbus-client unit/test-gobex-header \
+	unit/test-gobex-packet unit/test-gobex \
 	unit/test-gobex-transfer unit/test-gobex-apparam unit/test-lib
 unit_test_eir_SOURCES = unit/test-eir.c src/eir.c src/glib-helper.c
 unit_test_eir_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
@@ -1603,6 +1630,8 @@ unit_test_uuid_SOURCES = unit/test-uuid.c
 unit_test_uuid_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 unit_test_textfile_SOURCES = unit/test-textfile.c src/textfile.h src/textfile.c
 unit_test_textfile_LDADD = @GLIB_LIBS@
+unit_test_crc_SOURCES = unit/test-crc.c monitor/crc.h monitor/crc.c
+unit_test_crc_LDADD = @GLIB_LIBS@
 unit_test_mgmt_SOURCES = unit/test-mgmt.c \
 				src/shared/util.h src/shared/util.c \
 				src/shared/mgmt.h src/shared/mgmt.c
@@ -1643,12 +1672,12 @@ unit_test_lib_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 pkgconfigdir = $(libdir)/pkgconfig
 @LIBRARY_TRUE@pkgconfig_DATA = lib/bluez.pc
 DISTCHECK_CONFIGURE_FLAGS = --disable-datafiles --enable-library \
-				--disable-systemd --disable-udev --disable-usb
+					--disable-systemd --disable-udev
 
 DISTCLEANFILES = $(pkgconfig_DATA)
 MAINTAINERCLEANFILES = Makefile.in \
 	aclocal.m4 configure config.h.in config.sub config.guess \
-	ltmain.sh depcomp compile missing install-sh mkinstalldirs
+	ltmain.sh depcomp compile missing install-sh mkinstalldirs test-driver
 
 SED_PROCESS = $(AM_V_GEN)$(MKDIR_P) $(dir $@) && \
 		$(SED) -e 's,@libexecdir\@,$(libexecdir),g' \
@@ -2129,9 +2158,17 @@ monitor/control.$(OBJEXT): monitor/$(am__dirstamp) \
 	monitor/$(DEPDIR)/$(am__dirstamp)
 monitor/packet.$(OBJEXT): monitor/$(am__dirstamp) \
 	monitor/$(DEPDIR)/$(am__dirstamp)
+monitor/vendor.$(OBJEXT): monitor/$(am__dirstamp) \
+	monitor/$(DEPDIR)/$(am__dirstamp)
+monitor/lmp.$(OBJEXT): monitor/$(am__dirstamp) \
+	monitor/$(DEPDIR)/$(am__dirstamp)
 monitor/l2cap.$(OBJEXT): monitor/$(am__dirstamp) \
 	monitor/$(DEPDIR)/$(am__dirstamp)
 monitor/sdp.$(OBJEXT): monitor/$(am__dirstamp) \
+	monitor/$(DEPDIR)/$(am__dirstamp)
+monitor/crc.$(OBJEXT): monitor/$(am__dirstamp) \
+	monitor/$(DEPDIR)/$(am__dirstamp)
+monitor/ll.$(OBJEXT): monitor/$(am__dirstamp) \
 	monitor/$(DEPDIR)/$(am__dirstamp)
 monitor/btmon$(EXEEXT): $(monitor_btmon_OBJECTS) $(monitor_btmon_DEPENDENCIES) $(EXTRA_monitor_btmon_DEPENDENCIES) monitor/$(am__dirstamp)
 	@rm -f monitor/btmon$(EXEEXT)
@@ -2585,6 +2622,8 @@ tools/csr.$(OBJEXT): tools/$(am__dirstamp) \
 	tools/$(DEPDIR)/$(am__dirstamp)
 tools/csr_hci.$(OBJEXT): tools/$(am__dirstamp) \
 	tools/$(DEPDIR)/$(am__dirstamp)
+tools/csr_usb.$(OBJEXT): tools/$(am__dirstamp) \
+	tools/$(DEPDIR)/$(am__dirstamp)
 tools/csr_h4.$(OBJEXT): tools/$(am__dirstamp) \
 	tools/$(DEPDIR)/$(am__dirstamp)
 tools/csr_3wire.$(OBJEXT): tools/$(am__dirstamp) \
@@ -2592,8 +2631,6 @@ tools/csr_3wire.$(OBJEXT): tools/$(am__dirstamp) \
 tools/csr_bcsp.$(OBJEXT): tools/$(am__dirstamp) \
 	tools/$(DEPDIR)/$(am__dirstamp)
 tools/ubcsp.$(OBJEXT): tools/$(am__dirstamp) \
-	tools/$(DEPDIR)/$(am__dirstamp)
-tools/csr_usb.$(OBJEXT): tools/$(am__dirstamp) \
 	tools/$(DEPDIR)/$(am__dirstamp)
 tools/bccmd$(EXEEXT): $(tools_bccmd_OBJECTS) $(tools_bccmd_DEPENDENCIES) $(EXTRA_tools_bccmd_DEPENDENCIES) tools/$(am__dirstamp)
 	@rm -f tools/bccmd$(EXEEXT)
@@ -2614,6 +2651,11 @@ tools/btattach.$(OBJEXT): tools/$(am__dirstamp) \
 tools/btattach$(EXEEXT): $(tools_btattach_OBJECTS) $(tools_btattach_DEPENDENCIES) $(EXTRA_tools_btattach_DEPENDENCIES) tools/$(am__dirstamp)
 	@rm -f tools/btattach$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(tools_btattach_OBJECTS) $(tools_btattach_LDADD) $(LIBS)
+tools/btinfo.$(OBJEXT): tools/$(am__dirstamp) \
+	tools/$(DEPDIR)/$(am__dirstamp)
+tools/btinfo$(EXEEXT): $(tools_btinfo_OBJECTS) $(tools_btinfo_DEPENDENCIES) $(EXTRA_tools_btinfo_DEPENDENCIES) tools/$(am__dirstamp)
+	@rm -f tools/btinfo$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(tools_btinfo_OBJECTS) $(tools_btinfo_LDADD) $(LIBS)
 tools/btiotest.$(OBJEXT): tools/$(am__dirstamp) \
 	tools/$(DEPDIR)/$(am__dirstamp)
 tools/btiotest$(EXEEXT): $(tools_btiotest_OBJECTS) $(tools_btiotest_DEPENDENCIES) $(EXTRA_tools_btiotest_DEPENDENCIES) tools/$(am__dirstamp)
@@ -2633,6 +2675,10 @@ tools/btmgmt$(EXEEXT): $(tools_btmgmt_OBJECTS) $(tools_btmgmt_DEPENDENCIES) $(EX
 	$(AM_V_CCLD)$(LINK) $(tools_btmgmt_OBJECTS) $(tools_btmgmt_LDADD) $(LIBS)
 tools/btsnoop.$(OBJEXT): tools/$(am__dirstamp) \
 	tools/$(DEPDIR)/$(am__dirstamp)
+src/shared/pcap.$(OBJEXT): src/shared/$(am__dirstamp) \
+	src/shared/$(DEPDIR)/$(am__dirstamp)
+src/shared/btsnoop.$(OBJEXT): src/shared/$(am__dirstamp) \
+	src/shared/$(DEPDIR)/$(am__dirstamp)
 tools/btsnoop$(EXEEXT): $(tools_btsnoop_OBJECTS) $(tools_btsnoop_DEPENDENCIES) $(EXTRA_tools_btsnoop_DEPENDENCIES) tools/$(am__dirstamp)
 	@rm -f tools/btsnoop$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(tools_btsnoop_OBJECTS) $(tools_btsnoop_LDADD) $(LIBS)
@@ -2836,6 +2882,11 @@ unit/$(am__dirstamp):
 unit/$(DEPDIR)/$(am__dirstamp):
 	@$(MKDIR_P) unit/$(DEPDIR)
 	@: > unit/$(DEPDIR)/$(am__dirstamp)
+unit/test-crc.$(OBJEXT): unit/$(am__dirstamp) \
+	unit/$(DEPDIR)/$(am__dirstamp)
+unit/test-crc$(EXEEXT): $(unit_test_crc_OBJECTS) $(unit_test_crc_DEPENDENCIES) $(EXTRA_unit_test_crc_DEPENDENCIES) unit/$(am__dirstamp)
+	@rm -f unit/test-crc$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(unit_test_crc_OBJECTS) $(unit_test_crc_LDADD) $(LIBS)
 unit/test-eir.$(OBJEXT): unit/$(am__dirstamp) \
 	unit/$(DEPDIR)/$(am__dirstamp)
 unit/test-eir$(EXEEXT): $(unit_test_eir_OBJECTS) $(unit_test_eir_DEPENDENCIES) $(EXTRA_unit_test_eir_DEPENDENCIES) unit/$(am__dirstamp)
@@ -2998,14 +3049,18 @@ mostlyclean-compile:
 	-rm -f lib/uuid.lo
 	-rm -f monitor/btsnoop.$(OBJEXT)
 	-rm -f monitor/control.$(OBJEXT)
+	-rm -f monitor/crc.$(OBJEXT)
 	-rm -f monitor/display.$(OBJEXT)
 	-rm -f monitor/hcidump.$(OBJEXT)
 	-rm -f monitor/l2cap.$(OBJEXT)
+	-rm -f monitor/ll.$(OBJEXT)
+	-rm -f monitor/lmp.$(OBJEXT)
 	-rm -f monitor/main.$(OBJEXT)
 	-rm -f monitor/mainloop.$(OBJEXT)
 	-rm -f monitor/packet.$(OBJEXT)
 	-rm -f monitor/sdp.$(OBJEXT)
 	-rm -f monitor/uuid.$(OBJEXT)
+	-rm -f monitor/vendor.$(OBJEXT)
 	-rm -f obexd/client/obexd-bluetooth.$(OBJEXT)
 	-rm -f obexd/client/obexd-dbus.$(OBJEXT)
 	-rm -f obexd/client/obexd-driver.$(OBJEXT)
@@ -3130,8 +3185,10 @@ mostlyclean-compile:
 	-rm -f src/sdpd-service.$(OBJEXT)
 	-rm -f src/shared/bluetoothd-mgmt.$(OBJEXT)
 	-rm -f src/shared/bluetoothd-util.$(OBJEXT)
+	-rm -f src/shared/btsnoop.$(OBJEXT)
 	-rm -f src/shared/hciemu.$(OBJEXT)
 	-rm -f src/shared/mgmt.$(OBJEXT)
+	-rm -f src/shared/pcap.$(OBJEXT)
 	-rm -f src/shared/tester.$(OBJEXT)
 	-rm -f src/shared/util.$(OBJEXT)
 	-rm -f src/textfile.$(OBJEXT)
@@ -3141,6 +3198,7 @@ mostlyclean-compile:
 	-rm -f tools/bdaddr.$(OBJEXT)
 	-rm -f tools/bluetooth-player.$(OBJEXT)
 	-rm -f tools/btattach.$(OBJEXT)
+	-rm -f tools/btinfo.$(OBJEXT)
 	-rm -f tools/btiotest.$(OBJEXT)
 	-rm -f tools/btmgmt.$(OBJEXT)
 	-rm -f tools/btsnoop.$(OBJEXT)
@@ -3203,6 +3261,7 @@ mostlyclean-compile:
 	-rm -f tools/scotest.$(OBJEXT)
 	-rm -f tools/sdptool.$(OBJEXT)
 	-rm -f tools/ubcsp.$(OBJEXT)
+	-rm -f unit/test-crc.$(OBJEXT)
 	-rm -f unit/test-eir.$(OBJEXT)
 	-rm -f unit/test-gdbus-client.$(OBJEXT)
 	-rm -f unit/test-gobex-apparam.$(OBJEXT)
@@ -3265,14 +3324,18 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@lib/$(DEPDIR)/uuid.Plo@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/btsnoop.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/control.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/crc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/display.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/hcidump.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/l2cap.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/ll.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/lmp.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/main.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/mainloop.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/packet.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/sdp.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/uuid.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@monitor/$(DEPDIR)/vendor.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@obexd/client/$(DEPDIR)/obexd-bluetooth.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@obexd/client/$(DEPDIR)/obexd-dbus.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@obexd/client/$(DEPDIR)/obexd-driver.Po@am__quote@
@@ -3397,8 +3460,10 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/$(DEPDIR)/textfile.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/bluetoothd-mgmt.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/bluetoothd-util.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/btsnoop.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/hciemu.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/mgmt.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/pcap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/tester.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/util.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/avinfo.Po@am__quote@
@@ -3407,6 +3472,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/bdaddr.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/bluetooth-player.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/btattach.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/btinfo.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/btiotest.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/btmgmt.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/btsnoop.Po@am__quote@
@@ -3469,6 +3535,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@tools/parser/$(DEPDIR)/sdp.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/parser/$(DEPDIR)/smp.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/parser/$(DEPDIR)/tcpip.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@unit/$(DEPDIR)/test-crc.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@unit/$(DEPDIR)/test-eir.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@unit/$(DEPDIR)/test-gdbus-client.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@unit/$(DEPDIR)/test-gobex-apparam.Po@am__quote@

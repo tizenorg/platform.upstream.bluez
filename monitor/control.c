@@ -104,7 +104,8 @@ static void mgmt_controller_error(uint16_t len, const void *buf)
 
 static const char *settings_str[] = {
 	"powered", "connectable", "fast-connectable", "discoverable",
-	"pairable", "link-security", "ssp", "br/edr", "hs", "le"
+	"pairable", "link-security", "ssp", "br/edr", "hs", "le",
+	"advertising",
 };
 
 static void mgmt_new_settings(uint16_t len, const void *buf)
@@ -625,7 +626,7 @@ static void data_callback(int fd, uint32_t events, void *user_data)
 			break;
 		case HCI_CHANNEL_MONITOR:
 			packet_monitor(tv, index, opcode, data->buf, pktlen);
-			btsnoop_write(tv, index, opcode, data->buf, pktlen);
+			btsnoop_write_hci(tv, index, opcode, data->buf, pktlen);
 			break;
 		}
 	}
@@ -806,22 +807,61 @@ void control_server(const char *path)
 	server_fd = fd;
 }
 
+void control_writer(const char *path)
+{
+	btsnoop_create(path, BTSNOOP_TYPE_EXTENDED_HCI);
+}
+
 void control_reader(const char *path)
 {
 	unsigned char buf[MAX_PACKET_SIZE];
-	uint16_t index, opcode, pktlen;
+	uint16_t pktlen;
+	uint32_t type;
 	struct timeval tv;
 
-	if (btsnoop_open(path) < 0)
+	if (btsnoop_open(path, &type) < 0)
 		return;
+
+	switch (type) {
+	case BTSNOOP_TYPE_HCI:
+	case BTSNOOP_TYPE_UART:
+	case BTSNOOP_TYPE_EXTENDED_PHY:
+		packet_del_filter(PACKET_FILTER_SHOW_INDEX);
+		break;
+
+	case BTSNOOP_TYPE_EXTENDED_HCI:
+		packet_add_filter(PACKET_FILTER_SHOW_INDEX);
+		break;
+	}
 
 	open_pager();
 
-	while (1) {
-		if (btsnoop_read(&tv, &index, &opcode, buf, &pktlen) < 0)
-			break;
+	switch (type) {
+	case BTSNOOP_TYPE_HCI:
+	case BTSNOOP_TYPE_UART:
+	case BTSNOOP_TYPE_EXTENDED_HCI:
+		while (1) {
+			uint16_t index, opcode;
 
-		packet_monitor(&tv, index, opcode, buf, pktlen);
+			if (btsnoop_read_hci(&tv, &index, &opcode,
+							buf, &pktlen) < 0)
+				break;
+
+			packet_monitor(&tv, index, opcode, buf, pktlen);
+		}
+		break;
+
+	case BTSNOOP_TYPE_EXTENDED_PHY:
+		while (1) {
+			uint16_t frequency;
+
+			if (btsnoop_read_phy(&tv, &frequency,
+							buf, &pktlen) < 0)
+				break;
+
+			packet_simulator(&tv, frequency, buf, pktlen);
+		}
+		break;
 	}
 
 	close_pager();

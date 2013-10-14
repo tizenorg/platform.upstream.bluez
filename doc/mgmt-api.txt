@@ -193,6 +193,7 @@ Read Controller Information Command
 		8	Basic Rate/Enhanced Data Rate
 		9	High Speed
 		10	Low Energy
+		11	Advertising
 
 	This command generates a Command Complete event on success or
 	a Command Status event on failure.
@@ -447,8 +448,14 @@ Set High Speed Command
 	This command can be used when the controller is not powered and
 	all settings will be programmed once powered.
 
-	In case the kernel subsystem does not support High Speed, the
-	command will fail regardless with Not Supported error.
+	To enable High Speed support, it is required that Secure Simple
+	Pairing support is enabled first. High Speed support is not
+	possible for connections without Secure Simple Pairing.
+
+	When switching Secure Simple Pairing off, the support for High
+	Speed will be switched off as well. Switching Secure Simple
+	Pairing back on, will not re-enable High Speed support. That
+	needs to be done manually.
 
 	This command generates a Command Complete event on success or
 	a Command Status event on failure.
@@ -483,7 +490,8 @@ Set Low Energy Command
 	This command generates a Command Complete event on success or
 	a Command Status event on failure.
 
-	Possible errors:	Not Supported
+	Possible errors:	Busy
+				Not Supported
 				Invalid Parameters
 				Invalid Index
 
@@ -654,15 +662,15 @@ Load Long Term Keys Command
 
 	Command Code:		0x0013
 	Controller Index:	<controller id>
-	Command Parameters:	Key Count (2 Octets)
+	Command Parameters:	Key_Count (2 Octets)
 				Key1 {
 					Address (6 Octets)
 					Address_Type (1 Octet)
 					Authenticated (1 Octet)
 					Master (1 Octet)
-					Encryption Size (1 Octet)
-					Enc. Diversifier (2 Octets)
-					Random Number (8 Octets)
+					Encryption_Size (1 Octet)
+					Encryption_Diversifier (2 Octets)
+					Random_Number (8 Octets)
 					Value (16 Octets)
 				}
 				Key2 {  }
@@ -809,6 +817,7 @@ Set IO Capability Command
 
 	Possible errors:	Invalid Parameters
 				Invalid Index
+
 
 Pair Device Command
 ===================
@@ -1221,6 +1230,89 @@ Set Device ID Command
 	a Command Status event on failure.
 
 	Possible errors:	Invalid Parameters
+				Invalid Index
+
+
+Set Advertising Command
+=======================
+
+	Command Code:		0x0029
+	Controller Index:	<controller id>
+	Command Parameters	Advertising (1 Octet)
+	Return Parameters:	Current_Settings (4 Octets)
+
+	This command is used to enable LE advertising on a controller
+	that supports it. The allowed values for the Advertising
+	command parameter are 0x00 and 0x01. All other values will
+	return Invalid Parameters.
+
+	A pre-requisite is that LE is already enabled, otherwise
+	this command will return a "rejected" response.
+
+	This command generates a Command Complete event on success or a
+	Command Status event on failure.
+
+	Possible errors:	Busy
+				Rejected
+				Not Supported
+				Invalid Parameters
+				Invalid Index
+
+
+Set BR/EDR Command
+==================
+
+	Command Code:		0x002A
+	Controller Index:	<controller id>
+	Command Parameters	BR/EDR (1 Octet)
+	Return Parameters:	Current_Settings (4 Octets)
+
+	This command is used to enable or disable BR/EDR support
+	on a dual-mode controller. The allowed values for the Advertising
+	command parameter are 0x00 and 0x01. All other values will
+	return Invalid Parameters.
+
+	A pre-requisite is that LE is already enabled, otherwise
+	this command will return a "rejected" response. Enabling BR/EDR
+	can be done both when powered on and powered off, however
+	disabling it can only be done when powered off (otherwise the
+	command will again return "rejected"). Disabling BR/EDR will
+	automatically disable all other BR/EDR related settings.
+
+	This command generates a Command Complete event on success or a
+	Command Status event on failure.
+
+	Possible errors:	Busy
+				Rejected
+				Not Supported
+				Invalid Parameters
+				Invalid Index
+
+
+Set Static Address Command
+==========================
+
+	Command Code:		0x002B
+	Controller Index:	<controller id>
+	Command Parameters	Address (6 Octets)
+	Return Parameters:
+
+	This command allows for setting the static random address. It is
+	only supported on controllers with LE support. The static random
+	address is suppose to be valid for the lifetime of the
+	controller or at least until the next power cycle. To ensure
+	such behavior, setting of the address is limited to when the
+	controller is powered off.
+
+	The special BDADDR_ANY address (00:00:00:00:00:00) can be used
+	to disable the static address.
+
+	This command generates a Command Complete event on success or a
+	Command Status event on failure.
+
+	Possible errors:	Rejected
+				Not Supported
+				Invalid Parameters
 				Invalid Index
 
 
