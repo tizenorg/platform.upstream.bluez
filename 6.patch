@@ -1,0 +1,144 @@
+commit a94703b01588486af238925d80fc8a05d9916073
+Author: Wu Zheng <wu.zheng@intel.com>
+Date:   Sun Sep 29 16:14:20 2013 +0800
+
+    Add new functions to phonebook TIZEN driver to control phonebook
+
+diff --git a/obexd/plugins/phonebook-tizen.c b/obexd/plugins/phonebook-tizen.c
+index 0f725f1..35bda4a 100644
+--- a/obexd/plugins/phonebook-tizen.c
++++ b/obexd/plugins/phonebook-tizen.c
+@@ -68,6 +68,7 @@ struct phonebook_data {
+ 
+ struct phonebook_session {
+ 	DBusConnection *connection;
++	phonebook_cache_clear_cb clear_cb;
+ 	unsigned int clear_id;
+ 
+ 	void *user_data;
+@@ -352,6 +353,19 @@ static gboolean get_sim_phonebook_reply(void *user_data)
+ static gboolean clear_signal(DBusConnection *conn, DBusMessage *msg,
+ 			void *user_data)
+ {
++	struct phonebook_session *session;
++
++	if (user_data == NULL)
++		return FALSE;
++
++	DBG("");
++	session = user_data;
++
++	session->clear_cb(session->user_data);
++
++	g_dbus_remove_watch(session->connection, session->clear_id);
++	session->clear_id = 0;
++
+ 	return TRUE;
+ }
+ 
+@@ -365,6 +379,32 @@ void phonebook_exit(void)
+ {
+ }
+ 
++int phonebook_connect(void **user_data)
++{
++	struct phonebook_session *session;
++
++	DBG("");
++
++	session = g_new0(struct phonebook_session, 1);
++
++	*user_data = session;
++
++	return 0;
++}
++
++void phonebook_disconnect(void *user_data)
++{
++	struct phonebook_session *session;
++
++	DBG("");
++	session = user_data;
++
++	g_dbus_remove_watch(session->connection, session->clear_id);
++	dbus_connection_unref(session->connection);
++
++	g_free(session);
++}
++
+ char *phonebook_set_folder(const char *current_folder,
+ 		const char *new_folder, uint8_t flags, int *err)
+ {
+@@ -572,3 +612,35 @@ void *phonebook_create_cache(const char *name, phonebook_entry_cb entry_cb,
+ 
+ 	return data;
+ }
++
++void phonebook_set_cache_notification(void *session,
++				phonebook_cache_clear_cb clear_cb,
++				void *user_data)
++{
++	struct phonebook_session *s = session;
++
++	DBG("");
++	s->clear_cb = clear_cb;
++
++	if (s->connection == NULL) {
++		s->connection = g_dbus_setup_bus(DBUS_BUS_SYSTEM,
++				NULL, NULL);
++
++		if (s->connection == NULL) {
++			error("Can't get on s bus");
++			return;
++		}
++	}
++
++	s->user_data = user_data;
++
++	if (s->clear_id) {
++		g_dbus_remove_watch(s->connection, s->clear_id);
++		s->clear_id = 0;
++	}
++
++	s->clear_id = g_dbus_add_signal_watch(s->connection,
++			NULL, PHONEBOOK_PATH, PHONEBOOK_INTERFACE,
++			"clear", clear_signal,
++			s, NULL);
++}
+diff --git a/obexd/plugins/phonebook.h b/obexd/plugins/phonebook.h
+index 441cff2..bb07dcc 100644
+--- a/obexd/plugins/phonebook.h
++++ b/obexd/plugins/phonebook.h
+@@ -81,6 +81,10 @@ typedef void (*phonebook_entry_cb) (const char *id, uint32_t handle,
+ 					const char *name, const char *sound,
+ 					const char *tel, void *user_data);
+ 
++#ifdef __TIZEN_PATCH__
++typedef void (*phonebook_cache_clear_cb) (void *user_data);
++#endif
++
+ /*
+  * After notify all entries to PBAP core, the backend
+  * needs to notify that the operation has finished.
+@@ -91,6 +95,11 @@ typedef void (*phonebook_cache_ready_cb) (void *user_data);
+ int phonebook_init(void);
+ void phonebook_exit(void);
+ 
++#ifdef __TIZEN_PATCH__
++int phonebook_connect(void **user_data);
++void phonebook_disconnect(void *user_data);
++#endif
++
+ /*
+  * Changes the current folder in the phonebook back-end. The PBAP core
+  * doesn't validate or restrict the possible values for the folders,
+@@ -160,3 +169,9 @@ void *phonebook_create_cache(const char *name, phonebook_entry_cb entry_cb,
+  * phonebook_get_entry, and phonebook_create_cache.
+  */
+ void phonebook_req_finalize(void *request);
++
++#ifdef __TIZEN_PATCH__
++void phonebook_set_cache_notification(void *session,
++				phonebook_cache_clear_cb cache_cb,
++				void *user_data);
++#endif

@@ -1,0 +1,618 @@
+commit 53b32ef1b3d068d2ddf38e89ae1ba93a6d157923
+Author: Wu Zheng <wu.zheng@intel.com>
+Date:   Sun Sep 29 16:44:57 2013 +0800
+
+    Add the Tizen2.2 related PBAP patches
+
+diff --git a/obexd/plugins/pbap.c b/obexd/plugins/pbap.c
+index 6fd86ab..dbbf29d 100644
+--- a/obexd/plugins/pbap.c
++++ b/obexd/plugins/pbap.c
+@@ -630,6 +630,9 @@ static void pbap_disconnect(struct obex_session *os, void *user_data)
+ 	manager_unregister_session(os);
+ 
+ #ifdef __TIZEN_PATCH__
++	if (!pbap)
++		return;
++
+ 	phonebook_disconnect(pbap->backend_data);
+ #endif
+ 
+diff --git a/obexd/plugins/phonebook-tizen.c b/obexd/plugins/phonebook-tizen.c
+index 35bda4a..11c354c 100644
+--- a/obexd/plugins/phonebook-tizen.c
++++ b/obexd/plugins/phonebook-tizen.c
+@@ -49,10 +49,14 @@
+ #define PHONEBOOK_PATH			"/org/bluez/pb_agent"
+ #define PHONEBOOK_INTERFACE		"org.bluez.PbAgent"
+ 
++#define QUERY_GET_PHONEBOOK_FOLDER_LIST "GetPhonebookFolderList"
+ #define QUERY_GET_PHONEBOOK_SIZE	"GetPhonebookSize"
+ #define QUERY_GET_PHONEBOOK		"GetPhonebook"
+ #define QUERY_GET_PHONEBOOK_LIST	"GetPhonebookList"
+ #define QUERY_GET_PHONEBOOK_ENTRY	"GetPhonebookEntry"
++#define QUERY_DESTROY_AGENT "DestroyAgent"
++
++static GPtrArray *folder_list = NULL;
+ 
+ struct phonebook_data {
+ 	phonebook_cb cb;
+@@ -74,25 +78,38 @@ struct phonebook_session {
+ 	void *user_data;
+ };
+ 
+-static gboolean folder_is_valid(const char *folder)
++static gboolean folder_is_valid(const gchar *folder,
++				gboolean leaf_only)
+ {
+-	if (folder == NULL)
++	int i;
++	int folder_len;
++
++	if (folder_list == NULL || folder == NULL)
+ 		return FALSE;
+ 
+-	if (g_str_equal(folder, "/"))
+-		return TRUE;
+-	else if (g_str_equal(folder, "/telecom"))
+-		return TRUE;
+-	else if (g_str_equal(folder, "/telecom/pb"))
+-		return TRUE;
+-	else if (g_str_equal(folder, "/telecom/ich"))
+-		return TRUE;
+-	else if (g_str_equal(folder, "/telecom/och"))
+-		return TRUE;
+-	else if (g_str_equal(folder, "/telecom/mch"))
+-		return TRUE;
+-	else if (g_str_equal(folder, "/telecom/cch"))
+-		return TRUE;
++	folder_len = strlen(folder);
++
++	for (i = 0 ; i < folder_list->len; i++) {
++		char *str = (char *)g_ptr_array_index(folder_list, i);
++
++		if (folder_len > strlen(str))
++			continue;
++
++		if (g_strcmp0(str, folder) == 0)
++			return TRUE;
++
++		if (leaf_only == TRUE)
++			continue;
++
++		if (strncmp(str, folder,  folder_len) == 0) {
++
++			if (*(folder + folder_len - 1) == '/')
++				return TRUE;	/* folder is ended with '/' */
++
++			if (*(str + folder_len) == '/')
++				return TRUE;	/* folder is matched */
++		}
++	}
+ 
+ 	return FALSE;
+ }
+@@ -109,13 +126,13 @@ static gboolean phonebook_request(struct phonebook_data *data,
+ 
+ 	va_list args;
+ 
++	DBG("%s\n", method);
++
+ 	if (!method) {
+ 		error("Can't get method name");
+ 		return FALSE;
+ 	}
+ 
+-	DBG("%s\n", method);
+-
+ 	connection = g_dbus_setup_bus(DBUS_BUS_SYSTEM, NULL, NULL);
+ 	if (!connection) {
+ 		error("Can't get on session bus");
+@@ -136,8 +153,7 @@ static gboolean phonebook_request(struct phonebook_data *data,
+ 	dbus_message_append_args_valist(message, first_arg_type, args);
+ 	va_end(args);
+ 
+-	if (dbus_connection_send_with_reply(connection, message, &call, -1) ==
+-					 FALSE) {
++	if (dbus_connection_send_with_reply(connection, message, &call, -1) == FALSE) {
+ 		dbus_message_unref(message);
+ 		dbus_connection_unref(connection);
+ 		return FALSE;
+@@ -158,6 +174,8 @@ static void get_phonebook_size_reply(DBusPendingCall *call, void *user_data)
+ 	DBusError derr;
+ 	uint32_t phonebook_size;
+ 
++	unsigned int new_missed_call = 0;
++
+ 	DBG("");
+ 
+ 	if (!reply) {
+@@ -171,12 +189,14 @@ static void get_phonebook_size_reply(DBusPendingCall *call, void *user_data)
+ 		dbus_error_free(&derr);
+ 		phonebook_size = 0;
+ 	} else {
+-		dbus_message_get_args(reply, NULL, DBUS_TYPE_UINT32,
+-					&phonebook_size, DBUS_TYPE_INVALID);
++		dbus_message_get_args(reply, NULL,
++				DBUS_TYPE_UINT32, &phonebook_size,
++				DBUS_TYPE_UINT32, &new_missed_call,
++				DBUS_TYPE_INVALID);
+ 		DBG("phonebooksize:%d\n", phonebook_size);
+ 	}
+ 
+-	s_data->cb(NULL, 0, phonebook_size, 0, TRUE, s_data->user_data);
++	s_data->cb(NULL, 0, phonebook_size, new_missed_call, TRUE, s_data->user_data);
+ 
+ 	dbus_message_unref(reply);
+ }
+@@ -188,7 +208,7 @@ static void get_phonebook_reply(DBusPendingCall *call, void *user_data)
+ 	DBusError derr;
+ 	GString *buffer;
+ 
+-	guint new_missed_call = 0;
++	unsigned int new_missed_call = 0;
+ 
+ 	uint32_t count = 0;
+ 
+@@ -214,12 +234,10 @@ static void get_phonebook_reply(DBusPendingCall *call, void *user_data)
+ 			DBusMessageIter recurse_iter;
+ 
+ 			dbus_message_iter_recurse(&iter, &recurse_iter);
+-			while (dbus_message_iter_get_arg_type(&recurse_iter) ==
+-							DBUS_TYPE_STRING) {
++			while (dbus_message_iter_get_arg_type(&recurse_iter) == DBUS_TYPE_STRING) {
+ 				gchar *str;
+ 
+-				dbus_message_iter_get_basic(&recurse_iter,
+-							&str);
++				dbus_message_iter_get_basic(&recurse_iter, &str);
+ 				dbus_message_iter_next(&recurse_iter);
+ 
+ 				g_string_append(buffer, str);
+@@ -231,14 +249,13 @@ static void get_phonebook_reply(DBusPendingCall *call, void *user_data)
+ 			dbus_message_iter_next(&iter);
+ 		}
+ 
+-		if (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_UINT16)
++		if (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_UINT32)
+ 			dbus_message_iter_get_basic(&iter, &new_missed_call);
+ 
+ 		DBG("new_missed_call %d\n", new_missed_call);
+ 	}
+ 
+-	s_data->cb(buffer->str, buffer->len, count, new_missed_call, 1,
+-							s_data->user_data);
++	s_data->cb(buffer->str, buffer->len, count, new_missed_call, 1, s_data->user_data);
+ 
+ 	g_string_free(buffer, TRUE);
+ 	dbus_message_unref(reply);
+@@ -304,9 +321,7 @@ static void get_phonebook_entry_reply(DBusPendingCall *call, void *user_data)
+ 	DBusMessage *reply = dbus_pending_call_steal_reply(call);
+ 	struct phonebook_data *s_data = user_data;
+ 	DBusError derr;
+-	const char *phonebook_entry = NULL;
+-	uint32_t phonebook_entry_size = 0;
+-	int vcards = 1;
++	const char *phonebook_entry;
+ 
+ 	DBG("");
+ 
+@@ -317,39 +332,20 @@ static void get_phonebook_entry_reply(DBusPendingCall *call, void *user_data)
+ 
+ 	dbus_error_init(&derr);
+ 	if (dbus_set_error_from_message(&derr, reply)) {
+-		error("Replied with an error: %s, %s",
+-				derr.name, derr.message);
++		error("Replied with an error: %s, %s", derr.name, derr.message);
+ 		dbus_error_free(&derr);
+-		vcards = -1;
+ 	} else {
+ 		dbus_message_get_args(reply, NULL, DBUS_TYPE_STRING,
+ 					&phonebook_entry, DBUS_TYPE_INVALID);
+-		if (phonebook_entry)
+-			phonebook_entry_size = strlen(phonebook_entry);
+ 		DBG("phonebook_entry:[%s]\n", phonebook_entry);
+ 	}
+ 
+-	s_data->cb(phonebook_entry, phonebook_entry_size, vcards, 0, TRUE,
++	s_data->cb(phonebook_entry, strlen(phonebook_entry), 1, 0, TRUE,
+ 							s_data->user_data);
+ 
+ 	dbus_message_unref(reply);
+ }
+ 
+-static gboolean get_sim_phonebook_reply(void *user_data)
+-{
+-	struct phonebook_data *s_data = user_data;
+-	uint32_t phonebook_size = 0;
+-	int lastpart = 1;
+-
+-	DBG("");
+-
+-	/* We don't support phonebook of SIM
+-	 * Send dummy data */
+-	s_data->cb(NULL, 0, phonebook_size, 0, lastpart, s_data->user_data);
+-
+-	return FALSE;
+-}
+-
+ static gboolean clear_signal(DBusConnection *conn, DBusMessage *msg,
+ 			void *user_data)
+ {
+@@ -369,6 +365,84 @@ static gboolean clear_signal(DBusConnection *conn, DBusMessage *msg,
+ 	return TRUE;
+ }
+ 
++static gboolean phonebook_folder_list_init(struct phonebook_session *session)
++{
++	DBusMessage *message;
++	DBusMessage *reply;
++
++	DBusMessageIter iter;
++	DBusMessageIter recurse_iter;
++
++	DBusError error;
++
++	if (session->connection == NULL) {
++		session->connection = g_dbus_setup_bus(DBUS_BUS_SYSTEM,
++							NULL, NULL);
++	}
++
++	if (session->connection == NULL) {
++		DBG("Can't get on s bus");
++		return FALSE;
++	}
++
++	message = dbus_message_new_method_call(PHONEBOOK_DESTINATION,
++					PHONEBOOK_PATH,
++					PHONEBOOK_INTERFACE,
++					QUERY_GET_PHONEBOOK_FOLDER_LIST);
++
++	if (message == NULL) {
++		DBG("Can't allocate dbus message");
++		return FALSE;
++	}
++
++	dbus_error_init(&error);
++
++	reply = dbus_connection_send_with_reply_and_block(session->connection,
++							message, -1, &error);
++
++	if (!reply) {
++		if (dbus_error_is_set(&error) == TRUE) {
++			DBG("%s", error.message);
++			dbus_error_free(&error);
++		} else {
++			DBG("Failed to get contacts");
++		}
++		dbus_message_unref(message);
++		return FALSE;
++	}
++
++	dbus_message_iter_init(reply, &iter);
++
++	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY) {
++		dbus_message_unref(message);
++		dbus_message_unref(reply);
++		return FALSE;
++	}
++
++	if (folder_list) {
++		g_ptr_array_free(folder_list, TRUE);
++		folder_list = NULL;
++	}
++
++	folder_list = g_ptr_array_new();
++
++	dbus_message_iter_recurse(&iter, &recurse_iter);
++
++	while (dbus_message_iter_get_arg_type(&recurse_iter)
++			== DBUS_TYPE_STRING) {
++		gchar *str;
++
++		dbus_message_iter_get_basic(&recurse_iter, &str);
++		DBG("folder list %s\n", str);
++		g_ptr_array_add(folder_list, g_strdup(str));
++
++		dbus_message_iter_next(&recurse_iter);
++	}
++
++	dbus_message_unref(message);
++	dbus_message_unref(reply);
++	return TRUE;
++}
+ 
+ int phonebook_init(void)
+ {
+@@ -382,6 +456,7 @@ void phonebook_exit(void)
+ int phonebook_connect(void **user_data)
+ {
+ 	struct phonebook_session *session;
++	gboolean ret;
+ 
+ 	DBG("");
+ 
+@@ -389,19 +464,49 @@ int phonebook_connect(void **user_data)
+ 
+ 	*user_data = session;
+ 
+-	return 0;
++	ret = phonebook_folder_list_init(session);
++
++	if (ret)
++		return 0;
++
++	return -1;
+ }
+ 
+ void phonebook_disconnect(void *user_data)
+ {
+ 	struct phonebook_session *session;
+-
++	DBusMessage *message;
+ 	DBG("");
+ 	session = user_data;
+ 
+-	g_dbus_remove_watch(session->connection, session->clear_id);
+-	dbus_connection_unref(session->connection);
++	if (folder_list) {
++		g_ptr_array_free(folder_list, TRUE);
++		folder_list = NULL;
++	}
++
++	if (!session->connection) {
++		g_free(session);
++		return;
++	}
++
++
++	if (session->clear_id)
++		g_dbus_remove_watch(session->connection, session->clear_id);
++
++	message = dbus_message_new_method_call(PHONEBOOK_DESTINATION,
++						PHONEBOOK_PATH,
++						PHONEBOOK_INTERFACE,
++						QUERY_DESTROY_AGENT);
+ 
++	if (message) {
++		if (dbus_connection_send(session->connection, message,
++								NULL) == FALSE)
++			error("Could not send dbus message");
++
++		dbus_message_unref(message);
++	}
++
++	dbus_connection_unref(session->connection);
+ 	g_free(session);
+ }
+ 
+@@ -417,57 +522,57 @@ char *phonebook_set_folder(const char *current_folder,
+ 	child = (new_folder && strlen(new_folder) != 0);
+ 
+ 	switch (flags) {
+-	case 0x02:
+-		/* Go back to root */
+-		if (!child) {
+-			path = g_strdup("/");
+-			goto done;
+-		}
++		case 0x02:
++			/* Go back to root */
++			if (!child) {
++				path = g_strdup("/");
++				goto done;
++			}
+ 
+-		path = g_build_filename(current_folder, new_folder, NULL);
+-		break;
+-	case 0x03:
+-		/* Go up 1 level */
+-		if (root) {
+-			/* Already root */
+-			path = g_strdup("/");
+-			goto done;
+-		}
++			path = g_build_filename(current_folder, new_folder, NULL);
++			break;
++		case 0x03:
++			/* Go up 1 level */
++			if (root) {
++				/* Already root */
++				path = g_strdup("/");
++				goto done;
++			}
+ 
+-		/*
+-		 * Removing one level of the current folder. Current folder
+-		 * contains AT LEAST one level since it is not at root folder.
+-		 * Use glib utility functions to handle invalid chars in the
+-		 * folder path properly.
+-		 */
+-		tmp1 = g_path_get_basename(current_folder);
+-		tmp2 = g_strrstr(current_folder, tmp1);
+-		len = tmp2 - (current_folder + 1);
++			/*
++			 * Removing one level of the current folder. Current folder
++			 * contains AT LEAST one level since it is not at root folder.
++			 * Use glib utility functions to handle invalid chars in the
++			 * folder path properly.
++			 */
++			tmp1 = g_path_get_basename(current_folder);
++			tmp2 = g_strrstr(current_folder, tmp1);
++			len = tmp2 - (current_folder + 1);
+ 
+-		g_free(tmp1);
++			g_free(tmp1);
+ 
+-		if (len == 0)
+-			base = g_strdup("/");
+-		else
+-			base = g_strndup(current_folder, len);
++			if (len == 0)
++				base = g_strdup("/");
++			else
++				base = g_strndup(current_folder, len);
+ 
+-		/* Return: one level only */
+-		if (!child) {
+-			path = base;
+-			goto done;
+-		}
++			/* Return: one level only */
++			if (!child) {
++				path = base;
++				goto done;
++			}
+ 
+-		path = g_build_filename(base, new_folder, NULL);
+-		g_free(base);
++			path = g_build_filename(base, new_folder, NULL);
++			g_free(base);
+ 
+-		break;
+-	default:
+-		ret = -EBADR;
+-		break;
++			break;
++		default:
++			ret = -EBADR;
++			break;
+ 	}
+ 
+ done:
+-	if (path && !folder_is_valid(path))
++	if (path && !folder_is_valid(path, FALSE))
+ 		ret = -ENOENT;
+ 
+ 	if (ret < 0) {
+@@ -478,6 +583,8 @@ done:
+ 	if (err)
+ 		*err = ret;
+ 
++	DBG("path : %s\n", path);
++
+ 	return path;
+ }
+ 
+@@ -498,16 +605,29 @@ void *phonebook_pull(const char *name, const struct apparam_field *params,
+ 				phonebook_cb cb, void *user_data, int *err)
+ {
+ 	struct phonebook_data *data;
++	char *folder;
+ 
+ 	DBG("name %s", name);
+ 
+ 	if (!g_str_has_suffix(name, ".vcf")) {
+-		DBG("invaild request");
+ 		if (err)
+-			*err = -EBADR;
++			*err = -ENOENT;
++
+ 		return NULL;
+ 	}
+ 
++	folder = g_strndup(name, strlen(name) - 4);
++
++	if (!folder_is_valid(folder, TRUE)) {
++		if (err)
++			*err = -ENOENT;
++
++		g_free(folder);
++		return NULL;
++	}
++
++	g_free(folder);
++
+ 	data = g_new0(struct phonebook_data, 1);
+ 	data->params = params;
+ 	data->user_data = user_data;
+@@ -535,11 +655,6 @@ int phonebook_pull_read(void *request)
+ 		return 0;
+ 	}
+ 
+-	if (g_strcmp0(data->req_name, "/SIM1/telecom/pb.vcf") == 0) {
+-		g_idle_add(get_sim_phonebook_reply, data);
+-		return 0;
+-	}
+-
+ 	phonebook_request(data,
+ 			QUERY_GET_PHONEBOOK,
+ 			get_phonebook_reply,
+@@ -558,13 +673,22 @@ void *phonebook_get_entry(const char *folder, const char *id,
+ 			void *user_data, int *err)
+ {
+ 	struct phonebook_data *data;
++	gboolean req = FALSE;
+ 
+ 	if (!g_str_has_suffix(id, ".vcf")) {
+-		DBG("invaild request");
+ 		if (err)
+-			*err = -EBADR;
++			*err = -ENOENT;
++
++		return NULL;
++	}
++
++	if (!folder_is_valid(folder, TRUE)) {
++		if (err)
++			*err = - ENOENT;
++
+ 		return NULL;
+ 	}
++
+ 	DBG("folder %s id %s", folder, id);
+ 
+ 	data = g_new0(struct phonebook_data, 1);
+@@ -572,7 +696,7 @@ void *phonebook_get_entry(const char *folder, const char *id,
+ 	data->user_data = user_data;
+ 	data->cb = cb;
+ 
+-	phonebook_request(data,
++	req = phonebook_request(data,
+ 			QUERY_GET_PHONEBOOK_ENTRY,
+ 			get_phonebook_entry_reply,
+ 			DBUS_TYPE_STRING, &folder,
+@@ -581,6 +705,16 @@ void *phonebook_get_entry(const char *folder, const char *id,
+ 			DBUS_TYPE_BYTE, &data->params->format,
+ 			DBUS_TYPE_INVALID);
+ 
++	if (*err) {
++		if (req)
++			*err = 0;
++		else {
++			*err = -ENOENT;
++			g_free(data);
++			data = NULL;
++		}
++	}
++
+ 	return data;
+ }
+ 
+@@ -590,6 +724,13 @@ void *phonebook_create_cache(const char *name, phonebook_entry_cb entry_cb,
+ 	struct phonebook_data *data;
+ 	gboolean req = FALSE;
+ 
++	if (!folder_is_valid(name, TRUE)) {
++		if (err)
++			*err = - ENOENT;
++
++		return NULL;
++	}
++
+ 	DBG("name %s", name);
+ 
+ 	data = g_new0(struct phonebook_data, 1);
+@@ -606,8 +747,11 @@ void *phonebook_create_cache(const char *name, phonebook_entry_cb entry_cb,
+ 	if (*err) {
+ 		if (req)
+ 			*err = 0;
+-		else
++		else {
+ 			*err = -ENOENT;
++			g_free(data);
++			data = NULL;
++		}
+ 	}
+ 
+ 	return data;

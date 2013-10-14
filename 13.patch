@@ -1,0 +1,1614 @@
+commit 0b18c0b2f1f3d2e5c67d872b6a5cc085eb07e370
+Author: Wu Zheng <wu.zheng@intel.com>
+Date:   Sun Sep 29 16:43:17 2013 +0800
+
+    Add the map related patches to Bluez5.X
+    
+    MAP need to be supported in Bluez5.X of Tizen.
+    Bluez4.X MAP idea is following in Bluez5.X.
+    
+    Therefore, add the all map related patches.
+
+diff --git a/obexd/plugins/mas.c b/obexd/plugins/mas.c
+index ebe11ae..5fbb0cf 100644
+--- a/obexd/plugins/mas.c
++++ b/obexd/plugins/mas.c
+@@ -30,7 +30,9 @@
+ #include <glib.h>
+ #include <fcntl.h>
+ #include <inttypes.h>
+-
++#ifdef TIZEN_PATCH
++#include <sys/time.h>
++#endif
+ #include <gobex/gobex.h>
+ #include <gobex/gobex-apparam.h>
+ 
+@@ -72,8 +74,10 @@ struct mas_session {
+ 	GObexApparam *outparams;
+ 	gboolean ap_sent;
+ #ifdef __TIZEN_PATCH__
++	gboolean headers_sent;
+ 	int notification_status;
+ 	char *remote_addr;
++	char *response_handle;
+ #endif
+ };
+ 
+@@ -119,6 +123,11 @@ static void reset_request(struct mas_session *mas)
+ 	mas->nth_call = FALSE;
+ 	mas->finished = FALSE;
+ 	mas->ap_sent = FALSE;
++#ifdef __TIZEN_PATCH__
++	mas->headers_sent = FALSE;
++	g_free(mas->response_handle);
++	mas->response_handle = NULL;
++#endif
+ }
+ 
+ static void mas_clean(struct mas_session *mas)
+@@ -253,6 +262,24 @@ static const char *yesorno(gboolean a)
+ 	return "no";
+ }
+ 
++#ifdef __TIZEN_PATCH__
++static gchar *get_local_timestamp(void)
++{
++	struct timeval tv;
++	struct tm ltime;
++
++	gettimeofday(&tv, NULL);
++
++	if (!localtime_r(&tv.tv_sec, &ltime))
++		return NULL;
++
++	return g_strdup_printf("%04d%02d%02dT%02d%02d%02d",
++					ltime.tm_year + 1900, ltime.tm_mon + 1,
++					ltime.tm_mday, ltime.tm_hour,
++					ltime.tm_min, ltime.tm_sec);
++}
++#endif
++
+ static void get_messages_listing_cb(void *session, int err, uint16_t size,
+ 					gboolean newmsg,
+ 					const struct messages_message *entry,
+@@ -260,6 +287,9 @@ static void get_messages_listing_cb(void *session, int err, uint16_t size,
+ {
+ 	struct mas_session *mas = user_data;
+ 	uint16_t max = 1024;
++#ifdef __TIZEN_PATCH__
++	gchar *msetime;
++#endif
+ 
+ 	if (err < 0 && err != -EAGAIN) {
+ 		obex_object_set_io_flags(mas, G_IO_ERR, err);
+@@ -373,12 +403,39 @@ proceed:
+ 		mas->outparams = g_obex_apparam_set_uint8(mas->outparams,
+ 						MAP_AP_NEWMESSAGE,
+ 						newmsg ? 1 : 0);
++#ifdef __TIZEN_PATCH__
++		msetime = get_local_timestamp();
++		if (msetime) {
++			g_obex_apparam_set_string(mas->outparams,
++						MAP_AP_MSETIME, msetime);
++			g_free(msetime);
++		}
++#endif
+ 	}
+ 
+ 	if (err != -EAGAIN)
+ 		obex_object_set_io_flags(mas, G_IO_IN, 0);
+ }
+ 
++#ifdef __TIZEN_PATCH__
++static void put_message_cb(void *session, int err, guint64 handle,
++							void *user_data)
++{
++	struct mas_session *mas = user_data;
++
++	DBG("");
++
++	if (err < 0) {
++		obex_object_set_io_flags(mas, G_IO_ERR, err);
++		return;
++	}
++	mas->finished = FALSE;
++	mas->response_handle = g_strdup_printf("%llx", handle);
++
++	obex_object_set_io_flags(mas, G_IO_OUT, 0);
++}
++#endif
++
+ static void get_message_cb(void *session, int err, gboolean fmore,
+ 					const char *chunk, void *user_data)
+ {
+@@ -427,8 +484,13 @@ static void get_folder_listing_cb(void *session, int err, uint16_t size,
+ 			mas->finished = TRUE;
+ 
+ 		goto proceed;
++#ifndef __TIZEN_PATCH__
+ 	}
+-
++#else
++	} else {
++		mas->ap_sent = TRUE;
++	}
++#endif
+ 	if (!mas->nth_call) {
+ 		g_string_append(mas->buffer, XML_DECL);
+ 		g_string_append(mas->buffer, FL_DTD);
+@@ -584,6 +646,57 @@ static void *message_open(const char *name, int oflag, mode_t mode,
+ 
+ 	DBG("");
+ 
++#ifdef __TIZEN_PATCH__
++	if (oflag != O_RDONLY) {
++		DBG("Message pushing invoked \n");
++
++		DBG("name = %s", name);
++		uint8_t transparent = 0;
++		uint8_t retry = 1;
++		uint8_t charset;
++
++		g_obex_apparam_get_uint8(mas->inparams, MAP_AP_TRANSPARENT,
++								&transparent);
++		DBG("transparent = %d \n", transparent);
++		g_obex_apparam_get_uint8(mas->inparams, MAP_AP_RETRY, &retry);
++                DBG("retry = %d \n", retry);
++
++		if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_CHARSET,
++								&charset)) {
++			*err = -EBADR;
++			return NULL;
++		}
++		mas->headers_sent = FALSE;
++
++		*err = messages_push_message(mas->backend_data, name,
++						transparent, retry, charset,
++						put_message_cb, mas);
++	} else {
++		uint8_t fraction_request = 0;
++		uint8_t attachment;
++		uint8_t charset;
++
++		if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_ATTACHMENT,
++								&attachment)) {
++			*err = -EBADR;
++			return NULL;
++		}
++
++		if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_CHARSET,
++								&charset)) {
++			*err = -EBADR;
++			return NULL;
++		}
++
++		if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_FRACTIONREQUEST,
++								&fraction_request))
++			mas->ap_sent = TRUE;
++
++		*err = messages_get_message(mas->backend_data, name, attachment,
++						charset, fraction_request,
++						get_message_cb, mas);
++	}
++#else
+ 	if (oflag != O_RDONLY) {
+ 		DBG("Message pushing unsupported");
+ 		*err = -ENOSYS;
+@@ -593,6 +706,7 @@ static void *message_open(const char *name, int oflag, mode_t mode,
+ 
+ 	*err = messages_get_message(mas->backend_data, name, 0,
+ 			get_message_cb, mas);
++#endif
+ 
+ 	mas->buffer = g_string_new("");
+ 
+@@ -602,6 +716,30 @@ static void *message_open(const char *name, int oflag, mode_t mode,
+ 		return mas;
+ }
+ 
++#ifdef __TIZEN_PATCH__
++static ssize_t message_write(void *object, const void *buf, size_t count)
++{
++	DBG("");
++	struct mas_session *mas = object;
++
++	if (mas->finished)
++		return 0;
++
++	g_string_append_len(mas->buffer, buf, count);
++
++	DBG("count = %d \n", count);
++
++	if (g_strrstr(mas->buffer->str, "END:BMSG\r\n")) {
++		DBG("BMsg received. \n");
++
++	messages_push_message_data(mas->backend_data,
++					mas->buffer->str, NULL);
++	}
++
++	return count;
++}
++#endif
++
+ static void *message_update_open(const char *name, int oflag, mode_t mode,
+ 					void *driver_data, size_t *size,
+ 					int *err)
+@@ -677,7 +815,8 @@ static void *notification_registration_open(const char *name, int oflag,
+ 		return NULL;
+ 	}
+ 
+-	if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_NOTIFICATIONSTATUS, &status)) {
++	if (!g_obex_apparam_get_uint8(mas->inparams,
++			MAP_AP_NOTIFICATIONSTATUS, &status)) {
+ 		*err = -EBADR;
+ 		return NULL;
+ 	}
+@@ -696,14 +835,43 @@ static int notification_registration_close(void *obj)
+ 
+ 	DBG("");
+ 
+-	messages_notification_registration(mas->backend_data,
+-				mas->remote_addr, mas->notification_status,
+-				NULL, mas);
++	messages_set_notification_registration(mas->backend_data,
++			mas->remote_addr, mas->notification_status,
++			NULL);
+ 
+ 	reset_request(mas);
+ 
+ 	return 0;
+ }
++
++static ssize_t put_next_header(void *object, void *buf, size_t mtu,
++							uint8_t *hi)
++{
++	struct mas_session *mas = object;
++	size_t len;
++
++	DBG("");
++	if (mas->headers_sent)
++		return 0;
++
++	if (mas->response_handle)
++		DBG("mas->response_handle %s\n", mas->response_handle);
++	else
++		return 0;
++
++	*hi = G_OBEX_HDR_NAME;
++
++	len = strlen(mas->response_handle);
++
++	DBG("len %d\n", len);
++	DBG("mas->response_handle %s\n", mas->response_handle);
++
++	memcpy(buf, mas->response_handle, len);
++
++	mas->headers_sent = TRUE;
++
++	return len;
++}
+ #endif
+ 
+ 
+@@ -801,7 +969,12 @@ static struct obex_mime_type_driver mime_message = {
+ 	.open = message_open,
+ 	.close = any_close,
+ 	.read = any_read,
++#ifdef __TIZEN_PATCH__
++	.write = message_write,
++	.get_next_header = put_next_header
++#else
+ 	.write = any_write,
++#endif
+ };
+ 
+ static struct obex_mime_type_driver mime_folder_listing = {
+diff --git a/obexd/plugins/messages-tizen.c b/obexd/plugins/messages-tizen.c
+index dd45a4e..f8f2a86 100644
+--- a/obexd/plugins/messages-tizen.c
++++ b/obexd/plugins/messages-tizen.c
+@@ -2,9 +2,7 @@
+  *
+  *  OBEX Server
+  *
+- *  Copyright (C) 2009-2010  Intel Corporation
+- *  Copyright (C) 2007-2010  Marcel Holtmann <marcel@holtmann.org>
+- *
++ *  Copyright (C) 2012 Samsung Electronics Co., Ltd.
+  *
+  *  This program is free software; you can redistribute it and/or modify
+  *  it under the terms of the GNU General Public License as published by
+@@ -29,6 +27,7 @@
+ #include <errno.h>
+ #include <glib.h>
+ #include <string.h>
++#include <stdio.h>
+ #include "log.h"
+ #include "messages.h"
+ 
+@@ -37,18 +36,25 @@
+ #define QUERY_GET_FOLDER_TREE "GetFolderTree"
+ #define QUERY_GET_MSG_LIST "GetMessageList"
+ #define QUERY_GET_MESSAGE "GetMessage"
++#define QUERY_PUSH_MESSAGE "PushMessage"
++#define QUERY_PUSH_MESSAGE_DATA "PushMessageData"
+ #define QUERY_UPDATE_MESSAGE "UpdateMessage"
+-#define QUERY_MESSAGE_STATUS "MessageStatus"
++#define QUERY_SET_READ_STATUS "SetReadStatus"
++#define QUERY_SET_DELETE_STATUS "SetDeleteStatus"
+ #define QUERY_NOTI_REGISTRATION "NotiRegistration"
++#define QUERY_DESTROY_AGENT "DestroyAgent"
+ 
+ #define BT_MAP_SERVICE_OBJECT_PATH "/org/bluez/map_agent"
+ #define BT_MAP_SERVICE_NAME "org.bluez.map_agent"
+ #define BT_MAP_SERVICE_INTERFACE "org.bluez.MapAgent"
+ 
++/* Added as per MAP specification */
++#define BT_MAP_LIST_ITEM_MAX_LEN 256
++
+ static DBusConnection *g_conn = NULL;
+ 
+ struct mns_reg_data {
+-	int notification_status;
++	uint8_t notification_status;
+ 	char *remote_addr;
+ };
+ 
+@@ -64,12 +70,14 @@ struct session {
+ 	uint16_t max;
+ 	uint16_t offset;
+ 	void *user_data;
++	struct messages_filter *filter;
++	struct messages_message *msg;
+ 	void (*folder_list_cb)(void *session, int err, uint16_t size,
+ 					const char *name, void *user_data);
+-	struct messages_message *msg;
+-	const struct messages_filter *filter;
+ 	void (*msg_list_cb)(void *session, int err, int size, gboolean newmsg,
+-				const struct messages_message *entry,
++					const struct messages_message *entry,
++					void *user_data);
++	void (*push_msg_cb)(void *session, int err, guint64 handle,
+ 				void *user_data);
+ 	void (*get_msg_cb)(void *session, int err, gboolean fmore,
+ 				const char *chunk, void *user_data);
+@@ -79,6 +87,168 @@ struct session {
+ 
+ static struct message_folder *folder_tree = NULL;
+ 
++static void message_list_item_free(struct messages_message *data)
++{
++	DBG("+");
++	g_free(data->handle);
++	data->handle = NULL;
++
++	g_free(data->subject);
++	data->subject = NULL;
++
++	g_free(data->datetime);
++	data->datetime = NULL;
++
++	g_free(data->sender_name);
++	data->sender_name = NULL;
++
++	g_free(data->sender_addressing);
++	data->sender_addressing = NULL;
++
++	g_free(data->replyto_addressing);
++	data->replyto_addressing = NULL;
++
++	g_free(data->recipient_name);
++	data->recipient_name = NULL;
++
++	g_free(data->recipient_addressing);
++	data->recipient_addressing = NULL;
++
++	g_free(data->type);
++	data->type = NULL;
++
++	g_free(data->reception_status);
++	data->reception_status = NULL;
++
++	g_free(data->size);
++	data->size = NULL;
++
++	g_free(data->attachment_size);
++	data->attachment_size = NULL;
++	DBG("-");
++}
++
++static void session_filter_free(struct messages_filter *data)
++{
++	DBG("+");
++	if (NULL == data)
++		return;
++
++	g_free((gpointer)data->period_begin);
++	g_free((gpointer)data->period_end);
++	g_free((gpointer)data->recipient);
++	g_free((gpointer)data->originator);
++	g_free(data);
++	DBG("-");
++}
++
++static gboolean is_time_in_period(char *ref_time, char *period)
++{
++	guint64 ref_date_val;
++	guint64 date_val;
++
++	guint64 ref_time_val;
++	guint64 time_val;
++
++	char *start;
++	char *end = NULL;
++
++	char temp[20];
++
++	start = strtok_r(ref_time, "T", &end);
++	if (NULL == start || NULL == end)
++		return FALSE;
++
++	snprintf(temp, sizeof(temp), "%s", start);
++	ref_date_val = g_ascii_strtoull(temp, NULL, 16);
++	snprintf(temp, sizeof(temp), "%s", end);
++	ref_time_val = g_ascii_strtoull(temp, NULL, 16);
++
++	start = strtok_r(period, "T", &end);
++	if (NULL == start || NULL == end)
++		return FALSE;
++
++	snprintf(temp, sizeof(temp), "%s", start);
++	date_val = g_ascii_strtoull(temp, NULL, 16);
++	snprintf(temp, sizeof(temp), "%s", end);
++	time_val = g_ascii_strtoull(temp, NULL, 16);
++
++	if (ref_date_val < date_val) {
++		return TRUE;
++	} else if (ref_date_val > date_val) {
++		return FALSE;
++	} else {
++		if (ref_time_val <= time_val)
++			return TRUE;
++		else
++			return FALSE;
++	}
++}
++
++static gboolean __filter_timebased(char *begin, char *end, char *time)
++{
++	gboolean ret = 0;
++
++	if (!begin && !end) {
++		/* If start and stop are not specified
++		do not filter. */
++
++		return TRUE;
++	} else if (!end && begin) {
++		/* If "FilterPeriodEnd" is not specified the returned
++		message listing shall include the messages from
++		"FilterPeriodBegin" to current time */
++
++		return is_time_in_period(begin, time);
++	} else if (!begin && end) {
++		/* If "FilterPeriodBegin" is not specified the returned
++		message listing shall include the messages older than
++		"FilterPeriodEnd" */
++
++		return is_time_in_period(time, end);
++	} else {
++
++		if (TRUE == is_time_in_period(end, begin))
++			return FALSE;
++
++		ret = is_time_in_period(begin, time);
++		if (ret == TRUE)
++			return is_time_in_period(time, end);
++		else
++			return FALSE;
++	}
++}
++
++static uint8_t get_type_val(const char *type)
++{
++	if (!g_strcmp0(type, "SMS_GSM"))
++		return 0x01;
++	else if (!g_strcmp0(type, "SMS_CDMA"))
++		return 0x02;
++	else if (!g_strcmp0(type, "EMAIL"))
++		return 0x04;
++	else if (!g_strcmp0(type, "MMS"))
++		return 0x08;
++	else
++		return 0x00;
++}
++
++static uint8_t get_read_status_val(gboolean read)
++{
++	if (read)
++		return 0x02; /* Read messages */
++	else
++		return 0x01; /* Unread messages */
++}
++
++static uint8_t get_priority_val(gboolean priority)
++{
++	if (priority)
++		return 0x01; /* High priority */
++	else
++		return 0x02; /* Low priority */
++}
++
+ static struct message_folder *get_folder(const char *folder)
+ {
+ 	GSList *folders = folder_tree->subfolders;
+@@ -199,7 +369,7 @@ static void message_get_folder_list(DBusPendingCall *call, void *user_data)
+ 	for (l = folder_tree->subfolders; l != NULL; l = parent->subfolders)
+ 		parent = l->data;
+ 
+-	DBG("Last child folder = %s\n", parent->name);
++	DBG("Last child folder = %s \n", parent->name);
+ 	dbus_error_init(&derr);
+ 
+ 	if (dbus_set_error_from_message(&derr, reply)) {
+@@ -214,7 +384,7 @@ static void message_get_folder_list(DBusPendingCall *call, void *user_data)
+ 			dbus_message_iter_recurse(&iter_struct, &entry);
+ 
+ 			dbus_message_iter_get_basic(&entry, &name);
+-			DBG("Folder name = %s\n", name);
++			DBG("Folder name = %s \n", name);
+ 			child = create_folder(name);
+ 			parent->subfolders = g_slist_append(parent->subfolders,
+ 							child);
+@@ -233,50 +403,326 @@ static void message_get_msg_list(DBusPendingCall *call, void *user_data)
+ 	DBusMessageIter entry;
+ 	DBusError derr;
+ 	const char *msg_handle;
+-	const char *msg_type;
+-	const char *msg_time;
++	const char *subject;
++	const char *datetime;
++	const char *sender_name;
++	const char *sender_addressing;
++	const char *replyto_addressing;
++	const char *recipient_name;
++	const char *recipient_addressing;
++	const char *type;
++	const char *reception_status;
++	const char *size;
++	const char *attachment_size;
++	gboolean text;
++	gboolean read;
++	gboolean sent;
++	gboolean protect;
++	gboolean priority;
++	gboolean newmessage;
++	guint64 count;
++	uint8_t type_val;
++	uint8_t read_val;
++	uint8_t priority_val;
++	uint32_t mask;
++
+ 	struct session *session = user_data;
+ 	struct messages_message *data = g_new0(struct messages_message, 1);
+ 
+ 	DBG("+\n");
++	DBG("parameter_mask = %x; type = %d; period_begin = %s;"
++		"period_end = %s; read_status = %d; recipient = %s;"
++		"originator = %s; priority = %d",
++		session->filter->parameter_mask, session->filter->type,
++		session->filter->period_begin, session->filter->period_end,
++		session->filter->read_status, session->filter->recipient,
++		session->filter->originator, session->filter->priority);
+ 
+ 	dbus_error_init(&derr);
+ 
+ 	if (dbus_set_error_from_message(&derr, reply)) {
+ 		error("Replied with an error: %s, %s", derr.name, derr.message);
+ 		dbus_error_free(&derr);
+-	} else {
+-		dbus_message_iter_init(reply, &iter);
+-		dbus_message_iter_recurse(&iter, &iter_struct);
++		session->msg_list_cb(session, -ENOENT, 0,
++				FALSE, data, session->user_data);
+ 
+-		while (dbus_message_iter_get_arg_type(&iter_struct) ==
+-							DBUS_TYPE_STRUCT) {
+-			dbus_message_iter_recurse(&iter_struct, &entry);
+-			dbus_message_iter_get_basic(&entry, &msg_handle);
+-			DBG("Msg handle = %s\n", msg_handle);
+-			data->handle = g_strdup(msg_handle);
+-			dbus_message_iter_next(&entry);
+-			dbus_message_iter_get_basic(&entry, &msg_type);
+-			DBG("Msg Type = %s\n", msg_type);
+-			data->mask |= PMASK_TYPE;
+-			data->type = g_strdup(msg_type);
+-			dbus_message_iter_next(&entry);
+-			dbus_message_iter_get_basic(&entry, &msg_time);
+-			DBG("Msg date & time = %s\n", msg_time);
+-			data->mask |= PMASK_DATETIME;
+-			data->datetime = g_strdup(msg_time);
++		g_free(data);
++		g_free(session->name);
++		session_filter_free(session->filter);
++		dbus_message_unref(reply);
++	}
++
++	dbus_message_iter_init(reply, &iter);
++	dbus_message_iter_get_basic(&iter, &newmessage);
++	dbus_message_iter_next(&iter);
++	dbus_message_iter_get_basic(&iter, &count);
++	dbus_message_iter_next(&iter);
++
++	if (session->max == 0)
++		goto done;
++
++	dbus_message_iter_recurse(&iter, &iter_struct);
++
++	if (session->filter->parameter_mask == 0)
++		mask = ~session->filter->parameter_mask;
++	else
++		mask = session->filter->parameter_mask;
++
++	while (dbus_message_iter_get_arg_type(&iter_struct) ==
++						DBUS_TYPE_STRUCT) {
++		dbus_message_iter_recurse(&iter_struct, &entry);
++		dbus_message_iter_get_basic(&entry, &msg_handle);
+ 
+-			session->msg_list_cb(session, -EAGAIN, 1,
+-					TRUE,
+-					data,
+-					session->user_data);
++		if (msg_handle == NULL) {
+ 			dbus_message_iter_next(&iter_struct);
++			continue;
++		}
++
++		DBG("Msg handle = %s \n", msg_handle);
++		data->handle = g_strdup(msg_handle);
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &subject);
++
++		if (mask & PMASK_SUBJECT) {
++			DBG("subject = %s\n", subject);
++			data->subject = g_strndup(subject,
++						BT_MAP_LIST_ITEM_MAX_LEN);
++			data->mask |= PMASK_SUBJECT;
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &datetime);
++
++		if ((mask & PMASK_DATETIME) && (NULL != datetime)) {
++			DBG("datetime = %s\n", datetime);
++			char *begin = g_strdup(session->filter->period_begin);
++			char *end = g_strdup(session->filter->period_end);
++			char *time = g_strdup(datetime);
++			gboolean filter;
++
++			filter = __filter_timebased(begin, end, time);
++
++			g_free(begin);
++			g_free(end);
++			g_free(time);
++
++			if (TRUE == filter) {
++				data->datetime = g_strdup(datetime);
++				data->mask |= PMASK_DATETIME;
++			} else {
++				message_list_item_free(data);
++				dbus_message_iter_next(&iter_struct);
++				continue;
++			}
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &sender_name);
++
++		if ((mask & PMASK_SENDER_NAME) &&
++				(NULL != session->filter->originator)) {
++			DBG("sender_name = %s \n", sender_name);
++
++			if (g_strstr_len(sender_name, -1,
++					session->filter->originator)) {
++				data->sender_name = g_strndup(sender_name,
++						BT_MAP_LIST_ITEM_MAX_LEN);
++				data->mask |= PMASK_SENDER_NAME;
++			} else {
++				message_list_item_free(data);
++				dbus_message_iter_next(&iter_struct);
++				continue;
++			}
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &sender_addressing);
++
++		if ((mask & PMASK_SENDER_ADDRESSING) &&
++						(NULL != sender_addressing)) {
++			DBG("sender_addressing = %s \n", sender_addressing);
++
++			data->sender_addressing = g_strndup(sender_addressing,
++						BT_MAP_LIST_ITEM_MAX_LEN);
++				data->mask |= PMASK_SENDER_ADDRESSING;
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &recipient_name);
++
++		if ((mask & PMASK_RECIPIENT_NAME) &&
++				(NULL != session->filter->recipient)) {
++			DBG("recipient_name = %s \n", recipient_name);
++
++			if (g_strstr_len(recipient_name, -1,
++					session->filter->recipient)) {
++				data->recipient_name =
++					g_strndup(recipient_name,
++					BT_MAP_LIST_ITEM_MAX_LEN);
++				data->mask |= PMASK_RECIPIENT_NAME;
++			} else {
++				message_list_item_free(data);
++				dbus_message_iter_next(&iter_struct);
++				continue;
++			}
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &recipient_addressing);
++
++		if ((mask & PMASK_RECIPIENT_ADDRESSING) &&
++				(NULL != recipient_addressing)) {
++			DBG("recipient_addressing=%s\n", recipient_addressing);
++
++			data->recipient_addressing =
++					g_strndup(recipient_addressing,
++					BT_MAP_LIST_ITEM_MAX_LEN);
++			data->mask |= PMASK_RECIPIENT_ADDRESSING;
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &type);
++
++		if ((mask & PMASK_TYPE) && (NULL != type)) {
++			DBG("type = %s \n", type);
++
++			type_val = get_type_val(type);
++			if (session->filter->type == 0) {
++				data->type = g_strdup(type);
++				data->mask |= PMASK_TYPE;
++			} else if (session->filter->type & type_val) {
++				DBG("Filter out type %d", type_val);
++				message_list_item_free(data);
++				dbus_message_iter_next(&iter_struct);
++				continue;
++			}
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &size);
++
++		if ((mask & PMASK_SIZE) && (NULL != size)) {
++			DBG("size = %s \n", size);
++
++			data->size = g_strdup(size);
++			data->mask |= PMASK_SIZE;
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &reception_status);
++
++		if (mask & PMASK_RECEPTION_STATUS) {
++			DBG("reception_status = %s \n", reception_status);
++
++			data->reception_status = g_strdup(reception_status);
++			data->mask |= PMASK_RECEPTION_STATUS;
+ 		}
+-		session->msg_list_cb(session, 0, 0,
+-					FALSE,
+-					NULL,
+-					session->user_data);
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &text);
++
++		if (mask & PMASK_TEXT) {
++			DBG("text = %d \n", text);
++			data->text = text;
++			data->mask |= PMASK_TEXT;
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &attachment_size);
++
++		if (mask & PMASK_ATTACHMENT_SIZE) {
++			DBG("attachment_size = %s\n", attachment_size);
++
++			data->attachment_size = g_strdup(attachment_size);
++			data->mask |= PMASK_ATTACHMENT_SIZE;
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &priority);
++
++		if (mask & PMASK_PRIORITY) {
++			DBG("priority = %d \n", priority);
++
++			priority_val = get_priority_val(priority);
++			if ((session->filter->priority == 0) ||
++				(session->filter->priority & priority_val)) {
++				data->priority = priority;
++				data->mask |= PMASK_PRIORITY;
++			} else {
++				message_list_item_free(data);
++				dbus_message_iter_next(&iter_struct);
++				continue;
++			}
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &read);
++
++		if (mask & PMASK_READ) {
++			DBG("read = %d \n", read);
++
++			read_val = get_read_status_val(read);
++
++			if ((session->filter->read_status == 0) ||
++				(session->filter->read_status & read_val)) {
++				data->read = read;
++				data->mask |= PMASK_READ;
++			} else {
++				message_list_item_free(data);
++				dbus_message_iter_next(&iter_struct);
++				continue;
++			}
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &sent);
++
++		if (mask & PMASK_SENT) {
++			DBG("sent = %d \n", sent);
++			data->sent = sent;
++			data->mask |= PMASK_SENT;
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &protect);
++
++		if (mask & PMASK_PROTECTED) {
++			DBG("protect = %d \n", protect);
++			data->protect = protect;
++			data->mask |= PMASK_PROTECTED;
++		}
++
++		dbus_message_iter_next(&entry);
++		dbus_message_iter_get_basic(&entry, &replyto_addressing);
++
++		if ((mask & PMASK_REPLYTO_ADDRESSING) &&
++						(0x04 == get_type_val(type))) {
++
++			DBG("replyto_addressing = %s \n", replyto_addressing);
++			if (replyto_addressing)
++				data->replyto_addressing =
++						g_strdup(replyto_addressing);
++			else
++				data->replyto_addressing = g_strdup("");
++
++			data->mask |= PMASK_REPLYTO_ADDRESSING;
++		}
++
++		session->msg_list_cb(session, -EAGAIN, 1, newmessage, data,
++							session->user_data);
++
++		message_list_item_free(data);
++		dbus_message_iter_next(&iter_struct);
+ 	}
++
++done:
++	session->msg_list_cb(session, 0, count, newmessage, NULL,
++							session->user_data);
++
++	g_free(data);
++	g_free(session->name);
++	session_filter_free(session->filter);
+ 	dbus_message_unref(reply);
+ 	DBG("-\n");
+ }
+@@ -285,11 +731,10 @@ static void message_get_msg(DBusPendingCall *call, void *user_data)
+ {
+ 	DBusMessage *reply = dbus_pending_call_steal_reply(call);
+ 	DBusMessageIter iter;
+-	DBusMessageIter iter_struct;
+-	DBusMessageIter entry;
+ 	DBusError derr;
+ 	struct session *session = user_data;
+ 	char *msg_body;
++	gboolean fraction_deliver;
+ 
+ 	DBG("+\n");
+ 
+@@ -299,17 +744,14 @@ static void message_get_msg(DBusPendingCall *call, void *user_data)
+ 		dbus_error_free(&derr);
+ 	} else {
+ 		dbus_message_iter_init(reply, &iter);
+-		dbus_message_iter_recurse(&iter, &iter_struct);
++		dbus_message_iter_get_basic(&iter, &fraction_deliver);
++		dbus_message_iter_next(&iter);
++		dbus_message_iter_get_basic(&iter, &msg_body);
++		DBG("msg_body %s\n", msg_body);
+ 
+-		if (dbus_message_iter_get_arg_type(&iter_struct) ==
+-							DBUS_TYPE_STRUCT) {
+-			dbus_message_iter_recurse(&iter_struct, &entry);
+-			dbus_message_iter_get_basic(&entry, &msg_body);
+-			DBG("Msg handle = %s\n", msg_body);
+-		}
+-		session->get_msg_cb(session, -EAGAIN, FALSE,
++		session->get_msg_cb(session, -EAGAIN, fraction_deliver,
+ 					msg_body, session->user_data);
+-		session->get_msg_cb(session, 0, FALSE,
++		session->get_msg_cb(session, 0, fraction_deliver,
+ 					NULL, session->user_data);
+ 	}
+ 	dbus_message_unref(reply);
+@@ -354,21 +796,85 @@ int messages_connect(void **s)
+ 
+ void messages_disconnect(void *s)
+ {
+-	DBG("+\n");
++	DBusMessage *message;
+ 	struct session *session = s;
++	DBG("+\n");
+ 
+ 	g_free(session->cwd);
+ 	g_free(session);
+ 
++	message = dbus_message_new_method_call(BT_MAP_SERVICE_NAME,
++						BT_MAP_SERVICE_OBJECT_PATH,
++						BT_MAP_SERVICE_INTERFACE,
++						QUERY_DESTROY_AGENT);
++
++	if (!message) {
++		error("Can't allocate new message");
++		return;
++	}
++
++	if (dbus_connection_send(g_conn, message, NULL) == FALSE)
++		error("Could not send dbus message");
++
++	dbus_message_unref(message);
++
+ 	DBG("-\n");
+ }
+ 
++static gboolean notification_registration(gpointer user_data)
++{
++	DBG("+\n");
++	DBusMessage *message = NULL;
++	gboolean reg;
++	struct mns_reg_data *data = (struct mns_reg_data *)user_data;
++
++	message = dbus_message_new_method_call(BT_MAP_SERVICE_NAME,
++					BT_MAP_SERVICE_OBJECT_PATH,
++					BT_MAP_SERVICE_INTERFACE,
++					QUERY_NOTI_REGISTRATION);
++	if (!message) {
++		error("Can't allocate new message");
++		goto done;
++	}
++
++	DBG("data->notification_status = %d\n", data->notification_status);
++
++	if (data->notification_status == 1)
++		reg = TRUE;
++	else
++		reg = FALSE;
++
++	dbus_message_append_args(message, DBUS_TYPE_STRING, &data->remote_addr,
++						DBUS_TYPE_BOOLEAN, &reg,
++						DBUS_TYPE_INVALID);
++
++	if (dbus_connection_send(g_conn, message, NULL) == FALSE)
++		error("Could not send dbus message");
++
++	dbus_message_unref(message);
++
++done:
++	g_free(data->remote_addr);
++	g_free(data);
++
++	DBG("-\n");
++	return FALSE;
++}
++
+ int messages_set_notification_registration(void *session,
+-		void (*send_event)(void *session,
+-			const struct messages_event *event, void *user_data),
+-		void *user_data)
++				char *address, uint8_t status,
++				void *user_data)
+ {
+-	return -EINVAL;
++	DBG("+\n");
++	struct mns_reg_data *data = g_new0(struct mns_reg_data, 1);
++	data->notification_status = status;
++	data->remote_addr = g_strdup(address);
++
++	DBG("status = %d\n", status);
++
++	g_idle_add(notification_registration, data);
++	DBG("-\n");
++	return 1;
+ }
+ 
+ int messages_set_folder(void *s, const char *name, gboolean cdup)
+@@ -423,8 +929,8 @@ int messages_set_folder(void *s, const char *name, gboolean cdup)
+ static gboolean async_get_folder_listing(void *s)
+ {
+ 	struct session *session = s;
+-	gboolean count = FALSE;
+-	int folder_count = 0;
++	int i;
++	uint16_t folder_list_size = 0;
+ 	char *path = NULL;
+ 	struct message_folder *folder;
+ 	GSList *dir;
+@@ -443,24 +949,36 @@ static gboolean async_get_folder_listing(void *s)
+ 		goto done;
+ 
+ 	if (session->max == 0) {
+-		session->max = 0xffff;
+-		session->offset = 0;
+-		count = TRUE;
++		folder_list_size = g_slist_length(folder->subfolders);
++		goto done;
+ 	}
+ 
+-	for (dir = folder->subfolders; dir &&
+-				(folder_count - session->offset) < session->max;
+-				folder_count++, dir = g_slist_next(dir)) {
+-		struct message_folder *dir_data = dir->data;
++	dir = folder->subfolders;
++
++	/* move to offset */
++	for (i = 0; i < session->offset; i++) {
++		if (dir == NULL)
++			goto done;
+ 
+-		if (count == FALSE && session->offset <= folder_count)
+-			session->folder_list_cb(session, -EAGAIN, 0,
+-					dir_data->name, session->user_data);
++		dir = g_slist_next(dir);
++	}
++
++	for (i = 0; i < session->max; i++) {
++		struct message_folder *dir_data;
++
++		if (dir == NULL)
++			goto done;
++
++		dir_data = dir->data;
++		session->folder_list_cb(session, -EAGAIN, 0,
++				dir_data->name, session->user_data);
++
++		dir = g_slist_next(dir);
+ 	}
+ 
+  done:
+-	session->folder_list_cb(session, 0, folder_count, NULL,
+-							session->user_data);
++	session->folder_list_cb(session, 0, folder_list_size,
++			NULL, session->user_data);
+ 
+ 	g_free(path);
+ 	g_free(session->name);
+@@ -501,12 +1019,22 @@ int messages_get_messages_listing(void *session, const char *name,
+ 
+ 	if (strlen(name) != 0)
+ 		s->name = g_strdup(name);
+-	 else
++	else
+ 		s->name = g_strdup(s->cwd);
+ 
+ 	s->max = max;
+ 	s->offset = offset;
+-	s->filter = filter;
++
++	s->filter = g_new0(struct messages_filter, 1);
++	s->filter->parameter_mask = filter->parameter_mask;
++	s->filter->type = filter->type;
++	s->filter->period_begin = g_strdup(filter->period_begin);
++	s->filter->period_end = g_strdup(filter->period_end);
++	s->filter->read_status = filter->read_status;
++	s->filter->recipient = g_strdup(filter->recipient);
++	s->filter->originator = g_strdup(filter->originator);
++	s->filter->priority = filter->priority;
++
+ 	s->msg_list_cb = (void *)callback;
+ 	s->user_data = user_data;
+ 
+@@ -517,28 +1045,163 @@ int messages_get_messages_listing(void *session, const char *name,
+ 	if (!message) {
+ 		error("Can't allocate new message");
+ 		g_free(s->name);
++		session_filter_free(s->filter);
+ 		return -1;
+ 	}
++
+ 	dbus_message_append_args(message, DBUS_TYPE_STRING, &s->name,
+-							DBUS_TYPE_INVALID);
++						DBUS_TYPE_UINT16, &s->max,
++						DBUS_TYPE_INVALID);
+ 
+-	if (dbus_connection_send_with_reply(g_conn, message, &call, -1) ==
+-					FALSE) {
++	if (dbus_connection_send_with_reply(g_conn, message, &call,
++					DBUS_TIMEOUT_INFINITE) == FALSE) {
+ 		error("Could not send dbus message");
+ 		dbus_message_unref(message);
+ 		g_free(s->name);
++		session_filter_free(s->filter);
+ 		return -1;
+ 	}
+ 	dbus_pending_call_set_notify(call, message_get_msg_list, s, NULL);
+ 	dbus_message_unref(message);
+-	g_free(s->name);
++	DBG("-\n");
++	return 1;
++}
++
++int messages_push_message(void *session, const char *folder,
++					uint8_t transparent, uint8_t retry,
++					uint8_t charset,
++					messages_push_message_cb callback,
++					void *user_data)
++{
++	DBusMessage *message;
++	DBusMessage *reply;
++	DBusError err;
++	struct session *s = session;
++
++	gboolean save_copy = FALSE;  /* As per specs default value */
++	gboolean retry_send = TRUE; /* As per specs default value */
++	gboolean native = FALSE;
++	gchar *folder_path = NULL;
++	guint64 handle = 0;
++
++	DBG("+\n");
++
++	DBG("session->cwd %s +\n", s->cwd);
++
++	if (!folder)
++		folder_path = g_strdup(folder);
++	else
++		folder_path = g_strdup(s->cwd);
++
++	s->push_msg_cb = callback;
++	s->user_data = user_data;
++
++	if (transparent & 0x1)
++		save_copy = TRUE;
++
++	if (!(retry & 0x1)) {
++		retry_send = FALSE;
++		DBG("Retry send %d\n", retry_send);
++	}
++
++	if (charset & 0x1) {
++		native = TRUE;
++		DBG("native send %d\n", native);
++	}
++
++	DBG("save_copy  %d\n", save_copy);
++	DBG("retry_send %d\n", retry_send);
++	DBG("native %d\n", native);
++
++	message = dbus_message_new_method_call(BT_MAP_SERVICE_NAME,
++						BT_MAP_SERVICE_OBJECT_PATH,
++						BT_MAP_SERVICE_INTERFACE,
++						QUERY_PUSH_MESSAGE);
++	if (!message) {
++		error("Can't allocate new message");
++		g_free(folder_path);
++		return -1;
++	}
++
++	dbus_message_append_args(message, DBUS_TYPE_BOOLEAN, &save_copy,
++						DBUS_TYPE_BOOLEAN, &retry_send,
++						DBUS_TYPE_BOOLEAN, &native,
++						DBUS_TYPE_STRING, &folder_path,
++						DBUS_TYPE_INVALID);
++
++	dbus_error_init(&err);
++
++	reply = dbus_connection_send_with_reply_and_block(
++					g_conn, message,
++					DBUS_TIMEOUT_USE_DEFAULT, &err);
++	if (!reply) {
++		DBG(" Reply failed");
++
++		if (dbus_error_is_set(&err)) {
++			DBG("%s", err.message);
++			dbus_error_free(&err);
++		}
++		g_free(folder_path);
++		dbus_message_unref(message);
++		return -1;
++	}
++
++	if (!dbus_message_get_args(reply, &err, DBUS_TYPE_UINT64,
++						&handle, DBUS_TYPE_INVALID)) {
++		if (dbus_error_is_set(&err)) {
++			error("err %s\n", err.message);
++			dbus_error_free(&err);
++		}
++		g_free(folder_path);
++		dbus_message_unref(message);
++		dbus_message_unref(reply);
++		return -1;
++	}
++
++	DBG("uint64 handle %"G_GUINT64_FORMAT"\n", handle);
++	s->push_msg_cb(s, 0, handle, s->user_data);
++
++	g_free(folder_path);
++	dbus_message_unref(message);
++	dbus_message_unref(reply);
++
++	DBG("-\n");
++	return 1;
++}
++
++int messages_push_message_data(void *session, const char *bmsg, void *user_data)
++{
++	DBusMessage *message;
++
++	DBG("+\n");
++
++	message = dbus_message_new_method_call(BT_MAP_SERVICE_NAME,
++						BT_MAP_SERVICE_OBJECT_PATH,
++						BT_MAP_SERVICE_INTERFACE,
++						QUERY_PUSH_MESSAGE_DATA);
++	if (!message) {
++		error("Can't allocate new message");
++		return -1;
++	}
++
++	dbus_message_append_args(message, DBUS_TYPE_STRING, &bmsg,
++							DBUS_TYPE_INVALID);
++
++	if (dbus_connection_send(g_conn, message, NULL) == FALSE) {
++		error("Could not send dbus message");
++		dbus_message_unref(message);
++		return -1;
++	}
++
++	dbus_message_unref(message);
+ 	DBG("-\n");
+ 	return 1;
+ }
+ 
+ int messages_get_message(void *session,
+ 					const char *handle,
+-					unsigned long flags,
++					uint8_t attachment, uint8_t charset,
++					uint8_t fraction_request,
+ 					messages_get_message_cb callback,
+ 					void *user_data)
+ {
+@@ -546,6 +1209,10 @@ int messages_get_message(void *session,
+ 	DBusMessage *message;
+ 	struct session *s = session;
+ 	char *message_name;
++	gboolean attach = FALSE;
++	gboolean transcode = FALSE;
++	gboolean first_request = TRUE;
++
+ 	DBG("+\n");
+ 
+ 	if (NULL != handle) {
+@@ -566,8 +1233,21 @@ int messages_get_message(void *session,
+ 		g_free(message_name);
+ 		return -1;
+ 	}
++
++	if (attachment & 0x1)
++		attach = TRUE;
++
++	if (charset & 0x1)
++		transcode = TRUE;
++
++	if (fraction_request & 0x1)
++		first_request = FALSE;
++
+ 	dbus_message_append_args(message, DBUS_TYPE_STRING, &message_name,
+-							DBUS_TYPE_INVALID);
++					DBUS_TYPE_BOOLEAN, &attach,
++					DBUS_TYPE_BOOLEAN, &transcode,
++					DBUS_TYPE_BOOLEAN, &first_request,
++					DBUS_TYPE_INVALID);
+ 
+ 	if (dbus_connection_send_with_reply(g_conn, message, &call, -1) ==
+ 					FALSE) {
+@@ -583,6 +1263,7 @@ int messages_get_message(void *session,
+ 	return 1;
+ }
+ 
++#ifndef SUPPORT_SMS_ONLY
+ static void message_update_msg(DBusPendingCall *call, void *user_data)
+ {
+ 	DBusMessage *reply = dbus_pending_call_steal_reply(call);
+@@ -609,11 +1290,19 @@ static void message_update_msg(DBusPendingCall *call, void *user_data)
+ 	dbus_message_unref(reply);
+ 	DBG("-\n");
+ }
++#endif
+ 
+ int messages_update_inbox(void *session,
+ 					messages_status_cb callback,
+ 					void *user_data)
+ {
++#ifdef SUPPORT_SMS_ONLY
++	/* MAP.TS.1.0.3 : TP/MMB/BV-16-I
++	   Currently support is only for SMS, Since SMS service does not
++	   allow the polling of its mailbox, it must return Not implemented */
++
++	return -ENOSYS;
++#else
+ 	DBusPendingCall *call;
+ 	DBusMessage *message;
+ 	struct session *s = session;
+@@ -642,6 +1331,7 @@ int messages_update_inbox(void *session,
+ 	dbus_message_unref(message);
+ 	DBG("-\n");
+ 	return 1;
++#endif
+ }
+ 
+ static void message_status_msg(DBusPendingCall *call, void *user_data)
+@@ -672,23 +1362,22 @@ static void message_status_msg(DBusPendingCall *call, void *user_data)
+ 	DBG("-\n");
+ }
+ 
+-static int messages_set_message_status(void *session, const char *handle,
+-					int indicator, int value,
+-					messages_status_cb callback,
+-					void *user_data)
++int messages_set_read(void *session, const char *handle, uint8_t value,
++		messages_status_cb callback, void *user_data)
+ {
+ 	DBusPendingCall *call;
+ 	DBusMessage *message;
+ 	struct session *s = session;
+ 	char *message_name;
++	gboolean read;
+ 
+ 	DBG("+\n");
+ 
+ 	if (NULL == handle)
+ 		return -1;
+ 
+-	message_name =  g_strdup(handle);
+ 	DBG("Message handle = %s\n", handle);
++	message_name = g_strdup(handle);
+ 
+ 	s->msg_status_cb = callback;
+ 	s->user_data = user_data;
+@@ -696,16 +1385,17 @@ static int messages_set_message_status(void *session, const char *handle,
+ 	message = dbus_message_new_method_call(BT_MAP_SERVICE_NAME,
+ 						BT_MAP_SERVICE_OBJECT_PATH,
+ 						BT_MAP_SERVICE_INTERFACE,
+-						QUERY_MESSAGE_STATUS);
++						QUERY_SET_READ_STATUS);
+ 	if (!message) {
+ 		error("Can't allocate new message");
+ 		g_free(message_name);
+ 		return -1;
+ 	}
+ 
++	read = value ? TRUE : FALSE;
++
+ 	dbus_message_append_args(message, DBUS_TYPE_STRING, &message_name,
+-						DBUS_TYPE_INT32, &indicator,
+-						DBUS_TYPE_INT32, &value,
++						DBUS_TYPE_BOOLEAN, &read,
+ 						DBUS_TYPE_INVALID);
+ 
+ 	if (dbus_connection_send_with_reply(g_conn, message, &call, -1) ==
+@@ -715,6 +1405,7 @@ static int messages_set_message_status(void *session, const char *handle,
+ 		dbus_message_unref(message);
+ 		return -1;
+ 	}
++
+ 	dbus_pending_call_set_notify(call, message_status_msg, s, NULL);
+ 	dbus_message_unref(message);
+ 	g_free(message_name);
+@@ -722,75 +1413,55 @@ static int messages_set_message_status(void *session, const char *handle,
+ 	return 1;
+ }
+ 
+-int messages_set_read(void *session, const char *handle, uint8_t value,
+-                                messages_status_cb callback, void *user_data)
+-{
+-	return messages_set_message_status(session, handle, 0,
+-						value, callback, user_data);
+-}
+-
+-int messages_set_delete(void *session, const char *handle, uint8_t value,
+-                                        messages_status_cb callback,
+-                                        void *user_data)
++int messages_set_delete(void *session, const char *handle,
++					uint8_t value,
++					messages_status_cb callback,
++					void *user_data)
+ {
+-	return messages_set_message_status(session, handle, 0,
+-						value, callback, user_data);
+-}
++	DBusPendingCall *call;
++	DBusMessage *message;
++	struct session *s = session;
++	char *message_name;
++	gboolean del;
+ 
+-static gboolean notification_registration(gpointer user_data)
+-{
+ 	DBG("+\n");
+-	DBusMessage *message = NULL;
+-	gboolean reg;
+-	struct mns_reg_data *data = (struct mns_reg_data *)user_data;
++
++	if (NULL == handle)
++		return -1;
++
++	DBG("Message handle = %s\n", handle);
++	message_name = g_strdup(handle);
++
++	s->msg_status_cb = callback;
++	s->user_data = user_data;
+ 
+ 	message = dbus_message_new_method_call(BT_MAP_SERVICE_NAME,
+-					BT_MAP_SERVICE_OBJECT_PATH,
+-					BT_MAP_SERVICE_INTERFACE,
+-					QUERY_NOTI_REGISTRATION);
++						BT_MAP_SERVICE_OBJECT_PATH,
++						BT_MAP_SERVICE_INTERFACE,
++						QUERY_SET_DELETE_STATUS);
+ 	if (!message) {
+ 		error("Can't allocate new message");
+-		goto done;
++		g_free(message_name);
++		return -1;
+ 	}
+ 
+-	DBG("data->notification_status = %d\n", data->notification_status);
+-
+-	if (data->notification_status == 1)
+-		reg = TRUE;
+-	else
+-		reg = FALSE;
++	del = value ? TRUE : FALSE;
+ 
+-	dbus_message_append_args(message, DBUS_TYPE_STRING, &data->remote_addr,
+-						DBUS_TYPE_BOOLEAN, &reg,
++	dbus_message_append_args(message, DBUS_TYPE_STRING, &message_name,
++						DBUS_TYPE_BOOLEAN, &del,
+ 						DBUS_TYPE_INVALID);
+ 
+-	if (dbus_connection_send(g_conn, message, NULL) == FALSE)
++	if (dbus_connection_send_with_reply(g_conn, message, &call, -1) ==
++					FALSE) {
+ 		error("Could not send dbus message");
+-
+-done:
+-	if (message)
++		g_free(message_name);
+ 		dbus_message_unref(message);
++		return -1;
++	}
+ 
+-	g_free(data->remote_addr);
+-	g_free(data);
+-
+-	DBG("-\n");
+-	return FALSE;
+-}
+-
+-int messages_notification_registration(void *session,
+-				char *address, int status,
+-				messages_notification_registration_cb callback,
+-				void *user_data)
+-{
+-	DBG("+\n");
+-	struct mns_reg_data *data = g_new0(struct mns_reg_data, 1);
+-	data->notification_status = status;
+-	data->remote_addr = g_strdup(address);
+-
+-	DBG("status = %d\n", status);
+-
+-	g_idle_add(notification_registration, data);
++	dbus_pending_call_set_notify(call, message_status_msg, s, NULL);
++	dbus_message_unref(message);
++	g_free(message_name);
+ 	DBG("-\n");
+ 	return 1;
+ }
+diff --git a/obexd/plugins/messages.h b/obexd/plugins/messages.h
+index af9f524..272b058 100644
+--- a/obexd/plugins/messages.h
++++ b/obexd/plugins/messages.h
+@@ -169,6 +169,21 @@ void messages_disconnect(void *session);
+  * value is used to set the error code in OBEX response.
+  ******************************************************************************/
+ 
++#ifdef __TIZEN_PATCH__
++
++/* Registers Message Client for receiving message event reports.
++ *
++ * session: Backend session.
++ * address: Remote device address that request notification registration.
++ * status: To indicate message notification registraton status
++ * user_data: User data if any to be sent.
++ */
++
++int messages_set_notification_registration(void *session,
++					char *address, uint8_t status,
++					void *user_data);
++#else
++
+ /* Registers for messaging events notifications.
+  *
+  * session: Backend session.
+@@ -181,6 +196,7 @@ int messages_set_notification_registration(void *session,
+ 		void (*send_event)(void *session,
+ 			const struct messages_event *event, void *user_data),
+ 		void *user_data);
++#endif
+ 
+ /* Changes current directory.
+  *
+@@ -236,6 +252,34 @@ int messages_get_messages_listing(void *session, const char *name,
+ 				messages_get_messages_listing_cb callback,
+ 				void *user_data);
+ 
++#ifdef __TIZEN_PATCH__
++/* Retrieves bMessage object (see MAP specification, ch. 3.1.3) of a given
++ * message.
++ *
++ * session: Backend session.
++ * handle: Handle of the message to retrieve.
++ * attachment: Indicates to return attachment in bMessage object.
++ * charset: Indicates the transcoding of the textual parts of delivered
++ *      bMessage-content.
++ * fraction_request: Indicates message is a fractioned email as applied for
++ *      some push-email services.
++ * fmore: Indicates whether next fraction is available.
++ * chunk: chunk of bMessage body
++ *
++ * Callback allows for returning bMessage in chunks.
++ */
++typedef void (*messages_get_message_cb)(void *session, int err, gboolean fmore,
++		const char *chunk, void *user_data);
++
++int messages_get_message(void *session, const char *handle,
++					uint8_t attachment, uint8_t charset,
++					uint8_t fraction_request,
++					messages_get_message_cb callback,
++					void *user_data);
++
++typedef void (*messages_push_message_cb)(void *session, int err, guint64 handle,
++							void *user_data);
++#else
+ #define MESSAGES_ATTACHMENT	(1 << 0)
+ #define MESSAGES_UTF8		(1 << 1)
+ #define MESSAGES_FRACTION	(1 << 2)
+@@ -267,6 +311,7 @@ int messages_get_message(void *session, const char *handle,
+ 					unsigned long flags,
+ 					messages_get_message_cb callback,
+ 					void *user_data);
++#endif
+ 
+ typedef void (*messages_status_cb)(void *session, int err, void *user_data);
+ 

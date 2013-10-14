@@ -1,0 +1,19 @@
+commit ed49f1886e20215b54a1e85fbe4403f4342d565d
+Author: Wu Zheng <wu.zheng@intel.com>
+Date:   Sun Sep 29 16:21:45 2013 +0800
+
+    Add Tizen flags to spec file
+
+diff --git a/packaging/bluez.spec b/packaging/bluez.spec
+index 7ac5b41..9745135 100644
+--- a/packaging/bluez.spec
++++ b/packaging/bluez.spec
+@@ -95,6 +95,8 @@ cp %{SOURCE1001} .
+ 
+ %build
+ autoreconf -fiv
++
++export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__"
+ %configure  --with-pic \
+ 			--libexecdir=/lib \
+ 			--disable-usb	\

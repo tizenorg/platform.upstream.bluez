@@ -1,0 +1,26 @@
+From: William Douglas <william.douglas@intel.com>
+Date: Tue, 12 Feb 2013 17:45:51 -0800
+Subject: Correct the dbus service file's systemd unit name for bluez.
+
+Even though dbus-org.bluez.service is set as an alias for the
+bluetooth.service systemd unit file, systemd will not be able to load
+the bluetooth daemon without the daemon being enabled (and the
+dbus-org.bluez.service file linked to bluetooth.service). This patch
+allows the daemon to be loaded by other services on demand.
+
+Change-Id: Iae06636b8595b78978ba3d4a7f070da8f7b11e65
+Signed-off-by: William Douglas <william.douglas@intel.com>
+---
+ src/org.bluez.service |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/src/org.bluez.service b/src/org.bluez.service
+index dd7ae8f..2a3b057 100644
+--- a/src/org.bluez.service
++++ b/src/org.bluez.service
+@@ -2,4 +2,4 @@
+ Name=org.bluez
+ Exec=/bin/false
+ User=root
+-SystemdService=dbus-org.bluez.service
++SystemdService=bluetooth.service

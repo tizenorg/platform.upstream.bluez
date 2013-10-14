@@ -1,0 +1,216 @@
+commit 34f58b2ca1b9801d9fb6a71b09e2f4be37a8af6a
+Author: Wu Zheng <wu.zheng@intel.com>
+Date:   Sun Sep 29 15:45:52 2013 +0800
+
+    Using TIZEN driver to control messages
+
+diff --git a/obexd/plugins/mas.c b/obexd/plugins/mas.c
+index 5729c22..ebe11ae 100644
+--- a/obexd/plugins/mas.c
++++ b/obexd/plugins/mas.c
+@@ -71,6 +71,10 @@ struct mas_session {
+ 	GObexApparam *inparams;
+ 	GObexApparam *outparams;
+ 	gboolean ap_sent;
++#ifdef __TIZEN_PATCH__
++	int notification_status;
++	char *remote_addr;
++#endif
+ };
+ 
+ static const uint8_t MAS_TARGET[TARGET_SIZE] = {
+@@ -120,12 +124,18 @@ static void reset_request(struct mas_session *mas)
+ static void mas_clean(struct mas_session *mas)
+ {
+ 	reset_request(mas);
++#ifdef __TIZEN_PATCH__
++	g_free(mas->remote_addr);
++#endif
+ 	g_free(mas);
+ }
+ 
+ static void *mas_connect(struct obex_session *os, int *err)
+ {
+ 	struct mas_session *mas;
++#ifdef __TIZEN_PATCH__
++	char *address;
++#endif
+ 
+ 	DBG("");
+ 
+@@ -137,6 +147,13 @@ static void *mas_connect(struct obex_session *os, int *err)
+ 
+ 	manager_register_session(os);
+ 
++#ifdef __TIZEN_PATCH__
++	if (obex_getpeername(os, &address) == 0) {
++		mas->remote_addr = address;
++		DBG("mas->remote_addr = %s\n", mas->remote_addr);
++	}
++#endif
++
+ 	return mas;
+ 
+ failed:
+@@ -648,6 +665,48 @@ static void *message_set_status_open(const char *name, int oflag, mode_t mode,
+ 	return mas;
+ }
+ 
++#ifdef __TIZEN_PATCH__
++static void *notification_registration_open(const char *name, int oflag,
++		mode_t mode, void *driver_data, size_t *size, int *err)
++{
++	struct mas_session *mas = driver_data;
++	uint8_t status;
++
++	if (oflag == O_RDONLY) {
++		*err = -EBADR;
++		return NULL;
++	}
++
++	if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_NOTIFICATIONSTATUS, &status)) {
++		*err = -EBADR;
++		return NULL;
++	}
++
++	DBG("status: %d", status);
++
++	mas->notification_status = status;
++	*err = 0;
++	mas->finished = TRUE;
++	return mas;
++}
++
++static int notification_registration_close(void *obj)
++{
++	struct mas_session *mas = obj;
++
++	DBG("");
++
++	messages_notification_registration(mas->backend_data,
++				mas->remote_addr, mas->notification_status,
++				NULL, mas);
++
++	reset_request(mas);
++
++	return 0;
++}
++#endif
++
++
+ static ssize_t any_get_next_header(void *object, void *buf, size_t mtu,
+ 								uint8_t *hi)
+ {
+@@ -771,8 +830,13 @@ static struct obex_mime_type_driver mime_notification_registration = {
+ 	.target = MAS_TARGET,
+ 	.target_size = TARGET_SIZE,
+ 	.mimetype = "x-bt/MAP-NotificationRegistration",
++#ifdef __TIZEN_PATCH__
++	.open = notification_registration_open,
++	.close = notification_registration_close,
++#else
+ 	.open = any_open,
+ 	.close = any_close,
++#endif
+ 	.read = any_read,
+ 	.write = any_write,
+ };
+diff --git a/obexd/plugins/messages-tizen.c b/obexd/plugins/messages-tizen.c
+index a668c7a..dd45a4e 100644
+--- a/obexd/plugins/messages-tizen.c
++++ b/obexd/plugins/messages-tizen.c
+@@ -737,6 +737,64 @@ int messages_set_delete(void *session, const char *handle, uint8_t value,
+ 						value, callback, user_data);
+ }
+ 
++static gboolean notification_registration(gpointer user_data)
++{
++	DBG("+\n");
++	DBusMessage *message = NULL;
++	gboolean reg;
++	struct mns_reg_data *data = (struct mns_reg_data *)user_data;
++
++	message = dbus_message_new_method_call(BT_MAP_SERVICE_NAME,
++					BT_MAP_SERVICE_OBJECT_PATH,
++					BT_MAP_SERVICE_INTERFACE,
++					QUERY_NOTI_REGISTRATION);
++	if (!message) {
++		error("Can't allocate new message");
++		goto done;
++	}
++
++	DBG("data->notification_status = %d\n", data->notification_status);
++
++	if (data->notification_status == 1)
++		reg = TRUE;
++	else
++		reg = FALSE;
++
++	dbus_message_append_args(message, DBUS_TYPE_STRING, &data->remote_addr,
++						DBUS_TYPE_BOOLEAN, &reg,
++						DBUS_TYPE_INVALID);
++
++	if (dbus_connection_send(g_conn, message, NULL) == FALSE)
++		error("Could not send dbus message");
++
++done:
++	if (message)
++		dbus_message_unref(message);
++
++	g_free(data->remote_addr);
++	g_free(data);
++
++	DBG("-\n");
++	return FALSE;
++}
++
++int messages_notification_registration(void *session,
++				char *address, int status,
++				messages_notification_registration_cb callback,
++				void *user_data)
++{
++	DBG("+\n");
++	struct mns_reg_data *data = g_new0(struct mns_reg_data, 1);
++	data->notification_status = status;
++	data->remote_addr = g_strdup(address);
++
++	DBG("status = %d\n", status);
++
++	g_idle_add(notification_registration, data);
++	DBG("-\n");
++	return 1;
++}
++
+ void messages_abort(void *session)
+ {
+ }
+diff --git a/obexd/plugins/messages.h b/obexd/plugins/messages.h
+index 00a16b1..af9f524 100644
+--- a/obexd/plugins/messages.h
++++ b/obexd/plugins/messages.h
+@@ -302,6 +302,25 @@ int messages_set_read(void *session, const char *handle, uint8_t value,
+ int messages_set_delete(void *session, const char *handle, uint8_t value,
+ 				messages_status_cb callback, void *user_data);
+ 
++#ifdef __TIZEN_PATCH__
++
++/* Informs Message Server to modify status of the message.
++ *
++ * session: Backend session.
++ * address: Remote device address that request notification registraton.
++ * status: To indicate message notification service
++ * Callback shall be called for every notification registration request.
++ * user_data: User data if any to be sent.
++ */
++typedef void (*messages_notification_registration_cb)(void *session, int err,
++		void *user_data);
++
++int messages_notification_registration(void *session,
++				char *address, int status,
++				messages_notification_registration_cb callback,
++				void *user_data);
++#endif
++
+ /* Aborts currently pending request.
+  *
+  * session: Backend session.
