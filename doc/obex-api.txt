@@ -538,7 +538,8 @@ Methods		void SetFolder(string name)
 		array{object, dict} ListMessages(string folder, dict filter)
 
 			Returns an array containing the messages found in the
-			given folder.
+			given subfolder of the current folder, or in the
+			current folder if folder is empty.
 
 			Possible Filters: Offset, MaxCount, SubjectLength, Fields,
 			Type, PeriodStart, PeriodEnd, Status, Recipient, Sender,
@@ -597,10 +598,14 @@ Methods		void SetFolder(string name)
 
 				string Status:
 
-					Message reception status
+					Message status
 
-					Possible values: "complete",
-					"fractioned" and "notification"
+					Possible values for received messages:
+					"complete", "fractioned", "notification"
+
+					Possible values for sent messages:
+					"delivery-success", "sending-success",
+					"delivery-failure", "sending-failure"
 
 				uint64 AttachmentSize:
 
@@ -637,8 +642,9 @@ Methods		void SetFolder(string name)
 			Transfer a message (in bMessage format) to the
 			remote device.
 
-			The message is transferred either to the given folder,
-			or to the current folder if folder is omitted.
+			The message is transferred either to the given
+			subfolder of the current folder, or to the current
+			folder if folder is empty.
 
 			Possible args: Transparent, Retry, Charset
 

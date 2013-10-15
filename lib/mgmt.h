@@ -93,6 +93,7 @@ struct mgmt_rp_read_index_list {
 #define MGMT_SETTING_BREDR		0x00000080
 #define MGMT_SETTING_HS			0x00000100
 #define MGMT_SETTING_LE			0x00000200
+#define MGMT_SETTING_ADVERTISING	0x00000400
 
 #define MGMT_OP_READ_INFO		0x0004
 struct mgmt_rp_read_info {
@@ -319,6 +320,21 @@ struct mgmt_cp_set_device_id {
 	uint16_t version;
 } __packed;
 
+#define MGMT_OP_SET_ADVERTISING		0x0029
+
+#define MGMT_OP_SET_BREDR		0x002A
+
+#define MGMT_OP_SET_STATIC_ADDRESS	0x002B
+struct mgmt_cp_set_static_address {
+	bdaddr_t bdaddr;
+} __packed;
+
+#define MGMT_OP_SET_SCAN_PARAMS		0x002C
+struct mgmt_cp_set_scan_params {
+	uint16_t interval;
+	uint16_t window;
+} __packed;
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	uint16_t opcode;
@@ -497,6 +513,10 @@ static const char *mgmt_op[] = {
 	"Block Device",
 	"Unblock Device",
 	"Set Device ID",
+	"Set Advertising",
+	"Set BR/EDR",
+	"Set Static Address",
+	"Set Scan Parameters",
 };
 
 static const char *mgmt_ev[] = {

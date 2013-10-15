@@ -49,7 +49,8 @@ typedef void (*bthost_new_conn_cb) (uint16_t handle, void *user_data);
 void bthost_set_connect_cb(struct bthost *bthost, bthost_new_conn_cb cb,
 							void *user_data);
 
-void bthost_hci_connect(struct bthost *bthost, const uint8_t *bdaddr);
+void bthost_hci_connect(struct bthost *bthost, const uint8_t *bdaddr,
+							uint8_t addr_type);
 
 typedef void (*bthost_l2cap_rsp_cb) (uint8_t code, const void *data,
 						uint16_t len, void *user_data);
@@ -59,6 +60,8 @@ bool bthost_l2cap_req(struct bthost *bthost, uint16_t handle, uint8_t req,
 				bthost_l2cap_rsp_cb cb, void *user_data);
 
 void bthost_write_scan_enable(struct bthost *bthost, uint8_t scan);
+
+void bthost_set_adv_enable(struct bthost *bthost, uint8_t enable);
 
 void bthost_set_server_psm(struct bthost *bthost, uint16_t psm);
 
