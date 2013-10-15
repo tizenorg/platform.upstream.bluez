@@ -272,6 +272,7 @@ static const char *status2str(uint8_t status)
 	case TRANSFER_STATUS_COMPLETE:
 		return "complete";
 	case TRANSFER_STATUS_ERROR:
+	default:
 		return "error";
 	}
 }
@@ -601,6 +602,17 @@ static void get_xfer_progress_first(GObex *obex, GError *err, GObexPacket *rsp,
 		xfer_complete(obex, err, transfer);
 		g_error_free(err);
 		return;
+	}
+
+	hdr = g_obex_packet_get_header(rsp, G_OBEX_HDR_LENGTH);
+	if (hdr) {
+		uint32_t len;
+		if (g_obex_header_get_uint32(hdr, &len)) {
+			transfer->size = len;
+			g_dbus_emit_property_changed(transfer->conn,
+						transfer->path,
+						TRANSFER_INTERFACE, "Size");
+		}
 	}
 
 	hdr = g_obex_packet_get_header(rsp, G_OBEX_HDR_APPARAM);

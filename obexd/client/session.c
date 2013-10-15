@@ -177,6 +177,9 @@ static struct pending_request *pending_request_new(struct obc_session *session,
 
 static void pending_request_free(struct pending_request *p)
 {
+	if (p->req_id > 0)
+		g_obex_cancel_req(p->session->obex, p->req_id, TRUE);
+
 	if (p->destroy)
 		p->destroy(p->data);
 
@@ -711,9 +714,9 @@ static gboolean session_process(gpointer data)
 {
 	struct obc_session *session = data;
 
-	session_process_queue(session);
-
 	session->process_id = 0;
+
+	session_process_queue(session);
 
 	return FALSE;
 }
@@ -1320,6 +1323,8 @@ void obc_session_cancel(struct obc_session *session, guint id,
 		return;
 
 	g_obex_cancel_req(session->obex, p->req_id, remove);
+	p->req_id = 0;
+
 	if (!remove)
 		return;
 

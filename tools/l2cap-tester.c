@@ -167,7 +167,7 @@ static void read_index_list_callback(uint8_t status, uint16_t length,
 	mgmt_register(data->mgmt, MGMT_EV_INDEX_REMOVED, MGMT_INDEX_NONE,
 					index_removed_callback, NULL, NULL);
 
-	data->hciemu = hciemu_new(HCIEMU_TYPE_BREDRLE);
+	data->hciemu = hciemu_new(data->hciemu_type);
 	if (!data->hciemu) {
 		tester_warn("Failed to setup HCI emulation");
 		tester_pre_setup_failed();
@@ -198,6 +198,11 @@ static void test_post_teardown(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
 
+	if (data->io_id > 0) {
+		g_source_remove(data->io_id);
+		data->io_id = 0;
+	}
+
 	hciemu_unref(data->hciemu);
 	data->hciemu = NULL;
 }
@@ -206,19 +211,30 @@ static void test_data_free(void *test_data)
 {
 	struct test_data *data = test_data;
 
-	if (data->io_id > 0)
-		g_source_remove(data->io_id);
-
 	free(data);
 }
 
-#define test_l2cap(name, data, setup, func) \
+#define test_l2cap_bredr(name, data, setup, func) \
 	do { \
 		struct test_data *user; \
 		user = malloc(sizeof(struct test_data)); \
 		if (!user) \
 			break; \
-		user->hciemu_type = HCIEMU_TYPE_BREDRLE; \
+		user->hciemu_type = HCIEMU_TYPE_BREDR; \
+		user->io_id = 0; \
+		user->test_data = data; \
+		tester_add_full(name, data, \
+				test_pre_setup, setup, func, NULL, \
+				test_post_teardown, 2, user, test_data_free); \
+	} while (0)
+
+#define test_l2cap_le(name, data, setup, func) \
+	do { \
+		struct test_data *user; \
+		user = malloc(sizeof(struct test_data)); \
+		if (!user) \
+			break; \
+		user->hciemu_type = HCIEMU_TYPE_LE; \
 		user->io_id = 0; \
 		user->test_data = data; \
 		tester_add_full(name, data, \
@@ -262,20 +278,52 @@ static const struct l2cap_server_data l2cap_server_nval_psm_test = {
 };
 
 static const uint8_t l2cap_nval_conn_req[] = { 0x00 };
+static const uint8_t l2cap_nval_pdu_rsp[] = { 0x00, 0x00 };
 
 static const struct l2cap_server_data l2cap_server_nval_pdu_test1 = {
 	.send_req_code = BT_L2CAP_PDU_CONN_REQ,
 	.send_req = l2cap_nval_conn_req,
 	.send_req_len = sizeof(l2cap_nval_conn_req),
 	.expect_rsp_code = BT_L2CAP_PDU_CMD_REJECT,
+	.expect_rsp = l2cap_nval_pdu_rsp,
+	.expect_rsp_len = sizeof(l2cap_nval_pdu_rsp),
+};
+
+static const uint8_t l2cap_nval_dc_req[] = { 0x12, 0x34, 0x56, 0x78 };
+static const uint8_t l2cap_nval_cid_rsp[] = { 0x02, 0x00 };
+
+static const struct l2cap_server_data l2cap_server_nval_cid_test1 = {
+	.send_req_code = BT_L2CAP_PDU_DISCONN_REQ,
+	.send_req = l2cap_nval_dc_req,
+	.send_req_len = sizeof(l2cap_nval_dc_req),
+	.expect_rsp_code = BT_L2CAP_PDU_CMD_REJECT,
+	.expect_rsp = l2cap_nval_cid_rsp,
+	.expect_rsp_len = sizeof(l2cap_nval_cid_rsp),
+};
+
+static const uint8_t l2cap_nval_cfg_req[] = { 0x12, 0x34, 0x00, 0x00 };
+static const uint8_t l2cap_nval_cfg_rsp[] = { 0x02, 0x00 };
+
+static const struct l2cap_server_data l2cap_server_nval_cid_test2 = {
+	.send_req_code = BT_L2CAP_PDU_CONFIG_REQ,
+	.send_req = l2cap_nval_cfg_req,
+	.send_req_len = sizeof(l2cap_nval_cfg_req),
+	.expect_rsp_code = BT_L2CAP_PDU_CMD_REJECT,
+	.expect_rsp = l2cap_nval_cfg_rsp,
+	.expect_rsp_len = sizeof(l2cap_nval_cfg_rsp),
 };
 
 static void client_connectable_complete(uint16_t opcode, uint8_t status,
 					const void *param, uint8_t len,
 					void *user_data)
 {
-	if (opcode != BT_HCI_CMD_WRITE_SCAN_ENABLE)
+	switch (opcode) {
+	case BT_HCI_CMD_WRITE_SCAN_ENABLE:
+	case BT_HCI_CMD_LE_SET_ADV_ENABLE:
+		break;
+	default:
 		return;
+	}
 
 	tester_print("Client set connectable status 0x%02x", status);
 
@@ -285,7 +333,7 @@ static void client_connectable_complete(uint16_t opcode, uint8_t status,
 		tester_setup_complete();
 }
 
-static void setup_powered_callback(uint8_t status, uint16_t length,
+static void setup_powered_client_callback(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
 	struct test_data *data = tester_get_data();
@@ -300,29 +348,67 @@ static void setup_powered_callback(uint8_t status, uint16_t length,
 
 	bthost = hciemu_client_get_host(data->hciemu);
 	bthost_set_cmd_complete_cb(bthost, client_connectable_complete, data);
-	bthost_write_scan_enable(bthost, 0x03);
+	if (data->hciemu_type == HCIEMU_TYPE_LE)
+		bthost_set_adv_enable(bthost, 0x01);
+	else
+		bthost_write_scan_enable(bthost, 0x03);
 }
 
-static void setup_powered(const void *test_data)
+static void setup_powered_server_callback(uint8_t status, uint16_t length,
+					const void *param, void *user_data)
+{
+	if (status != MGMT_STATUS_SUCCESS) {
+		tester_setup_failed();
+		return;
+	}
+
+	tester_print("Controller powered on");
+
+	tester_setup_complete();
+}
+
+static void setup_powered_client(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
 	unsigned char param[] = { 0x01 };
 
 	tester_print("Powering on controller");
 
-	mgmt_send(data->mgmt, MGMT_OP_SET_CONNECTABLE, data->mgmt_index,
-					sizeof(param), param,
-					NULL, NULL, NULL);
-
-	mgmt_send(data->mgmt, MGMT_OP_SET_SSP, data->mgmt_index,
+	if (data->hciemu_type == HCIEMU_TYPE_BREDR)
+		mgmt_send(data->mgmt, MGMT_OP_SET_SSP, data->mgmt_index,
 				sizeof(param), param, NULL, NULL, NULL);
-
-	mgmt_send(data->mgmt, MGMT_OP_SET_LE, data->mgmt_index,
+	else
+		mgmt_send(data->mgmt, MGMT_OP_SET_LE, data->mgmt_index,
 				sizeof(param), param, NULL, NULL, NULL);
 
 	mgmt_send(data->mgmt, MGMT_OP_SET_POWERED, data->mgmt_index,
-					sizeof(param), param,
-					setup_powered_callback, NULL, NULL);
+			sizeof(param), param, setup_powered_client_callback,
+			NULL, NULL);
+}
+
+static void setup_powered_server(const void *test_data)
+{
+	struct test_data *data = tester_get_data();
+	unsigned char param[] = { 0x01 };
+
+	tester_print("Powering on controller");
+
+	if (data->hciemu_type == HCIEMU_TYPE_BREDR) {
+		mgmt_send(data->mgmt, MGMT_OP_SET_CONNECTABLE, data->mgmt_index,
+				sizeof(param), param,
+				NULL, NULL, NULL);
+		mgmt_send(data->mgmt, MGMT_OP_SET_SSP, data->mgmt_index,
+				sizeof(param), param, NULL, NULL, NULL);
+	} else {
+		mgmt_send(data->mgmt, MGMT_OP_SET_LE, data->mgmt_index,
+				sizeof(param), param, NULL, NULL, NULL);
+		mgmt_send(data->mgmt, MGMT_OP_SET_ADVERTISING, data->mgmt_index,
+				sizeof(param), param, NULL, NULL, NULL);
+	}
+
+	mgmt_send(data->mgmt, MGMT_OP_SET_POWERED, data->mgmt_index,
+			sizeof(param), param, setup_powered_server_callback,
+			NULL, NULL);
 }
 
 static void test_basic(const void *test_data)
@@ -397,6 +483,10 @@ static int create_l2cap_sock(struct test_data *data, uint16_t psm)
 	addr.l2_family = AF_BLUETOOTH;
 	addr.l2_psm = htobs(psm);
 	bacpy(&addr.l2_bdaddr, (void *) master_bdaddr);
+	if (data->hciemu_type == HCIEMU_TYPE_LE)
+		addr.l2_bdaddr_type = BDADDR_LE_PUBLIC;
+	else
+		addr.l2_bdaddr_type = BDADDR_BREDR;
 
 	if (bind(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 		err = -errno;
@@ -425,6 +515,10 @@ static int connect_l2cap_sock(struct test_data *data, int sk, uint16_t psm)
 	addr.l2_family = AF_BLUETOOTH;
 	bacpy(&addr.l2_bdaddr, (void *) client_bdaddr);
 	addr.l2_psm = htobs(psm);
+	if (data->hciemu_type == HCIEMU_TYPE_LE)
+		addr.l2_bdaddr_type = BDADDR_LE_PUBLIC;
+	else
+		addr.l2_bdaddr_type = BDADDR_BREDR;
 
 	err = connect(sk, (struct sockaddr *) &addr, sizeof(addr));
 	if (err < 0 && !(errno == EAGAIN || errno == EINPROGRESS)) {
@@ -437,7 +531,7 @@ static int connect_l2cap_sock(struct test_data *data, int sk, uint16_t psm)
 	return 0;
 }
 
-static void test_bredr_connect(const void *test_data)
+static void test_connect(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
 	const struct l2cap_client_data *l2data = data->test_data;
@@ -553,23 +647,24 @@ static void client_new_conn(uint16_t handle, void *user_data)
 		tester_print("Sending L2CAP Request from client");
 
 		bthost = hciemu_client_get_host(data->hciemu);
-		bthost_l2cap_req(bthost, handle, BT_L2CAP_PDU_CONN_REQ,
+		bthost_l2cap_req(bthost, handle, l2data->send_req_code,
 					l2data->send_req, l2data->send_req_len,
 					cb, data);
 	}
 }
 
-static void test_bredr_server(const void *test_data)
+static void test_server(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
 	const struct l2cap_server_data *l2data = data->test_data;
 	const uint8_t *master_bdaddr;
+	uint8_t addr_type;
 	struct bthost *bthost;
 	GIOChannel *io;
 	int sk;
 
 	if (l2data->server_psm) {
-		sk = create_l2cap_sock(data, 0x0001);
+		sk = create_l2cap_sock(data, l2data->server_psm);
 		if (sk < 0) {
 			tester_test_failed();
 			return;
@@ -601,31 +696,44 @@ static void test_bredr_server(const void *test_data)
 
 	bthost = hciemu_client_get_host(data->hciemu);
 	bthost_set_connect_cb(bthost, client_new_conn, data);
-	bthost_hci_connect(bthost, master_bdaddr);
+
+	if (data->hciemu_type == HCIEMU_TYPE_BREDR)
+		addr_type = BDADDR_BREDR;
+	else
+		addr_type = BDADDR_LE_PUBLIC;
+
+	bthost_hci_connect(bthost, master_bdaddr, addr_type);
 }
 
 int main(int argc, char *argv[])
 {
 	tester_init(&argc, &argv);
 
-	test_l2cap("Basic L2CAP Socket - Success", NULL, setup_powered,
-								test_basic);
+	test_l2cap_bredr("Basic L2CAP Socket - Success", NULL,
+					setup_powered_client, test_basic);
 
-	test_l2cap("L2CAP BR/EDR Client - Success",
+	test_l2cap_bredr("L2CAP BR/EDR Client - Success",
 					&client_connect_success_test,
-					setup_powered, test_bredr_connect);
-	test_l2cap("L2CAP BR/EDR Client - Invalid PSM",
+					setup_powered_client, test_connect);
+	test_l2cap_bredr("L2CAP BR/EDR Client - Invalid PSM",
 					&client_connect_nval_psm_test,
-					setup_powered, test_bredr_connect);
+					setup_powered_client, test_connect);
 
-	test_l2cap("L2CAP BR/EDR Server - Success", &l2cap_server_success_test,
-					setup_powered, test_bredr_server);
-	test_l2cap("L2CAP BR/EDR Server - Invalid PSM",
+	test_l2cap_bredr("L2CAP BR/EDR Server - Success",
+					&l2cap_server_success_test,
+					setup_powered_server, test_server);
+	test_l2cap_bredr("L2CAP BR/EDR Server - Invalid PSM",
 					&l2cap_server_nval_psm_test,
-					setup_powered, test_bredr_server);
-	test_l2cap("L2CAP BR/EDR Server - Invalid PDU",
-				&l2cap_server_nval_pdu_test1, setup_powered,
-				test_bredr_server);
+					setup_powered_server, test_server);
+	test_l2cap_bredr("L2CAP BR/EDR Server - Invalid PDU",
+				&l2cap_server_nval_pdu_test1,
+				setup_powered_server, test_server);
+	test_l2cap_bredr("L2CAP BR/EDR Server - Invalid Disconnect CID",
+				&l2cap_server_nval_cid_test1,
+				setup_powered_server, test_server);
+	test_l2cap_bredr("L2CAP BR/EDR Server - Invalid Config CID",
+				&l2cap_server_nval_cid_test2,
+				setup_powered_server, test_server);
 
 	return tester_run();
 }
