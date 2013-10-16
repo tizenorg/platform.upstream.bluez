@@ -741,8 +741,17 @@ struct bt_hci_rsp_read_num_supported_iac {
 } __attribute__ ((packed));
 
 #define BT_HCI_CMD_READ_CURRENT_IAC_LAP		0x0c39
+struct bt_hci_rsp_read_current_iac_lap {
+	uint8_t  status;
+	uint8_t  num_iac;
+	uint8_t  iac_lap[0];
+} __attribute__ ((packed));
 
 #define BT_HCI_CMD_WRITE_CURRENT_IAC_LAP	0x0c3a
+struct bt_hci_cmd_write_current_iac_lap {
+	uint8_t  num_iac;
+	uint8_t  iac_lap[0];
+} __attribute__ ((packed));
 
 #define BT_HCI_CMD_READ_PAGE_SCAN_PERIOD_MODE	0x0c3b
 struct bt_hci_rsp_read_page_scan_period_mode {
