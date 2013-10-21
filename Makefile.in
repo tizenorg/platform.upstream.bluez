@@ -58,12 +58,13 @@ build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = $(am__EXEEXT_1) $(am__EXEEXT_2) $(am__EXEEXT_3)
 noinst_PROGRAMS = $(am__EXEEXT_4) $(am__EXEEXT_5) $(am__EXEEXT_6) \
-	$(am__EXEEXT_7)
+	$(am__EXEEXT_7) $(am__EXEEXT_8)
 libexec_PROGRAMS = src/bluetoothd$(EXEEXT) obexd/src/obexd$(EXEEXT)
 @LIBRARY_TRUE@am__append_1 = $(lib_headers)
 @LIBRARY_TRUE@am__append_2 = lib/libbluetooth.la
 DIST_COMMON = README $(am__configure_deps) $(am__include_HEADERS_DIST) \
-	$(dist_man_MANS) $(srcdir)/Makefile.am $(srcdir)/Makefile.in \
+	$(dist_man_MANS) $(srcdir)/Makefile.am \
+	$(srcdir)/Makefile.android $(srcdir)/Makefile.in \
 	$(srcdir)/Makefile.obexd $(srcdir)/Makefile.plugins \
 	$(srcdir)/Makefile.tools $(srcdir)/config.h.in \
 	$(top_srcdir)/configure $(top_srcdir)/lib/bluez.pc.in \
@@ -114,10 +115,11 @@ DIST_COMMON = README $(am__configure_deps) $(am__include_HEADERS_DIST) \
 @EXPERIMENTAL_TRUE@	tools/mgmt-tester tools/gap-tester \
 @EXPERIMENTAL_TRUE@	tools/l2cap-tester tools/sco-tester \
 @EXPERIMENTAL_TRUE@	tools/bdaddr tools/avinfo tools/avtest \
-@EXPERIMENTAL_TRUE@	tools/scotest tools/hcieventmask \
-@EXPERIMENTAL_TRUE@	tools/hcisecfilter tools/hwdb tools/btmgmt \
-@EXPERIMENTAL_TRUE@	tools/btinfo tools/btattach tools/btsnoop \
-@EXPERIMENTAL_TRUE@	tools/btiotest tools/mpris-player
+@EXPERIMENTAL_TRUE@	tools/scotest tools/amptest tools/hwdb \
+@EXPERIMENTAL_TRUE@	tools/hcieventmask tools/hcisecfilter \
+@EXPERIMENTAL_TRUE@	tools/btmgmt tools/btinfo tools/btattach \
+@EXPERIMENTAL_TRUE@	tools/btsnoop tools/btiotest tools/cltest \
+@EXPERIMENTAL_TRUE@	tools/mpris-player
 @TOOLS_TRUE@am__append_16 = tools/hciattach tools/hciconfig tools/hcitool tools/hcidump \
 @TOOLS_TRUE@			tools/rfcomm tools/rctest tools/l2test tools/l2ping \
 @TOOLS_TRUE@			tools/sdptool tools/ciptool tools/bccmd
@@ -138,7 +140,7 @@ DIST_COMMON = README $(am__configure_deps) $(am__include_HEADERS_DIST) \
 @EXPERIMENTAL_TRUE@am__append_21 = tools/bdaddr.1
 @READLINE_TRUE@am__append_22 = attrib/gatttool \
 @READLINE_TRUE@			tools/obex-client-tool tools/obex-server-tool \
-@READLINE_TRUE@			tools/bluetooth-player
+@READLINE_TRUE@			tools/bluetooth-player tools/obexctl
 
 @EXPERIMENTAL_TRUE@am__append_23 = profiles/iap/iapd
 @CUPS_TRUE@cups_PROGRAMS = profiles/cups/bluetooth$(EXEEXT)
@@ -149,8 +151,9 @@ DIST_COMMON = README $(am__configure_deps) $(am__include_HEADERS_DIST) \
 @OBEX_TRUE@	obexd/plugins/vcard.h obexd/plugins/vcard.c \
 @OBEX_TRUE@	obexd/plugins/phonebook.h \
 @OBEX_TRUE@	obexd/plugins/phonebook-dummy.c
-@HID2HCI_TRUE@am__append_28 = $(rules_DATA)
-TESTS = $(am__EXEEXT_7)
+@ANDROID_TRUE@am__append_28 = android/bluetoothd
+@HID2HCI_TRUE@am__append_29 = $(rules_DATA)
+TESTS = $(am__EXEEXT_8)
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/acinclude.m4 \
@@ -275,20 +278,23 @@ plugins_external_dummy_la_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
 @EXPERIMENTAL_TRUE@	tools/bdaddr$(EXEEXT) tools/avinfo$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/avtest$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/scotest$(EXEEXT) \
+@EXPERIMENTAL_TRUE@	tools/amptest$(EXEEXT) tools/hwdb$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/hcieventmask$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/hcisecfilter$(EXEEXT) \
-@EXPERIMENTAL_TRUE@	tools/hwdb$(EXEEXT) tools/btmgmt$(EXEEXT) \
-@EXPERIMENTAL_TRUE@	tools/btinfo$(EXEEXT) \
+@EXPERIMENTAL_TRUE@	tools/btmgmt$(EXEEXT) tools/btinfo$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/btattach$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/btsnoop$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/btiotest$(EXEEXT) \
+@EXPERIMENTAL_TRUE@	tools/cltest$(EXEEXT) \
 @EXPERIMENTAL_TRUE@	tools/mpris-player$(EXEEXT)
 @READLINE_TRUE@am__EXEEXT_5 = attrib/gatttool$(EXEEXT) \
 @READLINE_TRUE@	tools/obex-client-tool$(EXEEXT) \
 @READLINE_TRUE@	tools/obex-server-tool$(EXEEXT) \
-@READLINE_TRUE@	tools/bluetooth-player$(EXEEXT)
+@READLINE_TRUE@	tools/bluetooth-player$(EXEEXT) \
+@READLINE_TRUE@	tools/obexctl$(EXEEXT)
 @EXPERIMENTAL_TRUE@am__EXEEXT_6 = profiles/iap/iapd$(EXEEXT)
-am__EXEEXT_7 = unit/test-eir$(EXEEXT) unit/test-uuid$(EXEEXT) \
+@ANDROID_TRUE@am__EXEEXT_7 = android/bluetoothd$(EXEEXT)
+am__EXEEXT_8 = unit/test-eir$(EXEEXT) unit/test-uuid$(EXEEXT) \
 	unit/test-textfile$(EXEEXT) unit/test-crc$(EXEEXT) \
 	unit/test-mgmt$(EXEEXT) unit/test-sdp$(EXEEXT) \
 	unit/test-gdbus-client$(EXEEXT) \
@@ -298,6 +304,11 @@ am__EXEEXT_7 = unit/test-eir$(EXEEXT) unit/test-uuid$(EXEEXT) \
 	unit/test-gobex-apparam$(EXEEXT) unit/test-lib$(EXEEXT)
 PROGRAMS = $(bin_PROGRAMS) $(cups_PROGRAMS) $(libexec_PROGRAMS) \
 	$(noinst_PROGRAMS) $(udev_PROGRAMS)
+am__android_bluetoothd_SOURCES_DIST = android/main.c src/log.c
+@ANDROID_TRUE@am_android_bluetoothd_OBJECTS = android/main.$(OBJEXT) \
+@ANDROID_TRUE@	src/log.$(OBJEXT)
+android_bluetoothd_OBJECTS = $(am_android_bluetoothd_OBJECTS)
+android_bluetoothd_DEPENDENCIES =
 am__attrib_gatttool_SOURCES_DIST = attrib/gatttool.c attrib/att.c \
 	attrib/gatt.c attrib/gattrib.c btio/btio.c attrib/gatttool.h \
 	attrib/interactive.c attrib/utils.c src/log.c client/display.c \
@@ -330,14 +341,15 @@ am__emulator_btvirt_SOURCES_DIST = emulator/main.c monitor/bt.h \
 	monitor/mainloop.h monitor/mainloop.c emulator/server.h \
 	emulator/server.c emulator/vhci.h emulator/vhci.c \
 	emulator/btdev.h emulator/btdev.c emulator/bthost.h \
-	emulator/bthost.c
+	emulator/bthost.c emulator/amp.h emulator/amp.c
 @EXPERIMENTAL_TRUE@am_emulator_btvirt_OBJECTS =  \
 @EXPERIMENTAL_TRUE@	emulator/main.$(OBJEXT) \
 @EXPERIMENTAL_TRUE@	monitor/mainloop.$(OBJEXT) \
 @EXPERIMENTAL_TRUE@	emulator/server.$(OBJEXT) \
 @EXPERIMENTAL_TRUE@	emulator/vhci.$(OBJEXT) \
 @EXPERIMENTAL_TRUE@	emulator/btdev.$(OBJEXT) \
-@EXPERIMENTAL_TRUE@	emulator/bthost.$(OBJEXT)
+@EXPERIMENTAL_TRUE@	emulator/bthost.$(OBJEXT) \
+@EXPERIMENTAL_TRUE@	emulator/amp.$(OBJEXT)
 emulator_btvirt_OBJECTS = $(am_emulator_btvirt_OBJECTS)
 emulator_btvirt_LDADD = $(LDADD)
 am__monitor_btmon_SOURCES_DIST = monitor/main.c monitor/bt.h \
@@ -614,6 +626,10 @@ src_bluetoothd_LINK = $(LIBTOOL) $(AM_V_lt) --tag=CC \
 	$(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=link $(CCLD) \
 	$(src_bluetoothd_CFLAGS) $(CFLAGS) $(src_bluetoothd_LDFLAGS) \
 	$(LDFLAGS) -o $@
+tools_amptest_SOURCES = tools/amptest.c
+tools_amptest_OBJECTS = tools/amptest.$(OBJEXT)
+@EXPERIMENTAL_TRUE@tools_amptest_DEPENDENCIES =  \
+@EXPERIMENTAL_TRUE@	lib/libbluetooth-internal.la
 tools_avinfo_SOURCES = tools/avinfo.c
 tools_avinfo_OBJECTS = tools/avinfo.$(OBJEXT)
 @EXPERIMENTAL_TRUE@tools_avinfo_DEPENDENCIES =  \
@@ -681,6 +697,13 @@ tools_btsnoop_LDADD = $(LDADD)
 tools_ciptool_SOURCES = tools/ciptool.c
 tools_ciptool_OBJECTS = tools/ciptool.$(OBJEXT)
 @TOOLS_TRUE@tools_ciptool_DEPENDENCIES = lib/libbluetooth-internal.la
+am__tools_cltest_SOURCES_DIST = tools/cltest.c monitor/mainloop.h \
+	monitor/mainloop.c
+@EXPERIMENTAL_TRUE@am_tools_cltest_OBJECTS = tools/cltest.$(OBJEXT) \
+@EXPERIMENTAL_TRUE@	monitor/mainloop.$(OBJEXT)
+tools_cltest_OBJECTS = $(am_tools_cltest_OBJECTS)
+@EXPERIMENTAL_TRUE@tools_cltest_DEPENDENCIES =  \
+@EXPERIMENTAL_TRUE@	lib/libbluetooth-internal.la
 am__tools_gap_tester_SOURCES_DIST = tools/gap-tester.c monitor/bt.h \
 	emulator/btdev.h emulator/btdev.c emulator/bthost.h \
 	emulator/bthost.c src/shared/hciemu.h src/shared/hciemu.c \
@@ -844,6 +867,13 @@ am__tools_obex_server_tool_SOURCES_DIST = gobex/gobex.h gobex/gobex.c \
 tools_obex_server_tool_OBJECTS = $(am_tools_obex_server_tool_OBJECTS)
 @READLINE_TRUE@tools_obex_server_tool_DEPENDENCIES =  \
 @READLINE_TRUE@	lib/libbluetooth-internal.la
+am__tools_obexctl_SOURCES_DIST = tools/obexctl.c client/display.h \
+	client/display.c
+@READLINE_TRUE@am_tools_obexctl_OBJECTS = tools/obexctl.$(OBJEXT) \
+@READLINE_TRUE@	client/display.$(OBJEXT)
+tools_obexctl_OBJECTS = $(am_tools_obexctl_OBJECTS)
+@READLINE_TRUE@tools_obexctl_DEPENDENCIES =  \
+@READLINE_TRUE@	gdbus/libgdbus-internal.la
 tools_rctest_SOURCES = tools/rctest.c
 tools_rctest_OBJECTS = tools/rctest.$(OBJEXT)
 @TOOLS_TRUE@tools_rctest_DEPENDENCIES = lib/libbluetooth-internal.la
@@ -957,18 +987,19 @@ SOURCES = $(profiles_sap_libsap_a_SOURCES) \
 	$(lib_libbluetooth_internal_la_SOURCES) \
 	$(lib_libbluetooth_la_SOURCES) \
 	$(plugins_external_dummy_la_SOURCES) \
-	$(attrib_gatttool_SOURCES) $(client_bluetoothctl_SOURCES) \
-	$(emulator_b1ee_SOURCES) $(emulator_btvirt_SOURCES) \
-	$(monitor_btmon_SOURCES) $(obexd_src_obexd_SOURCES) \
-	$(nodist_obexd_src_obexd_SOURCES) \
+	$(android_bluetoothd_SOURCES) $(attrib_gatttool_SOURCES) \
+	$(client_bluetoothctl_SOURCES) $(emulator_b1ee_SOURCES) \
+	$(emulator_btvirt_SOURCES) $(monitor_btmon_SOURCES) \
+	$(obexd_src_obexd_SOURCES) $(nodist_obexd_src_obexd_SOURCES) \
 	$(profiles_cups_bluetooth_SOURCES) \
 	$(profiles_iap_iapd_SOURCES) $(src_bluetoothd_SOURCES) \
-	$(nodist_src_bluetoothd_SOURCES) tools/avinfo.c tools/avtest.c \
-	$(tools_bccmd_SOURCES) $(tools_bdaddr_SOURCES) \
-	$(tools_bluetooth_player_SOURCES) tools/btattach.c \
-	$(tools_btinfo_SOURCES) $(tools_btiotest_SOURCES) \
-	$(tools_btmgmt_SOURCES) $(tools_btsnoop_SOURCES) \
-	tools/ciptool.c $(tools_gap_tester_SOURCES) \
+	$(nodist_src_bluetoothd_SOURCES) tools/amptest.c \
+	tools/avinfo.c tools/avtest.c $(tools_bccmd_SOURCES) \
+	$(tools_bdaddr_SOURCES) $(tools_bluetooth_player_SOURCES) \
+	tools/btattach.c $(tools_btinfo_SOURCES) \
+	$(tools_btiotest_SOURCES) $(tools_btmgmt_SOURCES) \
+	$(tools_btsnoop_SOURCES) tools/ciptool.c \
+	$(tools_cltest_SOURCES) $(tools_gap_tester_SOURCES) \
 	$(tools_hciattach_SOURCES) $(tools_hciconfig_SOURCES) \
 	$(tools_hcidump_SOURCES) tools/hcieventmask.c \
 	tools/hcisecfilter.c $(tools_hcitool_SOURCES) tools/hid2hci.c \
@@ -976,11 +1007,12 @@ SOURCES = $(profiles_sap_libsap_a_SOURCES) \
 	tools/l2test.c $(tools_mgmt_tester_SOURCES) \
 	$(tools_mpris_player_SOURCES) \
 	$(tools_obex_client_tool_SOURCES) \
-	$(tools_obex_server_tool_SOURCES) tools/rctest.c \
-	tools/rfcomm.c $(tools_sco_tester_SOURCES) tools/scotest.c \
-	$(tools_sdptool_SOURCES) $(unit_test_crc_SOURCES) \
-	$(unit_test_eir_SOURCES) $(unit_test_gdbus_client_SOURCES) \
-	$(unit_test_gobex_SOURCES) $(unit_test_gobex_apparam_SOURCES) \
+	$(tools_obex_server_tool_SOURCES) $(tools_obexctl_SOURCES) \
+	tools/rctest.c tools/rfcomm.c $(tools_sco_tester_SOURCES) \
+	tools/scotest.c $(tools_sdptool_SOURCES) \
+	$(unit_test_crc_SOURCES) $(unit_test_eir_SOURCES) \
+	$(unit_test_gdbus_client_SOURCES) $(unit_test_gobex_SOURCES) \
+	$(unit_test_gobex_apparam_SOURCES) \
 	$(unit_test_gobex_header_SOURCES) \
 	$(unit_test_gobex_packet_SOURCES) \
 	$(unit_test_gobex_transfer_SOURCES) $(unit_test_lib_SOURCES) \
@@ -991,6 +1023,7 @@ DIST_SOURCES = $(am__profiles_sap_libsap_a_SOURCES_DIST) \
 	$(lib_libbluetooth_internal_la_SOURCES) \
 	$(am__lib_libbluetooth_la_SOURCES_DIST) \
 	$(am__plugins_external_dummy_la_SOURCES_DIST) \
+	$(am__android_bluetoothd_SOURCES_DIST) \
 	$(am__attrib_gatttool_SOURCES_DIST) \
 	$(am__client_bluetoothctl_SOURCES_DIST) \
 	$(am__emulator_b1ee_SOURCES_DIST) \
@@ -999,14 +1032,15 @@ DIST_SOURCES = $(am__profiles_sap_libsap_a_SOURCES_DIST) \
 	$(am__obexd_src_obexd_SOURCES_DIST) \
 	$(am__profiles_cups_bluetooth_SOURCES_DIST) \
 	$(am__profiles_iap_iapd_SOURCES_DIST) \
-	$(am__src_bluetoothd_SOURCES_DIST) tools/avinfo.c \
-	tools/avtest.c $(am__tools_bccmd_SOURCES_DIST) \
+	$(am__src_bluetoothd_SOURCES_DIST) tools/amptest.c \
+	tools/avinfo.c tools/avtest.c $(am__tools_bccmd_SOURCES_DIST) \
 	$(am__tools_bdaddr_SOURCES_DIST) \
 	$(am__tools_bluetooth_player_SOURCES_DIST) tools/btattach.c \
 	$(am__tools_btinfo_SOURCES_DIST) \
 	$(am__tools_btiotest_SOURCES_DIST) \
 	$(am__tools_btmgmt_SOURCES_DIST) \
 	$(am__tools_btsnoop_SOURCES_DIST) tools/ciptool.c \
+	$(am__tools_cltest_SOURCES_DIST) \
 	$(am__tools_gap_tester_SOURCES_DIST) \
 	$(am__tools_hciattach_SOURCES_DIST) \
 	$(am__tools_hciconfig_SOURCES_DIST) \
@@ -1017,7 +1051,8 @@ DIST_SOURCES = $(am__profiles_sap_libsap_a_SOURCES_DIST) \
 	tools/l2test.c $(am__tools_mgmt_tester_SOURCES_DIST) \
 	$(am__tools_mpris_player_SOURCES_DIST) \
 	$(am__tools_obex_client_tool_SOURCES_DIST) \
-	$(am__tools_obex_server_tool_SOURCES_DIST) tools/rctest.c \
+	$(am__tools_obex_server_tool_SOURCES_DIST) \
+	$(am__tools_obexctl_SOURCES_DIST) tools/rctest.c \
 	tools/rfcomm.c $(am__tools_sco_tester_SOURCES_DIST) \
 	tools/scotest.c $(am__tools_sdptool_SOURCES_DIST) \
 	$(unit_test_crc_SOURCES) $(unit_test_eir_SOURCES) \
@@ -1224,13 +1259,14 @@ dist_man_MANS = $(am__append_17) $(am__append_19)
 dist_noinst_MANS = 
 CLEANFILES = $(builtin_files) src/bluetooth.service \
 	obexd/src/builtin.h $(builtin_files) obexd/src/obex.service \
-	$(am__append_28)
+	$(am__append_29)
 EXTRA_DIST = src/bluetooth.service.in src/org.bluez.service \
 	src/genbuiltin src/bluetooth.conf src/main.conf \
 	profiles/network/network.conf profiles/input/input.conf \
 	profiles/proximity/proximity.conf $(am__append_18) \
 	$(am__append_20) $(am__append_21) obexd/src/obex.service.in \
 	obexd/src/org.bluez.obex.service obexd/src/genbuiltin \
+	android/Android.mk android/log.c android/hal-ipc-api.txt \
 	tools/hid2hci.rules $(test_scripts) doc/assigned-numbers.txt \
 	doc/supported-features.txt doc/mgmt-api.txt \
 	doc/adapter-api.txt doc/device-api.txt doc/agent-api.txt \
@@ -1267,7 +1303,7 @@ extra_sources = lib/uuid.c
 local_headers = $(foreach file,$(lib_headers), lib/bluetooth/$(notdir $(file)))
 BUILT_SOURCES = $(local_headers) src/builtin.h obexd/src/builtin.h
 @LIBRARY_TRUE@lib_libbluetooth_la_SOURCES = $(lib_headers) $(lib_sources)
-@LIBRARY_TRUE@lib_libbluetooth_la_LDFLAGS = $(AM_LDFLAGS) -version-info 20:0:17
+@LIBRARY_TRUE@lib_libbluetooth_la_LDFLAGS = $(AM_LDFLAGS) -version-info 20:1:17
 @LIBRARY_TRUE@lib_libbluetooth_la_DEPENDENCIES = $(local_headers)
 lib_libbluetooth_internal_la_SOURCES = $(lib_headers) $(lib_sources) \
 					$(extra_headers) $(extra_sources)
@@ -1405,7 +1441,8 @@ test_scripts = test/sap_client.py test/bluezutils.py test/dbusdef.py \
 @EXPERIMENTAL_TRUE@					emulator/server.h emulator/server.c \
 @EXPERIMENTAL_TRUE@					emulator/vhci.h emulator/vhci.c \
 @EXPERIMENTAL_TRUE@					emulator/btdev.h emulator/btdev.c \
-@EXPERIMENTAL_TRUE@					emulator/bthost.h emulator/bthost.c
+@EXPERIMENTAL_TRUE@					emulator/bthost.h emulator/bthost.c \
+@EXPERIMENTAL_TRUE@					emulator/amp.h emulator/amp.c
 
 @EXPERIMENTAL_TRUE@emulator_b1ee_SOURCES = emulator/b1ee.c monitor/mainloop.h monitor/mainloop.c
 @EXPERIMENTAL_TRUE@tools_mgmt_tester_SOURCES = tools/mgmt-tester.c monitor/bt.h \
@@ -1502,8 +1539,9 @@ test_scripts = test/sap_client.py test/bluezutils.py test/dbusdef.py \
 @EXPERIMENTAL_TRUE@tools_avinfo_LDADD = lib/libbluetooth-internal.la
 @EXPERIMENTAL_TRUE@tools_avtest_LDADD = lib/libbluetooth-internal.la
 @EXPERIMENTAL_TRUE@tools_scotest_LDADD = lib/libbluetooth-internal.la
-@EXPERIMENTAL_TRUE@tools_hcieventmask_LDADD = lib/libbluetooth-internal.la
+@EXPERIMENTAL_TRUE@tools_amptest_LDADD = lib/libbluetooth-internal.la
 @EXPERIMENTAL_TRUE@tools_hwdb_LDADD = lib/libbluetooth-internal.la
+@EXPERIMENTAL_TRUE@tools_hcieventmask_LDADD = lib/libbluetooth-internal.la
 @EXPERIMENTAL_TRUE@tools_btmgmt_SOURCES = tools/btmgmt.c src/glib-helper.c src/eir.c \
 @EXPERIMENTAL_TRUE@				src/shared/util.h src/shared/util.c \
 @EXPERIMENTAL_TRUE@				src/shared/mgmt.h src/shared/mgmt.c
@@ -1518,6 +1556,8 @@ test_scripts = test/sap_client.py test/bluezutils.py test/dbusdef.py \
 @EXPERIMENTAL_TRUE@tools_btiotest_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 @EXPERIMENTAL_TRUE@tools_mpris_player_SOURCES = tools/mpris-player.c
 @EXPERIMENTAL_TRUE@tools_mpris_player_LDADD = gdbus/libgdbus-internal.la @GLIB_LIBS@ @DBUS_LIBS@
+@EXPERIMENTAL_TRUE@tools_cltest_SOURCES = tools/cltest.c monitor/mainloop.h monitor/mainloop.c
+@EXPERIMENTAL_TRUE@tools_cltest_LDADD = lib/libbluetooth-internal.la
 @READLINE_TRUE@attrib_gatttool_SOURCES = attrib/gatttool.c attrib/att.c attrib/gatt.c \
 @READLINE_TRUE@				attrib/gattrib.c btio/btio.c \
 @READLINE_TRUE@				attrib/gatttool.h attrib/interactive.c \
@@ -1539,6 +1579,12 @@ test_scripts = test/sap_client.py test/bluezutils.py test/dbusdef.py \
 @READLINE_TRUE@				client/display.h client/display.c
 
 @READLINE_TRUE@tools_bluetooth_player_LDADD = gdbus/libgdbus-internal.la \
+@READLINE_TRUE@				@GLIB_LIBS@ @DBUS_LIBS@ -lreadline
+
+@READLINE_TRUE@tools_obexctl_SOURCES = tools/obexctl.c \
+@READLINE_TRUE@				client/display.h client/display.c
+
+@READLINE_TRUE@tools_obexctl_LDADD = gdbus/libgdbus-internal.la \
 @READLINE_TRUE@				@GLIB_LIBS@ @DBUS_LIBS@ -lreadline
 
 @EXPERIMENTAL_TRUE@profiles_iap_iapd_SOURCES = profiles/iap/main.c
@@ -1600,10 +1646,10 @@ obexd_src_obexd_LDADD = lib/libbluetooth-internal.la \
 			@ICAL_LIBS@ @DBUS_LIBS@ @GLIB_LIBS@ -ldl
 
 obexd_src_obexd_LDFLAGS = -Wl,--export-dynamic
-obexd_src_obexd_CFLAGS = @GLIB_CFLAGS@ @DBUS_CFLAGS@ @ICAL_CFLAGS@ \
-					-DOBEX_PLUGIN_BUILTIN \
-					-DPLUGINDIR=\""$(obex_plugindir)"\" \
-					-fPIC -D_FILE_OFFSET_BITS=64
+obexd_src_obexd_CFLAGS = $(AM_CFLAGS) @GLIB_CFLAGS@ @DBUS_CFLAGS@ \
+				@ICAL_CFLAGS@ -DOBEX_PLUGIN_BUILTIN \
+				-DPLUGINDIR=\""$(obex_plugindir)"\" \
+				-fPIC -D_FILE_OFFSET_BITS=64
 
 obexd_src_obexd_CPPFLAGS = -I$(builddir)/lib -I$(builddir)/obexd/src  \
 				-I$(srcdir)/obexd/src -I$(srcdir)/btio \
@@ -1612,6 +1658,8 @@ obexd_src_obexd_CPPFLAGS = -I$(builddir)/lib -I$(builddir)/obexd/src  \
 obexd_src_obexd_SHORTNAME = obexd
 obexd_builtin_files = obexd/src/builtin.h $(obexd_builtin_nodist)
 nodist_obexd_src_obexd_SOURCES = $(obexd_builtin_files)
+@ANDROID_TRUE@android_bluetoothd_SOURCES = android/main.c src/log.c
+@ANDROID_TRUE@android_bluetoothd_LDADD = @GLIB_LIBS@
 @HID2HCI_TRUE@rulesdir = @UDEV_DIR@/rules.d
 @HID2HCI_TRUE@rules_DATA = tools/97-hid2hci.rules
 @TEST_TRUE@testdir = $(pkglibdir)/test
@@ -1672,7 +1720,8 @@ unit_test_lib_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 pkgconfigdir = $(libdir)/pkgconfig
 @LIBRARY_TRUE@pkgconfig_DATA = lib/bluez.pc
 DISTCHECK_CONFIGURE_FLAGS = --disable-datafiles --enable-library \
-					--disable-systemd --disable-udev
+					--disable-systemd --disable-udev \
+					--enable-android
 
 DISTCLEANFILES = $(pkgconfig_DATA)
 MAINTAINERCLEANFILES = Makefile.in \
@@ -1690,7 +1739,7 @@ all: $(BUILT_SOURCES) config.h
 .SUFFIXES: .c .lo .o .obj
 am--refresh: Makefile
 	@:
-$(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am $(srcdir)/Makefile.plugins $(srcdir)/Makefile.tools $(srcdir)/Makefile.obexd $(am__configure_deps)
+$(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am $(srcdir)/Makefile.plugins $(srcdir)/Makefile.tools $(srcdir)/Makefile.obexd $(srcdir)/Makefile.android $(am__configure_deps)
 	@for dep in $?; do \
 	  case '$(am__configure_deps)' in \
 	    *$$dep*) \
@@ -1713,7 +1762,7 @@ Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
 	    echo ' cd $(top_builddir) && $(SHELL) ./config.status $@ $(am__depfiles_maybe)'; \
 	    cd $(top_builddir) && $(SHELL) ./config.status $@ $(am__depfiles_maybe);; \
 	esac;
-$(srcdir)/Makefile.plugins $(srcdir)/Makefile.tools $(srcdir)/Makefile.obexd:
+$(srcdir)/Makefile.plugins $(srcdir)/Makefile.tools $(srcdir)/Makefile.obexd $(srcdir)/Makefile.android:
 
 $(top_builddir)/config.status: $(top_srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
 	$(SHELL) ./config.status --recheck
@@ -2061,6 +2110,24 @@ clean-udevPROGRAMS:
 	list=`for p in $$list; do echo "$$p"; done | sed 's/$(EXEEXT)$$//'`; \
 	echo " rm -f" $$list; \
 	rm -f $$list
+android/$(am__dirstamp):
+	@$(MKDIR_P) android
+	@: > android/$(am__dirstamp)
+android/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) android/$(DEPDIR)
+	@: > android/$(DEPDIR)/$(am__dirstamp)
+android/main.$(OBJEXT): android/$(am__dirstamp) \
+	android/$(DEPDIR)/$(am__dirstamp)
+src/$(am__dirstamp):
+	@$(MKDIR_P) src
+	@: > src/$(am__dirstamp)
+src/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) src/$(DEPDIR)
+	@: > src/$(DEPDIR)/$(am__dirstamp)
+src/log.$(OBJEXT): src/$(am__dirstamp) src/$(DEPDIR)/$(am__dirstamp)
+android/bluetoothd$(EXEEXT): $(android_bluetoothd_OBJECTS) $(android_bluetoothd_DEPENDENCIES) $(EXTRA_android_bluetoothd_DEPENDENCIES) android/$(am__dirstamp)
+	@rm -f android/bluetoothd$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(android_bluetoothd_OBJECTS) $(android_bluetoothd_LDADD) $(LIBS)
 attrib/$(am__dirstamp):
 	@$(MKDIR_P) attrib
 	@: > attrib/$(am__dirstamp)
@@ -2087,13 +2154,6 @@ attrib/interactive.$(OBJEXT): attrib/$(am__dirstamp) \
 	attrib/$(DEPDIR)/$(am__dirstamp)
 attrib/utils.$(OBJEXT): attrib/$(am__dirstamp) \
 	attrib/$(DEPDIR)/$(am__dirstamp)
-src/$(am__dirstamp):
-	@$(MKDIR_P) src
-	@: > src/$(am__dirstamp)
-src/$(DEPDIR)/$(am__dirstamp):
-	@$(MKDIR_P) src/$(DEPDIR)
-	@: > src/$(DEPDIR)/$(am__dirstamp)
-src/log.$(OBJEXT): src/$(am__dirstamp) src/$(DEPDIR)/$(am__dirstamp)
 client/$(am__dirstamp):
 	@$(MKDIR_P) client
 	@: > client/$(am__dirstamp)
@@ -2142,6 +2202,8 @@ emulator/vhci.$(OBJEXT): emulator/$(am__dirstamp) \
 emulator/btdev.$(OBJEXT): emulator/$(am__dirstamp) \
 	emulator/$(DEPDIR)/$(am__dirstamp)
 emulator/bthost.$(OBJEXT): emulator/$(am__dirstamp) \
+	emulator/$(DEPDIR)/$(am__dirstamp)
+emulator/amp.$(OBJEXT): emulator/$(am__dirstamp) \
 	emulator/$(DEPDIR)/$(am__dirstamp)
 emulator/btvirt$(EXEEXT): $(emulator_btvirt_OBJECTS) $(emulator_btvirt_DEPENDENCIES) $(EXTRA_emulator_btvirt_DEPENDENCIES) emulator/$(am__dirstamp)
 	@rm -f emulator/btvirt$(EXEEXT)
@@ -2606,6 +2668,11 @@ tools/$(am__dirstamp):
 tools/$(DEPDIR)/$(am__dirstamp):
 	@$(MKDIR_P) tools/$(DEPDIR)
 	@: > tools/$(DEPDIR)/$(am__dirstamp)
+tools/amptest.$(OBJEXT): tools/$(am__dirstamp) \
+	tools/$(DEPDIR)/$(am__dirstamp)
+tools/amptest$(EXEEXT): $(tools_amptest_OBJECTS) $(tools_amptest_DEPENDENCIES) $(EXTRA_tools_amptest_DEPENDENCIES) tools/$(am__dirstamp)
+	@rm -f tools/amptest$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(tools_amptest_OBJECTS) $(tools_amptest_LDADD) $(LIBS)
 tools/avinfo.$(OBJEXT): tools/$(am__dirstamp) \
 	tools/$(DEPDIR)/$(am__dirstamp)
 tools/avinfo$(EXEEXT): $(tools_avinfo_OBJECTS) $(tools_avinfo_DEPENDENCIES) $(EXTRA_tools_avinfo_DEPENDENCIES) tools/$(am__dirstamp)
@@ -2687,6 +2754,11 @@ tools/ciptool.$(OBJEXT): tools/$(am__dirstamp) \
 tools/ciptool$(EXEEXT): $(tools_ciptool_OBJECTS) $(tools_ciptool_DEPENDENCIES) $(EXTRA_tools_ciptool_DEPENDENCIES) tools/$(am__dirstamp)
 	@rm -f tools/ciptool$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(tools_ciptool_OBJECTS) $(tools_ciptool_LDADD) $(LIBS)
+tools/cltest.$(OBJEXT): tools/$(am__dirstamp) \
+	tools/$(DEPDIR)/$(am__dirstamp)
+tools/cltest$(EXEEXT): $(tools_cltest_OBJECTS) $(tools_cltest_DEPENDENCIES) $(EXTRA_tools_cltest_DEPENDENCIES) tools/$(am__dirstamp)
+	@rm -f tools/cltest$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(tools_cltest_OBJECTS) $(tools_cltest_LDADD) $(LIBS)
 tools/gap-tester.$(OBJEXT): tools/$(am__dirstamp) \
 	tools/$(DEPDIR)/$(am__dirstamp)
 src/shared/hciemu.$(OBJEXT): src/shared/$(am__dirstamp) \
@@ -2849,6 +2921,11 @@ tools/obex-server-tool.$(OBJEXT): tools/$(am__dirstamp) \
 tools/obex-server-tool$(EXEEXT): $(tools_obex_server_tool_OBJECTS) $(tools_obex_server_tool_DEPENDENCIES) $(EXTRA_tools_obex_server_tool_DEPENDENCIES) tools/$(am__dirstamp)
 	@rm -f tools/obex-server-tool$(EXEEXT)
 	$(AM_V_CCLD)$(LINK) $(tools_obex_server_tool_OBJECTS) $(tools_obex_server_tool_LDADD) $(LIBS)
+tools/obexctl.$(OBJEXT): tools/$(am__dirstamp) \
+	tools/$(DEPDIR)/$(am__dirstamp)
+tools/obexctl$(EXEEXT): $(tools_obexctl_OBJECTS) $(tools_obexctl_DEPENDENCIES) $(EXTRA_tools_obexctl_DEPENDENCIES) tools/$(am__dirstamp)
+	@rm -f tools/obexctl$(EXEEXT)
+	$(AM_V_CCLD)$(LINK) $(tools_obexctl_OBJECTS) $(tools_obexctl_LDADD) $(LIBS)
 tools/rctest.$(OBJEXT): tools/$(am__dirstamp) \
 	tools/$(DEPDIR)/$(am__dirstamp)
 tools/rctest$(EXEEXT): $(tools_rctest_OBJECTS) $(tools_rctest_DEPENDENCIES) $(EXTRA_tools_rctest_DEPENDENCIES) tools/$(am__dirstamp)
@@ -2995,6 +3072,7 @@ uninstall-testSCRIPTS:
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
+	-rm -f android/main.$(OBJEXT)
 	-rm -f attrib/att.$(OBJEXT)
 	-rm -f attrib/bluetoothd-att.$(OBJEXT)
 	-rm -f attrib/bluetoothd-gatt-service.$(OBJEXT)
@@ -3011,6 +3089,7 @@ mostlyclean-compile:
 	-rm -f client/agent.$(OBJEXT)
 	-rm -f client/display.$(OBJEXT)
 	-rm -f client/main.$(OBJEXT)
+	-rm -f emulator/amp.$(OBJEXT)
 	-rm -f emulator/b1ee.$(OBJEXT)
 	-rm -f emulator/btdev.$(OBJEXT)
 	-rm -f emulator/bthost.$(OBJEXT)
@@ -3192,6 +3271,7 @@ mostlyclean-compile:
 	-rm -f src/shared/tester.$(OBJEXT)
 	-rm -f src/shared/util.$(OBJEXT)
 	-rm -f src/textfile.$(OBJEXT)
+	-rm -f tools/amptest.$(OBJEXT)
 	-rm -f tools/avinfo.$(OBJEXT)
 	-rm -f tools/avtest.$(OBJEXT)
 	-rm -f tools/bccmd.$(OBJEXT)
@@ -3203,6 +3283,7 @@ mostlyclean-compile:
 	-rm -f tools/btmgmt.$(OBJEXT)
 	-rm -f tools/btsnoop.$(OBJEXT)
 	-rm -f tools/ciptool.$(OBJEXT)
+	-rm -f tools/cltest.$(OBJEXT)
 	-rm -f tools/csr.$(OBJEXT)
 	-rm -f tools/csr_3wire.$(OBJEXT)
 	-rm -f tools/csr_bcsp.$(OBJEXT)
@@ -3231,6 +3312,7 @@ mostlyclean-compile:
 	-rm -f tools/mpris-player.$(OBJEXT)
 	-rm -f tools/obex-client-tool.$(OBJEXT)
 	-rm -f tools/obex-server-tool.$(OBJEXT)
+	-rm -f tools/obexctl.$(OBJEXT)
 	-rm -f tools/parser/amp.$(OBJEXT)
 	-rm -f tools/parser/att.$(OBJEXT)
 	-rm -f tools/parser/avctp.$(OBJEXT)
@@ -3279,6 +3361,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+@AMDEP_TRUE@@am__include@ @am__quote@android/$(DEPDIR)/main.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@attrib/$(DEPDIR)/att.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@attrib/$(DEPDIR)/bluetoothd-att.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@attrib/$(DEPDIR)/bluetoothd-gatt-service.Po@am__quote@
@@ -3295,6 +3378,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@client/$(DEPDIR)/agent.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@client/$(DEPDIR)/display.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@client/$(DEPDIR)/main.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@emulator/$(DEPDIR)/amp.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@emulator/$(DEPDIR)/b1ee.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@emulator/$(DEPDIR)/btdev.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@emulator/$(DEPDIR)/bthost.Po@am__quote@
@@ -3466,6 +3550,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/pcap.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/tester.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@src/shared/$(DEPDIR)/util.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/amptest.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/avinfo.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/avtest.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/bccmd.Po@am__quote@
@@ -3477,6 +3562,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/btmgmt.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/btsnoop.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/ciptool.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/cltest.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/csr.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/csr_3wire.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/csr_bcsp.Po@am__quote@
@@ -3505,6 +3591,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/mpris-player.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/obex-client-tool.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/obex-server-tool.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/obexctl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/rctest.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/rfcomm.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@tools/$(DEPDIR)/sco-tester.Po@am__quote@
@@ -5266,6 +5353,7 @@ mostlyclean-libtool:
 
 clean-libtool:
 	-rm -rf .libs _libs
+	-rm -rf android/.libs android/_libs
 	-rm -rf attrib/.libs attrib/_libs
 	-rm -rf client/.libs client/_libs
 	-rm -rf emulator/.libs emulator/_libs
@@ -5938,6 +6026,8 @@ clean-generic:
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
 	-test . = "$(srcdir)" || test -z "$(CONFIG_CLEAN_VPATH_FILES)" || rm -f $(CONFIG_CLEAN_VPATH_FILES)
+	-rm -f android/$(DEPDIR)/$(am__dirstamp)
+	-rm -f android/$(am__dirstamp)
 	-rm -f attrib/$(DEPDIR)/$(am__dirstamp)
 	-rm -f attrib/$(am__dirstamp)
 	-rm -f btio/$(DEPDIR)/$(am__dirstamp)
@@ -6021,7 +6111,7 @@ clean-am: clean-binPROGRAMS clean-cupsPROGRAMS clean-generic \
 
 distclean: distclean-am
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
-	-rm -rf attrib/$(DEPDIR) btio/$(DEPDIR) client/$(DEPDIR) emulator/$(DEPDIR) gdbus/$(DEPDIR) gobex/$(DEPDIR) lib/$(DEPDIR) monitor/$(DEPDIR) obexd/client/$(DEPDIR) obexd/plugins/$(DEPDIR) obexd/src/$(DEPDIR) plugins/$(DEPDIR) profiles/alert/$(DEPDIR) profiles/audio/$(DEPDIR) profiles/cups/$(DEPDIR) profiles/cyclingspeed/$(DEPDIR) profiles/deviceinfo/$(DEPDIR) profiles/gatt/$(DEPDIR) profiles/health/$(DEPDIR) profiles/heartrate/$(DEPDIR) profiles/iap/$(DEPDIR) profiles/input/$(DEPDIR) profiles/network/$(DEPDIR) profiles/proximity/$(DEPDIR) profiles/sap/$(DEPDIR) profiles/scanparam/$(DEPDIR) profiles/thermometer/$(DEPDIR) profiles/time/$(DEPDIR) src/$(DEPDIR) src/shared/$(DEPDIR) tools/$(DEPDIR) tools/parser/$(DEPDIR) unit/$(DEPDIR)
+	-rm -rf android/$(DEPDIR) attrib/$(DEPDIR) btio/$(DEPDIR) client/$(DEPDIR) emulator/$(DEPDIR) gdbus/$(DEPDIR) gobex/$(DEPDIR) lib/$(DEPDIR) monitor/$(DEPDIR) obexd/client/$(DEPDIR) obexd/plugins/$(DEPDIR) obexd/src/$(DEPDIR) plugins/$(DEPDIR) profiles/alert/$(DEPDIR) profiles/audio/$(DEPDIR) profiles/cups/$(DEPDIR) profiles/cyclingspeed/$(DEPDIR) profiles/deviceinfo/$(DEPDIR) profiles/gatt/$(DEPDIR) profiles/health/$(DEPDIR) profiles/heartrate/$(DEPDIR) profiles/iap/$(DEPDIR) profiles/input/$(DEPDIR) profiles/network/$(DEPDIR) profiles/proximity/$(DEPDIR) profiles/sap/$(DEPDIR) profiles/scanparam/$(DEPDIR) profiles/thermometer/$(DEPDIR) profiles/time/$(DEPDIR) src/$(DEPDIR) src/shared/$(DEPDIR) tools/$(DEPDIR) tools/parser/$(DEPDIR) unit/$(DEPDIR)
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-hdr distclean-libtool distclean-tags
@@ -6076,7 +6166,7 @@ installcheck-am:
 maintainer-clean: maintainer-clean-am
 	-rm -f $(am__CONFIG_DISTCLEAN_FILES)
 	-rm -rf $(top_srcdir)/autom4te.cache
-	-rm -rf attrib/$(DEPDIR) btio/$(DEPDIR) client/$(DEPDIR) emulator/$(DEPDIR) gdbus/$(DEPDIR) gobex/$(DEPDIR) lib/$(DEPDIR) monitor/$(DEPDIR) obexd/client/$(DEPDIR) obexd/plugins/$(DEPDIR) obexd/src/$(DEPDIR) plugins/$(DEPDIR) profiles/alert/$(DEPDIR) profiles/audio/$(DEPDIR) profiles/cups/$(DEPDIR) profiles/cyclingspeed/$(DEPDIR) profiles/deviceinfo/$(DEPDIR) profiles/gatt/$(DEPDIR) profiles/health/$(DEPDIR) profiles/heartrate/$(DEPDIR) profiles/iap/$(DEPDIR) profiles/input/$(DEPDIR) profiles/network/$(DEPDIR) profiles/proximity/$(DEPDIR) profiles/sap/$(DEPDIR) profiles/scanparam/$(DEPDIR) profiles/thermometer/$(DEPDIR) profiles/time/$(DEPDIR) src/$(DEPDIR) src/shared/$(DEPDIR) tools/$(DEPDIR) tools/parser/$(DEPDIR) unit/$(DEPDIR)
+	-rm -rf android/$(DEPDIR) attrib/$(DEPDIR) btio/$(DEPDIR) client/$(DEPDIR) emulator/$(DEPDIR) gdbus/$(DEPDIR) gobex/$(DEPDIR) lib/$(DEPDIR) monitor/$(DEPDIR) obexd/client/$(DEPDIR) obexd/plugins/$(DEPDIR) obexd/src/$(DEPDIR) plugins/$(DEPDIR) profiles/alert/$(DEPDIR) profiles/audio/$(DEPDIR) profiles/cups/$(DEPDIR) profiles/cyclingspeed/$(DEPDIR) profiles/deviceinfo/$(DEPDIR) profiles/gatt/$(DEPDIR) profiles/health/$(DEPDIR) profiles/heartrate/$(DEPDIR) profiles/iap/$(DEPDIR) profiles/input/$(DEPDIR) profiles/network/$(DEPDIR) profiles/proximity/$(DEPDIR) profiles/sap/$(DEPDIR) profiles/scanparam/$(DEPDIR) profiles/thermometer/$(DEPDIR) profiles/time/$(DEPDIR) src/$(DEPDIR) src/shared/$(DEPDIR) tools/$(DEPDIR) tools/parser/$(DEPDIR) unit/$(DEPDIR)
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 

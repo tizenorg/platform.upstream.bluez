@@ -237,11 +237,17 @@ Set Discoverable Command
 
 	This command is used to set the discoverable property of a
 	controller. The allowed Discoverable command parameter values
-	are 0x00 and 0x01. All other values will return Invalid Parameters.
+	are 0x00, 0x01 and 0x02. All other values will return Invalid
+	Parameters.
 
 	Timeout is the time in seconds and is only meaningful when
-	Discoverable is set to 0x01. Providing a timeout with 0x00 will
-	return Invalid Parameters.
+	Discoverable is set to 0x01 or 0x02. Providing a timeout
+	with 0x00 return Invalid Parameters. For 0x02, the timeout
+	value is required.
+
+	The value 0x00 disables discoverable, the value 0x01 enables
+	general discoverable and the value 0x02 enables limited
+	discoverable.
 
 	This command is only available for BR/EDR capable controllers
 	(e.g. not for single-mode LE ones). It will return Not Supported
@@ -279,9 +285,13 @@ Set Connectable Command
 	controller. The allowed Connectable command parameter values are
 	0x00 and 0x01. All other values will return Invalid Parameters.
 
-	This command is only available for BR/EDR capable controllers
-	(e.g. not for single-mode LE ones). It will return Not Supported
-	otherwise.
+	This command is available for BR/EDR, LE-only and also dual
+	mode controllers. For BR/EDR is changes the page scan setting
+	and for LE controllers it changes the advertising type. For
+	dual mode controllers it affects both settings.
+
+	For LE capable controllers the connectable setting only takes
+	affect when advertising is enabled.
 
 	This command can be used when the controller is not powered and
 	all settings will be programmed once powered.
@@ -1238,7 +1248,7 @@ Set Advertising Command
 
 	Command Code:		0x0029
 	Controller Index:	<controller id>
-	Command Parameters	Advertising (1 Octet)
+	Command Parameters:	Advertising (1 Octet)
 	Return Parameters:	Current_Settings (4 Octets)
 
 	This command is used to enable LE advertising on a controller
@@ -1264,7 +1274,7 @@ Set BR/EDR Command
 
 	Command Code:		0x002A
 	Controller Index:	<controller id>
-	Command Parameters	BR/EDR (1 Octet)
+	Command Parameters:	BR/EDR (1 Octet)
 	Return Parameters:	Current_Settings (4 Octets)
 
 	This command is used to enable or disable BR/EDR support
@@ -1294,7 +1304,7 @@ Set Static Address Command
 
 	Command Code:		0x002B
 	Controller Index:	<controller id>
-	Command Parameters	Address (6 Octets)
+	Command Parameters:	Address (6 Octets)
 	Return Parameters:
 
 	This command allows for setting the static random address. It is
@@ -1306,6 +1316,28 @@ Set Static Address Command
 
 	The special BDADDR_ANY address (00:00:00:00:00:00) can be used
 	to disable the static address.
+
+	This command generates a Command Complete event on success or a
+	Command Status event on failure.
+
+	Possible errors:	Rejected
+				Not Supported
+				Invalid Parameters
+				Invalid Index
+
+
+Set Scan Parameters Command
+===========================
+
+	Command Code:		0x002C
+	Controller Index:	<controller id>
+	Command Parameters:	Interval (2 Octets)
+				Window (2 Octets)
+	Return Parameters:
+
+	This command allows for setting the Low Energy scan parameters
+	used for connection establishment and passive scanning. It is
+	only supported on controllers with LE support.
 
 	This command generates a Command Complete event on success or a
 	Command Status event on failure.

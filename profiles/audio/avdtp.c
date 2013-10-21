@@ -354,6 +354,12 @@ struct avdtp_state_callback {
 	void *user_data;
 };
 
+struct discover_callback {
+	unsigned int id;
+	avdtp_discover_cb_t cb;
+	void *user_data;
+};
+
 struct avdtp_stream {
 	GIOChannel *io;
 	uint16_t imtu;
@@ -412,9 +418,7 @@ struct avdtp {
 
 	char *buf;
 
-	avdtp_discover_cb_t discov_cb;
-	void *user_data;
-
+	struct discover_callback *discover;
 	struct pending_req *req;
 
 	guint dc_timer;
@@ -1041,19 +1045,21 @@ static void avdtp_sep_set_state(struct avdtp *session,
 
 static void finalize_discovery(struct avdtp *session, int err)
 {
+	struct discover_callback *discover = session->discover;
 	struct avdtp_error avdtp_err;
+
+	if (!discover)
+		return;
 
 	avdtp_error_init(&avdtp_err, AVDTP_ERRNO, err);
 
-	if (!session->discov_cb)
-		return;
+	if (discover->id > 0)
+		g_source_remove(discover->id);
 
-	session->discov_cb(session, session->seps,
-				err ? &avdtp_err : NULL,
-				session->user_data);
-
-	session->discov_cb = NULL;
-	session->user_data = NULL;
+	discover->cb(session, session->seps, err ? &avdtp_err : NULL,
+							discover->user_data);
+	g_free(discover);
+	session->discover = NULL;
 }
 
 static void release_stream(struct avdtp_stream *stream, struct avdtp *session)
@@ -3322,6 +3328,8 @@ static gboolean process_discover(gpointer data)
 {
 	struct avdtp *session = data;
 
+	session->discover->id = 0;
+
 	finalize_discovery(session, 0);
 
 	return FALSE;
@@ -3332,20 +3340,22 @@ int avdtp_discover(struct avdtp *session, avdtp_discover_cb_t cb,
 {
 	int err;
 
-	if (session->discov_cb)
+	if (session->discover)
 		return -EBUSY;
 
+	session->discover = g_new0(struct discover_callback, 1);
+
 	if (session->seps) {
-		session->discov_cb = cb;
-		session->user_data = user_data;
-		g_idle_add(process_discover, session);
+		session->discover->cb = cb;
+		session->discover->user_data = user_data;
+		session->discover->id = g_idle_add(process_discover, session);
 		return 0;
 	}
 
 	err = send_request(session, FALSE, NULL, AVDTP_DISCOVER, NULL, 0);
 	if (err == 0) {
-		session->discov_cb = cb;
-		session->user_data = user_data;
+		session->discover->cb = cb;
+		session->discover->user_data = user_data;
 	}
 
 	return err;
