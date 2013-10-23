@@ -27,23 +27,35 @@
 #endif
 
 #include <stdio.h>
+#include <stdbool.h>
 #include <errno.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/mgmt.h>
+#include "lib/bluetooth.h"
+#include "lib/hci.h"
+#include "lib/mgmt.h"
 
 #include "mainloop.h"
+#include "display.h"
 #include "packet.h"
+#include "btsnoop.h"
+#include "hcidump.h"
 #include "control.h"
+
+static bool hcidump_fallback = false;
+
+#define MAX_PACKET_SIZE		(1486 + 4)
 
 struct control_data {
 	uint16_t channel;
 	int fd;
+	unsigned char buf[MAX_PACKET_SIZE];
+	uint16_t offset;
 };
 
 static void free_data(void *user_data)
@@ -92,7 +104,8 @@ static void mgmt_controller_error(uint16_t len, const void *buf)
 
 static const char *settings_str[] = {
 	"powered", "connectable", "fast-connectable", "discoverable",
-	"pairable", "link-security", "ssp", "br/edr", "hs", "le"
+	"pairable", "link-security", "ssp", "br/edr", "hs", "le",
+	"advertising",
 };
 
 static void mgmt_new_settings(uint16_t len, const void *buf)
@@ -210,7 +223,7 @@ static void mgmt_device_connected(uint16_t len, const void *buf)
 		return;
 	}
 
-	flags = btohs(ev->flags);
+	flags = btohl(ev->flags);
 	ba2str(&ev->addr.bdaddr, str);
 
 	printf("@ Device Connected: %s (%d) flags 0x%4.4x\n",
@@ -226,18 +239,29 @@ static void mgmt_device_disconnected(uint16_t len, const void *buf)
 {
 	const struct mgmt_ev_device_disconnected *ev = buf;
 	char str[18];
+	uint8_t reason;
+	uint16_t consumed_len;
 
-	if (len < sizeof(*ev)) {
+	if (len < sizeof(struct mgmt_addr_info)) {
 		printf("* Malformed Device Disconnected control\n");
 		return;
 	}
 
+	if (len < sizeof(*ev)) {
+		reason = MGMT_DEV_DISCONN_UNKNOWN;
+		consumed_len = len;
+	} else {
+		reason = ev->reason;
+		consumed_len = sizeof(*ev);
+	}
+
 	ba2str(&ev->addr.bdaddr, str);
 
-	printf("@ Device Disconnected: %s (%d)\n", str, ev->addr.type);
+	printf("@ Device Disconnected: %s (%d) reason %u\n", str, ev->addr.type,
+									reason);
 
-	buf += sizeof(*ev);
-	len -= sizeof(*ev);
+	buf += consumed_len;
+	len -= consumed_len;
 
 	packet_hexdump(buf, len);
 }
@@ -357,7 +381,7 @@ static void mgmt_device_found(uint16_t len, const void *buf)
 		return;
 	}
 
-	flags = btohs(ev->flags);
+	flags = btohl(ev->flags);
 	ba2str(&ev->addr.bdaddr, str);
 
 	printf("@ Device Found: %s (%d) rssi %d flags 0x%4.4x\n",
@@ -446,6 +470,30 @@ static void mgmt_device_unpaired(uint16_t len, const void *buf)
 	packet_hexdump(buf, len);
 }
 
+static void mgmt_passkey_notify(uint16_t len, const void *buf)
+{
+	const struct mgmt_ev_passkey_notify *ev = buf;
+	uint32_t passkey;
+	char str[18];
+
+	if (len < sizeof(*ev)) {
+		printf("* Malformed Passkey Notify control\n");
+		return;
+	}
+
+	ba2str(&ev->addr.bdaddr, str);
+
+	passkey = btohl(ev->passkey);
+
+	printf("@ Passkey Notify: %s (%d) passkey %06u entered %u\n",
+				str, ev->addr.type, passkey, ev->entered);
+
+	buf += sizeof(*ev);
+	len -= sizeof(*ev);
+
+	packet_hexdump(buf, len);
+}
+
 void control_message(uint16_t opcode, const void *data, uint16_t size)
 {
 	switch (opcode) {
@@ -509,6 +557,9 @@ void control_message(uint16_t opcode, const void *data, uint16_t size)
 	case MGMT_EV_DEVICE_UNPAIRED:
 		mgmt_device_unpaired(size, data);
 		break;
+	case MGMT_EV_PASSKEY_NOTIFY:
+		mgmt_passkey_notify(size, data);
+		break;
 	default:
 		printf("* Unknown control (code %d len %d)\n", opcode, size);
 		packet_hexdump(data, size);
@@ -519,21 +570,20 @@ void control_message(uint16_t opcode, const void *data, uint16_t size)
 static void data_callback(int fd, uint32_t events, void *user_data)
 {
 	struct control_data *data = user_data;
-	unsigned char buf[HCI_MAX_FRAME_SIZE];
 	unsigned char control[32];
 	struct mgmt_hdr hdr;
 	struct msghdr msg;
 	struct iovec iov[2];
 
 	if (events & (EPOLLERR | EPOLLHUP)) {
-		mainloop_remove_fd(fd);
+		mainloop_remove_fd(data->fd);
 		return;
 	}
 
 	iov[0].iov_base = &hdr;
 	iov[0].iov_len = MGMT_HDR_SIZE;
-	iov[1].iov_base = buf;
-	iov[1].iov_len = sizeof(buf);
+	iov[1].iov_base = data->buf;
+	iov[1].iov_len = sizeof(data->buf);
 
 	memset(&msg, 0, sizeof(msg));
 	msg.msg_iov = iov;
@@ -544,10 +594,11 @@ static void data_callback(int fd, uint32_t events, void *user_data)
 	while (1) {
 		struct cmsghdr *cmsg;
 		struct timeval *tv = NULL;
+		struct timeval ctv;
 		uint16_t opcode, index, pktlen;
 		ssize_t len;
 
-		len = recvmsg(fd, &msg, MSG_DONTWAIT);
+		len = recvmsg(data->fd, &msg, MSG_DONTWAIT);
 		if (len < 0)
 			break;
 
@@ -559,8 +610,10 @@ static void data_callback(int fd, uint32_t events, void *user_data)
 			if (cmsg->cmsg_level != SOL_SOCKET)
 				continue;
 
-			if (cmsg->cmsg_type == SCM_TIMESTAMP)
-				tv = (struct timeval *) CMSG_DATA(cmsg);
+			if (cmsg->cmsg_type == SCM_TIMESTAMP) {
+				memcpy(&ctv, CMSG_DATA(cmsg), sizeof(ctv));
+				tv = &ctv;
+			}
 		}
 
 		opcode = btohs(hdr.opcode);
@@ -569,10 +622,11 @@ static void data_callback(int fd, uint32_t events, void *user_data)
 
 		switch (data->channel) {
 		case HCI_CHANNEL_CONTROL:
-			packet_control(tv, index, opcode, buf, pktlen);
+			packet_control(tv, index, opcode, data->buf, pktlen);
 			break;
 		case HCI_CHANNEL_MONITOR:
-			packet_monitor(tv, index, opcode, buf, pktlen);
+			packet_monitor(tv, index, opcode, data->buf, pktlen);
+			btsnoop_write_hci(tv, index, opcode, data->buf, pktlen);
 			break;
 		}
 	}
@@ -583,7 +637,7 @@ static int open_socket(uint16_t channel)
 	struct sockaddr_hci addr;
 	int fd, opt = 1;
 
-	fd = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI);
+	fd = socket(AF_BLUETOOTH, SOCK_RAW | SOCK_CLOEXEC, BTPROTO_HCI);
 	if (fd < 0) {
 		perror("Failed to open channel");
 		return -1;
@@ -597,6 +651,7 @@ static int open_socket(uint16_t channel)
 	if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
 		if (errno == EINVAL) {
 			/* Fallback to hcidump support */
+			hcidump_fallback = true;
 			close(fd);
 			return -1;
 		}
@@ -636,10 +691,198 @@ static int open_channel(uint16_t channel)
 	return 0;
 }
 
+static void client_callback(int fd, uint32_t events, void *user_data)
+{
+	struct control_data *data = user_data;
+	ssize_t len;
+
+	if (events & (EPOLLERR | EPOLLHUP)) {
+		mainloop_remove_fd(data->fd);
+		return;
+	}
+
+	len = recv(data->fd, data->buf + data->offset,
+			sizeof(data->buf) - data->offset, MSG_DONTWAIT);
+	if (len < 0)
+		return;
+
+	data->offset += len;
+
+	if (data->offset > MGMT_HDR_SIZE) {
+		struct mgmt_hdr *hdr = (struct mgmt_hdr *) data->buf;
+		uint16_t pktlen = btohs(hdr->len);
+
+		if (data->offset > pktlen + MGMT_HDR_SIZE) {
+			uint16_t opcode = btohs(hdr->opcode);
+			uint16_t index = btohs(hdr->index);
+
+			packet_monitor(NULL, index, opcode,
+					data->buf + MGMT_HDR_SIZE, pktlen);
+
+			data->offset -= pktlen + MGMT_HDR_SIZE;
+
+			if (data->offset > 0)
+				memmove(data->buf, data->buf +
+					 MGMT_HDR_SIZE + pktlen, data->offset);
+		}
+	}
+}
+
+static void server_accept_callback(int fd, uint32_t events, void *user_data)
+{
+	struct control_data *data;
+	struct sockaddr_un addr;
+	socklen_t len;
+	int nfd;
+
+	if (events & (EPOLLERR | EPOLLHUP)) {
+		mainloop_remove_fd(fd);
+		return;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	len = sizeof(addr);
+
+	nfd = accept(fd, (struct sockaddr *) &addr, &len);
+	if (nfd < 0) {
+		perror("Failed to accept client socket");
+		return;
+	}
+
+	printf("--- New monitor connection ---\n");
+
+	data = malloc(sizeof(*data));
+	if (!data) {
+		close(nfd);
+		return;
+	}
+
+	memset(data, 0, sizeof(*data));
+	data->channel = HCI_CHANNEL_MONITOR;
+	data->fd = nfd;
+
+        mainloop_add_fd(data->fd, EPOLLIN, client_callback, data, free_data);
+}
+
+static int server_fd = -1;
+
+void control_server(const char *path)
+{
+	struct sockaddr_un addr;
+	int fd;
+
+	if (server_fd >= 0)
+		return;
+
+	unlink(path);
+
+	fd = socket(PF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	if (fd < 0) {
+		perror("Failed to open server socket");
+		return;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	addr.sun_family = AF_UNIX;
+	strcpy(addr.sun_path, path);
+
+	if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+		perror("Failed to bind server socket");
+		close(fd);
+		return;
+	}
+
+	if (listen(fd, 5) < 0) {
+		perror("Failed to listen server socket");
+		close(fd);
+		return;
+	}
+
+	if (mainloop_add_fd(fd, EPOLLIN, server_accept_callback,
+						NULL, NULL) < 0) {
+		close(fd);
+		return;
+	}
+
+	server_fd = fd;
+}
+
+void control_writer(const char *path)
+{
+	btsnoop_create(path, BTSNOOP_TYPE_EXTENDED_HCI);
+}
+
+void control_reader(const char *path)
+{
+	unsigned char buf[MAX_PACKET_SIZE];
+	uint16_t pktlen;
+	uint32_t type;
+	struct timeval tv;
+
+	if (btsnoop_open(path, &type) < 0)
+		return;
+
+	switch (type) {
+	case BTSNOOP_TYPE_HCI:
+	case BTSNOOP_TYPE_UART:
+	case BTSNOOP_TYPE_EXTENDED_PHY:
+		packet_del_filter(PACKET_FILTER_SHOW_INDEX);
+		break;
+
+	case BTSNOOP_TYPE_EXTENDED_HCI:
+		packet_add_filter(PACKET_FILTER_SHOW_INDEX);
+		break;
+	}
+
+	open_pager();
+
+	switch (type) {
+	case BTSNOOP_TYPE_HCI:
+	case BTSNOOP_TYPE_UART:
+	case BTSNOOP_TYPE_EXTENDED_HCI:
+		while (1) {
+			uint16_t index, opcode;
+
+			if (btsnoop_read_hci(&tv, &index, &opcode,
+							buf, &pktlen) < 0)
+				break;
+
+			packet_monitor(&tv, index, opcode, buf, pktlen);
+		}
+		break;
+
+	case BTSNOOP_TYPE_EXTENDED_PHY:
+		while (1) {
+			uint16_t frequency;
+
+			if (btsnoop_read_phy(&tv, &frequency,
+							buf, &pktlen) < 0)
+				break;
+
+			packet_simulator(&tv, frequency, buf, pktlen);
+		}
+		break;
+	}
+
+	close_pager();
+
+	btsnoop_close();
+}
+
 int control_tracing(void)
 {
-	if (open_channel(HCI_CHANNEL_MONITOR) < 0)
-		return -1;
+	packet_add_filter(PACKET_FILTER_SHOW_INDEX);
+
+	if (server_fd >= 0)
+		return 0;
+
+	if (open_channel(HCI_CHANNEL_MONITOR) < 0) {
+		if (!hcidump_fallback)
+			return -1;
+		if (hcidump_tracing() < 0)
+			return -1;
+		return 0;
+	}
 
 	open_channel(HCI_CHANNEL_CONTROL);
 

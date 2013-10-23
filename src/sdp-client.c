@@ -33,7 +33,8 @@
 
 #include <glib.h>
 
-#include "btio.h"
+#include <btio/btio.h>
+#include "log.h"
 #include "sdp-client.h"
 
 /* Number of seconds to keep a sdp_session_t in the cache */
@@ -285,6 +286,8 @@ static int create_search_context(struct search_context **ctxt,
 {
 	sdp_session_t *s;
 	GIOChannel *chan;
+	uint32_t prio = 1;
+	int sk;
 
 	if (!ctxt)
 		return -EINVAL;
@@ -304,7 +307,15 @@ static int create_search_context(struct search_context **ctxt,
 	(*ctxt)->session = s;
 	(*ctxt)->uuid = *uuid;
 
-	chan = g_io_channel_unix_new(sdp_get_socket(s));
+	sk = sdp_get_socket(s);
+	/* Set low priority for the SDP connection not to interfere with
+	 * other potential traffic.
+	 */
+	if (setsockopt(sk, SOL_SOCKET, SO_PRIORITY, &prio, sizeof(prio)) < 0)
+		warn("Setting SDP priority failed: %s (%d)",
+						strerror(errno), errno);
+
+	chan = g_io_channel_unix_new(sk);
 	(*ctxt)->io_id = g_io_add_watch(chan,
 				G_IO_OUT | G_IO_HUP | G_IO_ERR | G_IO_NVAL,
 				connect_watch, *ctxt);
@@ -336,7 +347,7 @@ int bt_search_service(const bdaddr_t *src, const bdaddr_t *dst,
 	return 0;
 }
 
-static gint find_by_bdaddr(gconstpointer data, gconstpointer user_data)
+static int find_by_bdaddr(gconstpointer data, gconstpointer user_data)
 {
 	const struct search_context *ctxt = data, *search = user_data;
 	int ret;

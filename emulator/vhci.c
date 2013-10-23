@@ -33,9 +33,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "mainloop.h"
+#include <bluetooth/bluetooth.h>
+#include <bluetooth/hci.h>
+
+#include "monitor/mainloop.h"
+#include "monitor/bt.h"
 #include "btdev.h"
 #include "vhci.h"
+
+#define uninitialized_var(x) x = x
 
 struct vhci {
 	enum vhci_type type;
@@ -74,21 +80,43 @@ static void vhci_read_callback(int fd, uint32_t events, void *user_data)
 		return;
 
 	len = read(vhci->fd, buf, sizeof(buf));
-	if (len < 0)
+	if (len < 1)
 		return;
 
-	btdev_receive_h4(vhci->btdev, buf, len);
+	switch (buf[0]) {
+	case BT_H4_CMD_PKT:
+	case BT_H4_ACL_PKT:
+	case BT_H4_SCO_PKT:
+		btdev_receive_h4(vhci->btdev, buf, len);
+		break;
+	}
 }
 
-struct vhci *vhci_open(enum vhci_type type, uint16_t id)
+struct vhci *vhci_open(enum vhci_type type)
 {
 	struct vhci *vhci;
+	enum btdev_type uninitialized_var(btdev_type);
+	unsigned char uninitialized_var(ctrl_type);
+	unsigned char setup_cmd[2];
+	static uint8_t id = 0x23;
 
 	switch (type) {
+	case VHCI_TYPE_BREDRLE:
+		btdev_type = BTDEV_TYPE_BREDRLE;
+		ctrl_type = HCI_BREDR;
+		break;
 	case VHCI_TYPE_BREDR:
+		btdev_type = BTDEV_TYPE_BREDR;
+		ctrl_type = HCI_BREDR;
+		break;
+	case VHCI_TYPE_LE:
+		btdev_type = BTDEV_TYPE_LE;
+		ctrl_type = HCI_BREDR;
 		break;
 	case VHCI_TYPE_AMP:
-		return NULL;
+		btdev_type = BTDEV_TYPE_AMP;
+		ctrl_type = HCI_AMP;
+		break;
 	}
 
 	vhci = malloc(sizeof(*vhci));
@@ -104,7 +132,16 @@ struct vhci *vhci_open(enum vhci_type type, uint16_t id)
 		return NULL;
 	}
 
-	vhci->btdev = btdev_create(id);
+	setup_cmd[0] = HCI_VENDOR_PKT;
+	setup_cmd[1] = ctrl_type;
+
+	if (write(vhci->fd, setup_cmd, sizeof(setup_cmd)) < 0) {
+		close(vhci->fd);
+		free(vhci);
+		return NULL;
+	}
+
+	vhci->btdev = btdev_create(btdev_type, id++);
 	if (!vhci->btdev) {
 		close(vhci->fd);
 		free(vhci);

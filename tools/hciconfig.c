@@ -242,6 +242,72 @@ static void cmd_le_adv(int ctl, int hdev, char *opt)
 {
 	struct hci_request rq;
 	le_set_advertise_enable_cp advertise_cp;
+	le_set_advertising_parameters_cp adv_params_cp;
+	uint8_t status;
+	int dd, ret;
+
+	if (hdev < 0)
+		hdev = hci_get_route(NULL);
+
+	dd = hci_open_dev(hdev);
+	if (dd < 0) {
+		perror("Could not open device");
+		exit(1);
+	}
+
+	memset(&adv_params_cp, 0, sizeof(adv_params_cp));
+	adv_params_cp.min_interval = htobs(0x0800);
+	adv_params_cp.max_interval = htobs(0x0800);
+	if (opt)
+		adv_params_cp.advtype = atoi(opt);
+	adv_params_cp.chan_map = 7;
+
+	memset(&rq, 0, sizeof(rq));
+	rq.ogf = OGF_LE_CTL;
+	rq.ocf = OCF_LE_SET_ADVERTISING_PARAMETERS;
+	rq.cparam = &adv_params_cp;
+	rq.clen = LE_SET_ADVERTISING_PARAMETERS_CP_SIZE;
+	rq.rparam = &status;
+	rq.rlen = 1;
+
+	ret = hci_send_req(dd, &rq, 1000);
+	if (ret < 0)
+		goto done;
+
+	memset(&advertise_cp, 0, sizeof(advertise_cp));
+	advertise_cp.enable = 0x01;
+
+	memset(&rq, 0, sizeof(rq));
+	rq.ogf = OGF_LE_CTL;
+	rq.ocf = OCF_LE_SET_ADVERTISE_ENABLE;
+	rq.cparam = &advertise_cp;
+	rq.clen = LE_SET_ADVERTISE_ENABLE_CP_SIZE;
+	rq.rparam = &status;
+	rq.rlen = 1;
+
+	ret = hci_send_req(dd, &rq, 1000);
+
+done:
+	hci_close_dev(dd);
+
+	if (ret < 0) {
+		fprintf(stderr, "Can't set advertise mode on hci%d: %s (%d)\n",
+						hdev, strerror(errno), errno);
+		exit(1);
+	}
+
+	if (status) {
+		fprintf(stderr,
+			"LE set advertise enable on hci%d returned status %d\n",
+								hdev, status);
+		exit(1);
+	}
+}
+
+static void cmd_no_le_adv(int ctl, int hdev, char *opt)
+{
+	struct hci_request rq;
+	le_set_advertise_enable_cp advertise_cp;
 	uint8_t status;
 	int dd, ret;
 
@@ -255,10 +321,6 @@ static void cmd_le_adv(int ctl, int hdev, char *opt)
 	}
 
 	memset(&advertise_cp, 0, sizeof(advertise_cp));
-	if (strcmp(opt, "noleadv") == 0)
-		advertise_cp.enable = 0x00;
-	else
-		advertise_cp.enable = 0x01;
 
 	memset(&rq, 0, sizeof(rq));
 	rq.ogf = OGF_LE_CTL;
@@ -953,69 +1015,6 @@ static void cmd_voice(int ctl, int hdev, char *opt)
 	}
 }
 
-static int get_link_key(const bdaddr_t *local, const bdaddr_t *peer,
-			uint8_t *key)
-{
-	char filename[PATH_MAX + 1], addr[18], tmp[3], *str;
-	int i;
-
-	ba2str(local, addr);
-	create_name(filename, PATH_MAX, STORAGEDIR, addr, "linkkeys");
-
-	ba2str(peer, addr);
-	str = textfile_get(filename, addr);
-	if (!str)
-		return -EIO;
-
-	memset(tmp, 0, sizeof(tmp));
-	for (i = 0; i < 16; i++) {
-		memcpy(tmp, str + (i * 2), 2);
-		key[i] = (uint8_t) strtol(tmp, NULL, 16);
-	}
-
-	free(str);
-
-	return 0;
-}
-
-static void cmd_putkey(int ctl, int hdev, char *opt)
-{
-	struct hci_dev_info di;
-	bdaddr_t bdaddr;
-	uint8_t key[16];
-	int dd;
-
-	if (!opt)
-		return;
-
-	dd = hci_open_dev(hdev);
-	if (dd < 0) {
-		fprintf(stderr, "Can't open device hci%d: %s (%d)\n",
-						hdev, strerror(errno), errno);
-		exit(1);
-	}
-
-	if (hci_devinfo(hdev, &di) < 0) {
-		fprintf(stderr, "Can't get device info for hci%d: %s (%d)\n",
-						hdev, strerror(errno), errno);
-		exit(1);
-	}
-
-	str2ba(opt, &bdaddr);
-	if (get_link_key(&di.bdaddr, &bdaddr, key) < 0) {
-		fprintf(stderr, "Can't find link key for %s on hci%d\n", opt, hdev);
-		exit(1);
-	}
-
-	if (hci_write_stored_link_key(dd, &bdaddr, key, 1000) < 0) {
-		fprintf(stderr, "Can't write stored link key on hci%d: %s (%d)\n",
-						hdev, strerror(errno), errno);
-		exit(1);
-	}
-
-	hci_close_dev(dd);
-}
-
 static void cmd_delkey(int ctl, int hdev, char *opt)
 {
 	bdaddr_t bdaddr;
@@ -1138,13 +1137,17 @@ static void cmd_version(int ctl, int hdev, char *opt)
 	}
 
 	hciver = hci_vertostr(ver.hci_ver);
-	lmpver = lmp_vertostr(ver.lmp_ver);
+	if (((di.type & 0x30) >> 4) == HCI_BREDR)
+		lmpver = lmp_vertostr(ver.lmp_ver);
+	else
+		lmpver = pal_vertostr(ver.lmp_ver);
 
 	print_dev_hdr(&di);
 	printf("\tHCI Version: %s (0x%x)  Revision: 0x%x\n"
-		"\tLMP Version: %s (0x%x)  Subversion: 0x%x\n"
+		"\t%s Version: %s (0x%x)  Subversion: 0x%x\n"
 		"\tManufacturer: %s (%d)\n",
 		hciver ? hciver : "n/a", ver.hci_ver, ver.hci_rev,
+		(((di.type & 0x30) >> 4) == HCI_BREDR) ? "LMP" : "PAL",
 		lmpver ? lmpver : "n/a", ver.lmp_ver, ver.lmp_subver,
 		bt_compidtostr(ver.manufacturer), ver.manufacturer);
 
@@ -1845,7 +1848,7 @@ static void print_dev_hdr(struct hci_dev_info *di)
 	ba2str(&di->bdaddr, addr);
 
 	printf("%s:\tType: %s  Bus: %s\n", di->name,
-					hci_typetostr(di->type >> 4),
+					hci_typetostr((di->type & 0x30) >> 4),
 					hci_bustostr(di->type & 0x0f));
 	printf("\tBD Address: %s  ACL MTU: %d:%d  SCO MTU: %d:%d\n",
 					addr, di->acl_mtu, di->acl_pkts,
@@ -1869,18 +1872,22 @@ static void print_dev_info(int ctl, struct hci_dev_info *di)
 	printf("\tTX bytes:%d acl:%d sco:%d commands:%d errors:%d\n",
 		st->byte_tx, st->acl_tx, st->sco_tx, st->cmd_tx, st->err_tx);
 
-	if (all && !hci_test_bit(HCI_RAW, &di->flags) &&
-			(bacmp(&di->bdaddr, BDADDR_ANY) || (di->type >> 4))) {
+	if (all && !hci_test_bit(HCI_RAW, &di->flags)) {
 		print_dev_features(di, 0);
-		print_pkt_type(di);
-		print_link_policy(di);
-		print_link_mode(di);
 
-		if (hci_test_bit(HCI_UP, &di->flags)) {
-			cmd_name(ctl, di->dev_id, NULL);
-			cmd_class(ctl, di->dev_id, NULL);
-			cmd_version(ctl, di->dev_id, NULL);
+		if (((di->type & 0x30) >> 4) == HCI_BREDR) {
+			print_pkt_type(di);
+			print_link_policy(di);
+			print_link_mode(di);
+
+			if (hci_test_bit(HCI_UP, &di->flags)) {
+				cmd_name(ctl, di->dev_id, NULL);
+				cmd_class(ctl, di->dev_id, NULL);
+			}
 		}
+
+		if (hci_test_bit(HCI_UP, &di->flags))
+			cmd_version(ctl, di->dev_id, NULL);
 	}
 
 	printf("\n");
@@ -1911,7 +1918,7 @@ static struct {
 	{ "class",	cmd_class,	"[class]",	"Get/Set class of device" },
 	{ "voice",	cmd_voice,	"[voice]",	"Get/Set voice setting" },
 	{ "iac",	cmd_iac,	"[iac]",	"Get/Set inquiry access code" },
-	{ "inqtpl", 	cmd_inq_tpl,	"[level]",	"Get/Set inquiry transmit power level" },
+	{ "inqtpl",	cmd_inq_tpl,	"[level]",	"Get/Set inquiry transmit power level" },
 	{ "inqmode",	cmd_inq_mode,	"[mode]",	"Get/Set inquiry mode" },
 	{ "inqdata",	cmd_inq_data,	"[data]",	"Get/Set inquiry data" },
 	{ "inqtype",	cmd_inq_type,	"[type]",	"Get/Set inquiry scan type" },
@@ -1922,9 +1929,8 @@ static struct {
 	{ "sspmode",	cmd_ssp_mode,	"[mode]",	"Get/Set Simple Pairing Mode" },
 	{ "aclmtu",	cmd_aclmtu,	"<mtu:pkt>",	"Set ACL MTU and number of packets" },
 	{ "scomtu",	cmd_scomtu,	"<mtu:pkt>",	"Set SCO MTU and number of packets" },
-	{ "putkey",	cmd_putkey,	"<bdaddr>",	"Store link key on the device" },
 	{ "delkey",	cmd_delkey,	"<bdaddr>",	"Delete link key from the device" },
-	{ "oobdata",	cmd_oob_data,	0,		"Display local OOB data" },
+	{ "oobdata",	cmd_oob_data,	0,		"Get local OOB data" },
 	{ "commands",	cmd_commands,	0,		"Display supported commands" },
 	{ "features",	cmd_features,	0,		"Display device features" },
 	{ "version",	cmd_version,	0,		"Display version information" },
@@ -1932,8 +1938,10 @@ static struct {
 	{ "block",	cmd_block,	"<bdaddr>",	"Add a device to the blacklist" },
 	{ "unblock",	cmd_unblock,	"<bdaddr>",	"Remove a device from the blacklist" },
 	{ "lerandaddr", cmd_le_addr,	"<bdaddr>",	"Set LE Random Address" },
-	{ "leadv",	cmd_le_adv,	0,		"Enable LE advertising" },
-	{ "noleadv",	cmd_le_adv,	0,		"Disable LE advertising" },
+	{ "leadv",	cmd_le_adv,	"[type]",	"Enable LE advertising"
+		"\n\t\t\t0 - Connectable undirected advertising (default)"
+		"\n\t\t\t3 - Non connectable undirected advertising"},
+	{ "noleadv",	cmd_no_le_adv,	0,		"Disable LE advertising" },
 	{ "lestates",	cmd_le_states,	0,		"Display the supported LE states" },
 	{ NULL, NULL, 0 }
 };

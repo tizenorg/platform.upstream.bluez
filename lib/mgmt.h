@@ -45,6 +45,7 @@
 #define MGMT_STATUS_NOT_POWERED		0x0f
 #define MGMT_STATUS_CANCELLED		0x10
 #define MGMT_STATUS_INVALID_INDEX	0x11
+#define MGMT_STATUS_RFKILLED		0x12
 
 struct mgmt_hdr {
 	uint16_t opcode;
@@ -79,7 +80,7 @@ struct mgmt_rp_read_index_list {
 
 /* Reserve one extra byte for names in management messages so that they
  * are always guaranteed to be nul-terminated */
-#define MGMT_MAX_NAME_LENGTH		(HCI_MAX_NAME_LENGTH + 1)
+#define MGMT_MAX_NAME_LENGTH		(248 + 1)
 #define MGMT_MAX_SHORT_NAME_LENGTH	(10 + 1)
 
 #define MGMT_SETTING_POWERED		0x00000001
@@ -92,6 +93,7 @@ struct mgmt_rp_read_index_list {
 #define MGMT_SETTING_BREDR		0x00000080
 #define MGMT_SETTING_HS			0x00000100
 #define MGMT_SETTING_LE			0x00000200
+#define MGMT_SETTING_ADVERTISING	0x00000400
 
 #define MGMT_OP_READ_INFO		0x0004
 struct mgmt_rp_read_info {
@@ -107,6 +109,10 @@ struct mgmt_rp_read_info {
 
 struct mgmt_mode {
 	uint8_t val;
+} __packed;
+
+struct mgmt_cod {
+	uint8_t val[3];
 } __packed;
 
 #define MGMT_OP_SET_POWERED		0x0005
@@ -314,6 +320,21 @@ struct mgmt_cp_set_device_id {
 	uint16_t version;
 } __packed;
 
+#define MGMT_OP_SET_ADVERTISING		0x0029
+
+#define MGMT_OP_SET_BREDR		0x002A
+
+#define MGMT_OP_SET_STATIC_ADDRESS	0x002B
+struct mgmt_cp_set_static_address {
+	bdaddr_t bdaddr;
+} __packed;
+
+#define MGMT_OP_SET_SCAN_PARAMS		0x002C
+struct mgmt_cp_set_scan_params {
+	uint16_t interval;
+	uint16_t window;
+} __packed;
+
 #define MGMT_EV_CMD_COMPLETE		0x0001
 struct mgmt_ev_cmd_complete {
 	uint16_t opcode;
@@ -369,9 +390,15 @@ struct mgmt_ev_device_connected {
 	uint8_t eir[0];
 } __packed;
 
+#define MGMT_DEV_DISCONN_UNKNOWN	0x00
+#define MGMT_DEV_DISCONN_TIMEOUT	0x01
+#define MGMT_DEV_DISCONN_LOCAL_HOST	0x02
+#define MGMT_DEV_DISCONN_REMOTE		0x03
+
 #define MGMT_EV_DEVICE_DISCONNECTED	0x000C
 struct mgmt_ev_device_disconnected {
 	struct mgmt_addr_info addr;
+	uint8_t reason;
 } __packed;
 
 #define MGMT_EV_CONNECT_FAILED		0x000D
@@ -437,6 +464,13 @@ struct mgmt_ev_device_unpaired {
 	struct mgmt_addr_info addr;
 } __packed;
 
+#define MGMT_EV_PASSKEY_NOTIFY		0x0017
+struct mgmt_ev_passkey_notify {
+	struct mgmt_addr_info addr;
+	uint32_t passkey;
+	uint8_t entered;
+} __packed;
+
 static const char *mgmt_op[] = {
 	"<0x0000>",
 	"Read Version",
@@ -479,6 +513,10 @@ static const char *mgmt_op[] = {
 	"Block Device",
 	"Unblock Device",
 	"Set Device ID",
+	"Set Advertising",
+	"Set BR/EDR",
+	"Set Static Address",
+	"Set Scan Parameters",
 };
 
 static const char *mgmt_ev[] = {
@@ -505,6 +543,7 @@ static const char *mgmt_ev[] = {
 	"Device Blocked",
 	"Device Unblocked",
 	"Device Unpaired",
+	"Passkey Notify",
 };
 
 static const char *mgmt_status[] = {
@@ -526,6 +565,7 @@ static const char *mgmt_status[] = {
 	"Not Powered",
 	"Cancelled",
 	"Invalid Index",
+	"Blocked through rfkill",
 };
 
 #ifndef NELEM
