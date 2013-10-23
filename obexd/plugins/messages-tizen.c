@@ -737,6 +737,64 @@ int messages_set_delete(void *session, const char *handle, uint8_t value,
 						value, callback, user_data);
 }
 
+static gboolean notification_registration(gpointer user_data)
+{
+	DBG("+\n");
+	DBusMessage *message = NULL;
+	gboolean reg;
+	struct mns_reg_data *data = (struct mns_reg_data *)user_data;
+
+	message = dbus_message_new_method_call(BT_MAP_SERVICE_NAME,
+					BT_MAP_SERVICE_OBJECT_PATH,
+					BT_MAP_SERVICE_INTERFACE,
+					QUERY_NOTI_REGISTRATION);
+	if (!message) {
+		error("Can't allocate new message");
+		goto done;
+	}
+
+	DBG("data->notification_status = %d\n", data->notification_status);
+
+	if (data->notification_status == 1)
+		reg = TRUE;
+	else
+		reg = FALSE;
+
+	dbus_message_append_args(message, DBUS_TYPE_STRING, &data->remote_addr,
+						DBUS_TYPE_BOOLEAN, &reg,
+						DBUS_TYPE_INVALID);
+
+	if (dbus_connection_send(g_conn, message, NULL) == FALSE)
+		error("Could not send dbus message");
+
+done:
+	if (message)
+		dbus_message_unref(message);
+
+	g_free(data->remote_addr);
+	g_free(data);
+
+	DBG("-\n");
+	return FALSE;
+}
+
+int messages_notification_registration(void *session,
+				char *address, int status,
+				messages_notification_registration_cb callback,
+				void *user_data)
+{
+	DBG("+\n");
+	struct mns_reg_data *data = g_new0(struct mns_reg_data, 1);
+	data->notification_status = status;
+	data->remote_addr = g_strdup(address);
+
+	DBG("status = %d\n", status);
+
+	g_idle_add(notification_registration, data);
+	DBG("-\n");
+	return 1;
+}
+
 void messages_abort(void *session)
 {
 }
