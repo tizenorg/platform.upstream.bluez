@@ -222,6 +222,52 @@ static gboolean session_target_exists(const GDBusPropertyTable *property,
 	return os->service->target ? TRUE : FALSE;
 }
 
+#ifdef __TIZEN_PATCH__
+static DBusMessage *set_root(DBusConnection *conn, DBusMessage *msg,
+					const char *root, void *data)
+{
+	DBG("new_root: %s", root);
+
+	/* Change the option root path (using in filesystem) */
+	obex_option_set_root_folder(root);
+
+	return dbus_message_new_method_return(msg);
+}
+
+static DBusMessage *set_property(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	DBusMessageIter iter;
+	DBusMessageIter sub;
+	const char *property;
+
+	if (!dbus_message_iter_init(msg, &iter))
+		return invalid_args(msg);
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_STRING)
+		return invalid_args(msg);
+
+	dbus_message_iter_get_basic(&iter, &property);
+	dbus_message_iter_next(&iter);
+
+	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_VARIANT)
+		return invalid_args(msg);
+	dbus_message_iter_recurse(&iter, &sub);
+
+	if (g_str_equal("Root", property)) {
+		const char *root;
+
+		if (dbus_message_iter_get_arg_type(&sub) != DBUS_TYPE_STRING)
+			return invalid_args(msg);
+		dbus_message_iter_get_basic(&sub, &root);
+
+		return set_root(conn, msg, root, data);
+	}
+
+	return invalid_args(msg);
+}
+#endif
+
 static char *target2str(const uint8_t *t)
 {
 	if (!t)
@@ -457,6 +503,10 @@ static const GDBusMethodTable manager_methods[] = {
 			GDBUS_ARGS({ "agent", "o" }), NULL, register_agent) },
 	{ GDBUS_METHOD("UnregisterAgent",
 			GDBUS_ARGS({ "agent", "o" }), NULL, unregister_agent) },
+#ifdef __TIZEN_PATCH__
+	{ GDBUS_METHOD("SetProperty",
+			GDBUS_ARGS({ "property", "sv" }), NULL, set_property) },
+#endif
 	{ }
 };
 

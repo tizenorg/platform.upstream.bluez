@@ -41,3 +41,6 @@ gboolean obex_option_auto_accept(void);
 const char *obex_option_root_folder(void);
 gboolean obex_option_symlinks(void);
 const char *obex_option_capability(void);
+#ifdef __TIZEN_PATCH__
+void obex_option_set_root_folder(const char *root);
+#endif
