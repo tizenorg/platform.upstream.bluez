@@ -68,6 +68,7 @@ struct phonebook_data {
 
 struct phonebook_session {
 	DBusConnection *connection;
+	phonebook_cache_clear_cb clear_cb;
 	unsigned int clear_id;
 
 	void *user_data;
@@ -352,6 +353,19 @@ static gboolean get_sim_phonebook_reply(void *user_data)
 static gboolean clear_signal(DBusConnection *conn, DBusMessage *msg,
 			void *user_data)
 {
+	struct phonebook_session *session;
+
+	if (user_data == NULL)
+		return FALSE;
+
+	DBG("");
+	session = user_data;
+
+	session->clear_cb(session->user_data);
+
+	g_dbus_remove_watch(session->connection, session->clear_id);
+	session->clear_id = 0;
+
 	return TRUE;
 }
 
@@ -363,6 +377,32 @@ int phonebook_init(void)
 
 void phonebook_exit(void)
 {
+}
+
+int phonebook_connect(void **user_data)
+{
+	struct phonebook_session *session;
+
+	DBG("");
+
+	session = g_new0(struct phonebook_session, 1);
+
+	*user_data = session;
+
+	return 0;
+}
+
+void phonebook_disconnect(void *user_data)
+{
+	struct phonebook_session *session;
+
+	DBG("");
+	session = user_data;
+
+	g_dbus_remove_watch(session->connection, session->clear_id);
+	dbus_connection_unref(session->connection);
+
+	g_free(session);
 }
 
 char *phonebook_set_folder(const char *current_folder,
@@ -571,4 +611,36 @@ void *phonebook_create_cache(const char *name, phonebook_entry_cb entry_cb,
 	}
 
 	return data;
+}
+
+void phonebook_set_cache_notification(void *session,
+				phonebook_cache_clear_cb clear_cb,
+				void *user_data)
+{
+	struct phonebook_session *s = session;
+
+	DBG("");
+	s->clear_cb = clear_cb;
+
+	if (s->connection == NULL) {
+		s->connection = g_dbus_setup_bus(DBUS_BUS_SYSTEM,
+				NULL, NULL);
+
+		if (s->connection == NULL) {
+			error("Can't get on s bus");
+			return;
+		}
+	}
+
+	s->user_data = user_data;
+
+	if (s->clear_id) {
+		g_dbus_remove_watch(s->connection, s->clear_id);
+		s->clear_id = 0;
+	}
+
+	s->clear_id = g_dbus_add_signal_watch(s->connection,
+			NULL, PHONEBOOK_PATH, PHONEBOOK_INTERFACE,
+			"clear", clear_signal,
+			s, NULL);
 }
