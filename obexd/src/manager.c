@@ -34,6 +34,9 @@
 #include <inttypes.h>
 
 #include <gobex/gobex.h>
+#ifdef __TIZEN_PATCH__
+#include <gobex/gobex-packet.h>
+#endif
 
 #include "btio/btio.h"
 #include "obexd.h"
@@ -486,6 +489,79 @@ static gboolean transfer_get_filename(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+#ifdef __TIZEN_PATCH__
+static gboolean transfer_operation_exists(const GDBusPropertyTable *property,
+								void *data)
+{
+	struct obex_transfer *transfer = data;
+	struct obex_session *session = transfer->session;
+
+	if (session->cmd == G_OBEX_OP_PUT &&
+				session->size != OBJECT_SIZE_DELETE)
+		return TRUE;
+	else if (session->cmd == G_OBEX_OP_GET)
+		return TRUE;
+	else
+		return FALSE;
+}
+
+static gboolean transfer_get_operation(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct obex_transfer *transfer = data;
+	struct obex_session *session = transfer->session;
+	const char *operation;
+
+	if (session->cmd == G_OBEX_OP_PUT &&
+				session->size != OBJECT_SIZE_DELETE)
+		operation = "PUT";
+	else if (session->cmd == G_OBEX_OP_GET)
+		operation = "GET";
+	else
+		return FALSE;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &operation);
+
+	return TRUE;
+}
+
+static gboolean transfer_address_exists(const GDBusPropertyTable *property,
+                                                                void *data)
+{
+	struct obex_transfer *transfer = data;
+	struct obex_session *session = transfer->session;
+	char *address;
+	int err;
+
+	err = obex_getpeername(session, &address);
+	if (err < 0)
+		return FALSE;
+
+	g_free(address);
+
+	return TRUE;
+}
+
+static gboolean transfer_get_address(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct obex_transfer *transfer = data;
+	struct obex_session *session = transfer->session;
+	char *address;
+	int err;
+
+	err = obex_getpeername(session, &address);
+	if (err < 0)
+		return FALSE;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &address);
+	g_free(address);
+
+	return TRUE;
+}
+
+#endif
+
 static gboolean transfer_get_transferred(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
 {
@@ -524,6 +600,12 @@ static const GDBusPropertyTable transfer_properties[] = {
 	{ "Time", "t", transfer_get_time, NULL, transfer_time_exists },
 	{ "Filename", "s", transfer_get_filename, NULL,
 						transfer_filename_exists },
+#ifdef __TIZEN_PATCH__
+	{ "Operation", "s", transfer_get_operation, NULL,
+						transfer_operation_exists },
+	{ "Address", "s", transfer_get_address, NULL,
+						transfer_address_exists },
+#endif
 	{ "Transferred", "t", transfer_get_transferred },
 	{ }
 };
