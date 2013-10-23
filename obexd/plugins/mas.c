@@ -30,7 +30,9 @@
 #include <glib.h>
 #include <fcntl.h>
 #include <inttypes.h>
-
+#ifdef TIZEN_PATCH
+#include <sys/time.h>
+#endif
 #include <gobex/gobex.h>
 #include <gobex/gobex-apparam.h>
 
@@ -72,8 +74,10 @@ struct mas_session {
 	GObexApparam *outparams;
 	gboolean ap_sent;
 #ifdef __TIZEN_PATCH__
+	gboolean headers_sent;
 	int notification_status;
 	char *remote_addr;
+	char *response_handle;
 #endif
 };
 
@@ -119,6 +123,11 @@ static void reset_request(struct mas_session *mas)
 	mas->nth_call = FALSE;
 	mas->finished = FALSE;
 	mas->ap_sent = FALSE;
+#ifdef __TIZEN_PATCH__
+	mas->headers_sent = FALSE;
+	g_free(mas->response_handle);
+	mas->response_handle = NULL;
+#endif
 }
 
 static void mas_clean(struct mas_session *mas)
@@ -253,6 +262,24 @@ static const char *yesorno(gboolean a)
 	return "no";
 }
 
+#ifdef __TIZEN_PATCH__
+static gchar *get_local_timestamp(void)
+{
+	struct timeval tv;
+	struct tm ltime;
+
+	gettimeofday(&tv, NULL);
+
+	if (!localtime_r(&tv.tv_sec, &ltime))
+		return NULL;
+
+	return g_strdup_printf("%04d%02d%02dT%02d%02d%02d",
+					ltime.tm_year + 1900, ltime.tm_mon + 1,
+					ltime.tm_mday, ltime.tm_hour,
+					ltime.tm_min, ltime.tm_sec);
+}
+#endif
+
 static void get_messages_listing_cb(void *session, int err, uint16_t size,
 					gboolean newmsg,
 					const struct messages_message *entry,
@@ -260,6 +287,9 @@ static void get_messages_listing_cb(void *session, int err, uint16_t size,
 {
 	struct mas_session *mas = user_data;
 	uint16_t max = 1024;
+#ifdef __TIZEN_PATCH__
+	gchar *msetime;
+#endif
 
 	if (err < 0 && err != -EAGAIN) {
 		obex_object_set_io_flags(mas, G_IO_ERR, err);
@@ -373,11 +403,38 @@ proceed:
 		mas->outparams = g_obex_apparam_set_uint8(mas->outparams,
 						MAP_AP_NEWMESSAGE,
 						newmsg ? 1 : 0);
+#ifdef __TIZEN_PATCH__
+		msetime = get_local_timestamp();
+		if (msetime) {
+			g_obex_apparam_set_string(mas->outparams,
+						MAP_AP_MSETIME, msetime);
+			g_free(msetime);
+		}
+#endif
 	}
 
 	if (err != -EAGAIN)
 		obex_object_set_io_flags(mas, G_IO_IN, 0);
 }
+
+#ifdef __TIZEN_PATCH__
+static void put_message_cb(void *session, int err, guint64 handle,
+							void *user_data)
+{
+	struct mas_session *mas = user_data;
+
+	DBG("");
+
+	if (err < 0) {
+		obex_object_set_io_flags(mas, G_IO_ERR, err);
+		return;
+	}
+	mas->finished = FALSE;
+	mas->response_handle = g_strdup_printf("%llx", handle);
+
+	obex_object_set_io_flags(mas, G_IO_OUT, 0);
+}
+#endif
 
 static void get_message_cb(void *session, int err, gboolean fmore,
 					const char *chunk, void *user_data)
@@ -427,8 +484,13 @@ static void get_folder_listing_cb(void *session, int err, uint16_t size,
 			mas->finished = TRUE;
 
 		goto proceed;
+#ifndef __TIZEN_PATCH__
 	}
-
+#else
+	} else {
+		mas->ap_sent = TRUE;
+	}
+#endif
 	if (!mas->nth_call) {
 		g_string_append(mas->buffer, XML_DECL);
 		g_string_append(mas->buffer, FL_DTD);
@@ -584,6 +646,57 @@ static void *message_open(const char *name, int oflag, mode_t mode,
 
 	DBG("");
 
+#ifdef __TIZEN_PATCH__
+	if (oflag != O_RDONLY) {
+		DBG("Message pushing invoked \n");
+
+		DBG("name = %s", name);
+		uint8_t transparent = 0;
+		uint8_t retry = 1;
+		uint8_t charset;
+
+		g_obex_apparam_get_uint8(mas->inparams, MAP_AP_TRANSPARENT,
+								&transparent);
+		DBG("transparent = %d \n", transparent);
+		g_obex_apparam_get_uint8(mas->inparams, MAP_AP_RETRY, &retry);
+                DBG("retry = %d \n", retry);
+
+		if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_CHARSET,
+								&charset)) {
+			*err = -EBADR;
+			return NULL;
+		}
+		mas->headers_sent = FALSE;
+
+		*err = messages_push_message(mas->backend_data, name,
+						transparent, retry, charset,
+						put_message_cb, mas);
+	} else {
+		uint8_t fraction_request = 0;
+		uint8_t attachment;
+		uint8_t charset;
+
+		if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_ATTACHMENT,
+								&attachment)) {
+			*err = -EBADR;
+			return NULL;
+		}
+
+		if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_CHARSET,
+								&charset)) {
+			*err = -EBADR;
+			return NULL;
+		}
+
+		if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_FRACTIONREQUEST,
+								&fraction_request))
+			mas->ap_sent = TRUE;
+
+		*err = messages_get_message(mas->backend_data, name, attachment,
+						charset, fraction_request,
+						get_message_cb, mas);
+	}
+#else
 	if (oflag != O_RDONLY) {
 		DBG("Message pushing unsupported");
 		*err = -ENOSYS;
@@ -593,6 +706,7 @@ static void *message_open(const char *name, int oflag, mode_t mode,
 
 	*err = messages_get_message(mas->backend_data, name, 0,
 			get_message_cb, mas);
+#endif
 
 	mas->buffer = g_string_new("");
 
@@ -601,6 +715,30 @@ static void *message_open(const char *name, int oflag, mode_t mode,
 	else
 		return mas;
 }
+
+#ifdef __TIZEN_PATCH__
+static ssize_t message_write(void *object, const void *buf, size_t count)
+{
+	DBG("");
+	struct mas_session *mas = object;
+
+	if (mas->finished)
+		return 0;
+
+	g_string_append_len(mas->buffer, buf, count);
+
+	DBG("count = %d \n", count);
+
+	if (g_strrstr(mas->buffer->str, "END:BMSG\r\n")) {
+		DBG("BMsg received. \n");
+
+	messages_push_message_data(mas->backend_data,
+					mas->buffer->str, NULL);
+	}
+
+	return count;
+}
+#endif
 
 static void *message_update_open(const char *name, int oflag, mode_t mode,
 					void *driver_data, size_t *size,
@@ -677,7 +815,8 @@ static void *notification_registration_open(const char *name, int oflag,
 		return NULL;
 	}
 
-	if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_NOTIFICATIONSTATUS, &status)) {
+	if (!g_obex_apparam_get_uint8(mas->inparams,
+			MAP_AP_NOTIFICATIONSTATUS, &status)) {
 		*err = -EBADR;
 		return NULL;
 	}
@@ -696,13 +835,42 @@ static int notification_registration_close(void *obj)
 
 	DBG("");
 
-	messages_notification_registration(mas->backend_data,
-				mas->remote_addr, mas->notification_status,
-				NULL, mas);
+	messages_set_notification_registration(mas->backend_data,
+			mas->remote_addr, mas->notification_status,
+			NULL);
 
 	reset_request(mas);
 
 	return 0;
+}
+
+static ssize_t put_next_header(void *object, void *buf, size_t mtu,
+							uint8_t *hi)
+{
+	struct mas_session *mas = object;
+	size_t len;
+
+	DBG("");
+	if (mas->headers_sent)
+		return 0;
+
+	if (mas->response_handle)
+		DBG("mas->response_handle %s\n", mas->response_handle);
+	else
+		return 0;
+
+	*hi = G_OBEX_HDR_NAME;
+
+	len = strlen(mas->response_handle);
+
+	DBG("len %d\n", len);
+	DBG("mas->response_handle %s\n", mas->response_handle);
+
+	memcpy(buf, mas->response_handle, len);
+
+	mas->headers_sent = TRUE;
+
+	return len;
 }
 #endif
 
@@ -801,7 +969,12 @@ static struct obex_mime_type_driver mime_message = {
 	.open = message_open,
 	.close = any_close,
 	.read = any_read,
+#ifdef __TIZEN_PATCH__
+	.write = message_write,
+	.get_next_header = put_next_header
+#else
 	.write = any_write,
+#endif
 };
 
 static struct obex_mime_type_driver mime_folder_listing = {
