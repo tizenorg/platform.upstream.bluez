@@ -31,6 +31,8 @@ Source3:        bluetooth.sysconfig
 Source4:        bluetooth.sh
 Source5:        baselibs.conf
 Source7:        bluetooth.modprobe
+Source101:	obex-root-setup
+Source102:	create-symlinks
 Source1001: 	bluez.manifest
 
 %define cups_lib_dir %{_prefix}/lib/cups
@@ -122,6 +124,9 @@ fi
 install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 
 
+install -D -m 0755 %SOURCE101 %{buildroot}%{_bindir}/obex-root-setup
+install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
+
 %post -n libbluetooth -p /sbin/ldconfig
 
 %postun -n libbluetooth -p /sbin/ldconfig
@@ -175,6 +180,8 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 /lib/bluetooth/obexd
 %{_libdir}/systemd/user/obex.service
 %{_datadir}/dbus-1/services/org.bluez.obex.service
+%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
+%{_bindir}/obex-root-setup
 
 %files test
 %manifest %{name}.manifest
