@@ -169,6 +169,21 @@ void messages_disconnect(void *session);
  * value is used to set the error code in OBEX response.
  ******************************************************************************/
 
+#ifdef __TIZEN_PATCH__
+
+/* Registers Message Client for receiving message event reports.
+ *
+ * session: Backend session.
+ * address: Remote device address that request notification registration.
+ * status: To indicate message notification registraton status
+ * user_data: User data if any to be sent.
+ */
+
+int messages_set_notification_registration(void *session,
+					char *address, uint8_t status,
+					void *user_data);
+#else
+
 /* Registers for messaging events notifications.
  *
  * session: Backend session.
@@ -181,6 +196,7 @@ int messages_set_notification_registration(void *session,
 		void (*send_event)(void *session,
 			const struct messages_event *event, void *user_data),
 		void *user_data);
+#endif
 
 /* Changes current directory.
  *
@@ -236,6 +252,34 @@ int messages_get_messages_listing(void *session, const char *name,
 				messages_get_messages_listing_cb callback,
 				void *user_data);
 
+#ifdef __TIZEN_PATCH__
+/* Retrieves bMessage object (see MAP specification, ch. 3.1.3) of a given
+ * message.
+ *
+ * session: Backend session.
+ * handle: Handle of the message to retrieve.
+ * attachment: Indicates to return attachment in bMessage object.
+ * charset: Indicates the transcoding of the textual parts of delivered
+ *      bMessage-content.
+ * fraction_request: Indicates message is a fractioned email as applied for
+ *      some push-email services.
+ * fmore: Indicates whether next fraction is available.
+ * chunk: chunk of bMessage body
+ *
+ * Callback allows for returning bMessage in chunks.
+ */
+typedef void (*messages_get_message_cb)(void *session, int err, gboolean fmore,
+		const char *chunk, void *user_data);
+
+int messages_get_message(void *session, const char *handle,
+					uint8_t attachment, uint8_t charset,
+					uint8_t fraction_request,
+					messages_get_message_cb callback,
+					void *user_data);
+
+typedef void (*messages_push_message_cb)(void *session, int err, guint64 handle,
+							void *user_data);
+#else
 #define MESSAGES_ATTACHMENT	(1 << 0)
 #define MESSAGES_UTF8		(1 << 1)
 #define MESSAGES_FRACTION	(1 << 2)
@@ -267,6 +311,7 @@ int messages_get_message(void *session, const char *handle,
 					unsigned long flags,
 					messages_get_message_cb callback,
 					void *user_data);
+#endif
 
 typedef void (*messages_status_cb)(void *session, int err, void *user_data);
 
