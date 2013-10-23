@@ -71,6 +71,10 @@ struct mas_session {
 	GObexApparam *inparams;
 	GObexApparam *outparams;
 	gboolean ap_sent;
+#ifdef __TIZEN_PATCH__
+	int notification_status;
+	char *remote_addr;
+#endif
 };
 
 static const uint8_t MAS_TARGET[TARGET_SIZE] = {
@@ -120,12 +124,18 @@ static void reset_request(struct mas_session *mas)
 static void mas_clean(struct mas_session *mas)
 {
 	reset_request(mas);
+#ifdef __TIZEN_PATCH__
+	g_free(mas->remote_addr);
+#endif
 	g_free(mas);
 }
 
 static void *mas_connect(struct obex_session *os, int *err)
 {
 	struct mas_session *mas;
+#ifdef __TIZEN_PATCH__
+	char *address;
+#endif
 
 	DBG("");
 
@@ -136,6 +146,13 @@ static void *mas_connect(struct obex_session *os, int *err)
 		goto failed;
 
 	manager_register_session(os);
+
+#ifdef __TIZEN_PATCH__
+	if (obex_getpeername(os, &address) == 0) {
+		mas->remote_addr = address;
+		DBG("mas->remote_addr = %s\n", mas->remote_addr);
+	}
+#endif
 
 	return mas;
 
@@ -648,6 +665,48 @@ static void *message_set_status_open(const char *name, int oflag, mode_t mode,
 	return mas;
 }
 
+#ifdef __TIZEN_PATCH__
+static void *notification_registration_open(const char *name, int oflag,
+		mode_t mode, void *driver_data, size_t *size, int *err)
+{
+	struct mas_session *mas = driver_data;
+	uint8_t status;
+
+	if (oflag == O_RDONLY) {
+		*err = -EBADR;
+		return NULL;
+	}
+
+	if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_NOTIFICATIONSTATUS, &status)) {
+		*err = -EBADR;
+		return NULL;
+	}
+
+	DBG("status: %d", status);
+
+	mas->notification_status = status;
+	*err = 0;
+	mas->finished = TRUE;
+	return mas;
+}
+
+static int notification_registration_close(void *obj)
+{
+	struct mas_session *mas = obj;
+
+	DBG("");
+
+	messages_notification_registration(mas->backend_data,
+				mas->remote_addr, mas->notification_status,
+				NULL, mas);
+
+	reset_request(mas);
+
+	return 0;
+}
+#endif
+
+
 static ssize_t any_get_next_header(void *object, void *buf, size_t mtu,
 								uint8_t *hi)
 {
@@ -771,8 +830,13 @@ static struct obex_mime_type_driver mime_notification_registration = {
 	.target = MAS_TARGET,
 	.target_size = TARGET_SIZE,
 	.mimetype = "x-bt/MAP-NotificationRegistration",
+#ifdef __TIZEN_PATCH__
+	.open = notification_registration_open,
+	.close = notification_registration_close,
+#else
 	.open = any_open,
 	.close = any_close,
+#endif
 	.read = any_read,
 	.write = any_write,
 };
