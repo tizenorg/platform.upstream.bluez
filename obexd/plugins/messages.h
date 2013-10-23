@@ -302,6 +302,25 @@ int messages_set_read(void *session, const char *handle, uint8_t value,
 int messages_set_delete(void *session, const char *handle, uint8_t value,
 				messages_status_cb callback, void *user_data);
 
+#ifdef __TIZEN_PATCH__
+
+/* Informs Message Server to modify status of the message.
+ *
+ * session: Backend session.
+ * address: Remote device address that request notification registraton.
+ * status: To indicate message notification service
+ * Callback shall be called for every notification registration request.
+ * user_data: User data if any to be sent.
+ */
+typedef void (*messages_notification_registration_cb)(void *session, int err,
+		void *user_data);
+
+int messages_notification_registration(void *session,
+				char *address, int status,
+				messages_notification_registration_cb callback,
+				void *user_data);
+#endif
+
 /* Aborts currently pending request.
  *
  * session: Backend session.
