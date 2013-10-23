@@ -81,6 +81,10 @@ typedef void (*phonebook_entry_cb) (const char *id, uint32_t handle,
 					const char *name, const char *sound,
 					const char *tel, void *user_data);
 
+#ifdef __TIZEN_PATCH__
+typedef void (*phonebook_cache_clear_cb) (void *user_data);
+#endif
+
 /*
  * After notify all entries to PBAP core, the backend
  * needs to notify that the operation has finished.
@@ -90,6 +94,11 @@ typedef void (*phonebook_cache_ready_cb) (void *user_data);
 
 int phonebook_init(void);
 void phonebook_exit(void);
+
+#ifdef __TIZEN_PATCH__
+int phonebook_connect(void **user_data);
+void phonebook_disconnect(void *user_data);
+#endif
 
 /*
  * Changes the current folder in the phonebook back-end. The PBAP core
@@ -160,3 +169,9 @@ void *phonebook_create_cache(const char *name, phonebook_entry_cb entry_cb,
  * phonebook_get_entry, and phonebook_create_cache.
  */
 void phonebook_req_finalize(void *request);
+
+#ifdef __TIZEN_PATCH__
+void phonebook_set_cache_notification(void *session,
+				phonebook_cache_clear_cb cache_cb,
+				void *user_data);
+#endif
