@@ -181,6 +181,14 @@ static GOptionEntry options[] = {
 	{ NULL },
 };
 
+#ifdef __TIZEN_PATCH__
+void obex_option_set_root_folder(const char *root)
+{
+	g_free(option_root);
+	option_root = g_strdup(root);
+}
+#endif
+
 gboolean obex_option_auto_accept(void)
 {
 	return option_autoaccept;
