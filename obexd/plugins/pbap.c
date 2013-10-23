@@ -85,6 +85,9 @@ struct pbap_session {
 	uint32_t find_handle;
 	struct cache cache;
 	struct pbap_object *obj;
+#ifdef __TIZEN_PATCH__
+	void *backend_data;
+#endif
 };
 
 struct pbap_object {
@@ -443,6 +446,20 @@ static void cache_entry_done(void *user_data)
 		obex_object_set_io_flags(pbap->obj, G_IO_ERR, ret);
 }
 
+#ifdef __TIZEN_PATCH__
+static void cache_clear_notify(void *user_data)
+{
+	struct pbap_session *pbap = user_data;
+
+	if (pbap == NULL)
+		return;
+
+	pbap->cache.valid = FALSE;
+	pbap->cache.index = 0;
+	cache_clear(&pbap->cache);
+}
+#endif
+
 static struct apparam_field *parse_aparam(const uint8_t *buffer, uint32_t hlen)
 {
 	GObexApparam *apparam;
@@ -485,10 +502,23 @@ static void *pbap_connect(struct obex_session *os, int *err)
 	pbap->folder = g_strdup("/");
 	pbap->find_handle = PHONEBOOK_INVALID_HANDLE;
 
+#ifdef __TIZEN_PATCH__
+	*err = phonebook_connect(&pbap->backend_data);
+	if (*err < 0)
+                goto failed;
+#endif
+
 	if (err)
 		*err = 0;
 
 	return pbap;
+
+#ifdef __TIZEN_PATCH__
+failed:
+	g_free(pbap);
+
+	return NULL;
+#endif
 }
 
 static int pbap_get(struct obex_session *os, void *user_data)
@@ -598,6 +628,10 @@ static void pbap_disconnect(struct obex_session *os, void *user_data)
 	struct pbap_session *pbap = user_data;
 
 	manager_unregister_session(os);
+
+#ifdef __TIZEN_PATCH__
+	phonebook_disconnect(pbap->backend_data);
+#endif
 
 	if (pbap->obj)
 		pbap->obj->session = NULL;
@@ -744,6 +778,10 @@ static void *vobject_list_open(const char *name, int oflag, mode_t mode,
 					cache_ready_notify, pbap, &ret);
 		if (ret == 0)
 			obj = vobject_create(pbap, request);
+#ifdef __TIZEN_PATCH__
+		phonebook_set_cache_notification(pbap->backend_data,
+						cache_clear_notify, pbap);
+#endif
 	}
 	if (ret < 0)
 		goto fail;
@@ -788,6 +826,10 @@ static void *vobject_vcard_open(const char *name, int oflag, mode_t mode,
 		pbap->find_handle = handle;
 		request = phonebook_create_cache(pbap->folder,
 			cache_entry_notify, cache_entry_done, pbap, &ret);
+#ifdef __TIZEN_PATCH__
+		phonebook_set_cache_notification(pbap->backend_data,
+						cache_clear_notify, pbap);
+#endif
 		goto done;
 	}
 
