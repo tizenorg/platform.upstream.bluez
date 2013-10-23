@@ -421,6 +421,15 @@ int bnep_add_to_bridge(const char *devname, const char *bridge)
 	if (sk < 0)
 		return -1;
 
+#ifdef  __TIZEN_PATCH__
+	err = ioctl(sk, SIOCBRADDBR, bridge);
+	if (err < 0)
+	{
+		info("bridge create err: %d", err);
+		close(sk);
+		return -errno;
+	}
+#endif
 	memset(&ifr, 0, sizeof(ifr));
 	strncpy(ifr.ifr_name, bridge, IFNAMSIZ - 1);
 	ifr.ifr_ifindex = ifindex;
