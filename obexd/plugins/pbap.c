@@ -630,6 +630,9 @@ static void pbap_disconnect(struct obex_session *os, void *user_data)
 	manager_unregister_session(os);
 
 #ifdef __TIZEN_PATCH__
+	if (!pbap)
+		return;
+
 	phonebook_disconnect(pbap->backend_data);
 #endif
 
