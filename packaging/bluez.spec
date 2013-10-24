@@ -111,6 +111,24 @@ make check
 %make_install
 
 # bluez-test
+cd test
+install --mode=0755 \
+	simple-agent \
+	simple-service \
+	list-devices \
+	test-adapter \
+	test-device \
+	test-discovery \
+	test-manager \
+	test-network \
+	test-profile  \
+	test-hfp \
+	ftp-client \
+	map-client \
+	opp-client \
+	pbap-client \
+	$RPM_BUILD_ROOT/%{_bindir}/
+cd ..
 rm -rvf $RPM_BUILD_ROOT/%{_libdir}/gstreamer-*
 install --mode=0755 -D %{S:4} $RPM_BUILD_ROOT/usr/lib/udev/bluetooth.sh
 install --mode=0644 -D %{S:7} $RPM_BUILD_ROOT/%{_sysconfdir}/modprobe.d/50-bluetooth.conf
@@ -192,6 +210,20 @@ install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_c
 %{_bindir}/bluetoothctl
 %{_bindir}/btmon
 %{_bindir}/hcidump
+%{_bindir}/simple-agent
+%{_bindir}/simple-service
+%{_bindir}/list-devices
+%{_bindir}/test-adapter
+%{_bindir}/test-device
+%{_bindir}/test-discovery
+%{_bindir}/test-manager
+%{_bindir}/test-network
+%{_bindir}/test-profile
+%{_bindir}/test-hfp
+%{_bindir}/ftp-client
+%{_bindir}/map-client
+%{_bindir}/opp-client
+%{_bindir}/pbap-client
 
 %docs_package
 
