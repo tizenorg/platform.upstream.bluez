@@ -100,6 +100,7 @@ export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__"
 			--disable-usb	\
 			--enable-test	\
 			--enable-library	\
+			--enable-experimental	\
 			--with-systemdunitdir=%{_unitdir}	\
 			%{?with_libcapng}
 make %{?_smp_mflags} all V=1
@@ -140,7 +141,7 @@ then if test -e %{buildroot}%{_libdir}/cups/backend/bluetooth
 fi
 # no idea why this is suddenly necessary...
 install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
-
+install -D --mode 0755 tools/btiotest $RPM_BUILD_ROOT/%{_bindir}/
 
 install -D -m 0755 %SOURCE101 %{buildroot}%{_bindir}/obex-root-setup
 install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
@@ -154,6 +155,7 @@ install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_c
 %defattr(-, root, root)
 %license COPYING 
 %{_bindir}/hcitool
+%{_bindir}/btiotest
 %{_bindir}/l2ping
 %{_bindir}/rfcomm
 %{_bindir}/sdptool
