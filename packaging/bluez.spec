@@ -196,7 +196,7 @@ install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_c
 %files -n obexd
 %defattr(-,root,root,-)
 /lib/bluetooth/obexd
-%{_libdir}/systemd/user/obex.service
+%{_unitdir_user}/obex.service
 %{_datadir}/dbus-1/services/org.bluez.obex.service
 %{_sysconfdir}/obex/root-setup.d/000_create-symlinks
 %{_bindir}/obex-root-setup
