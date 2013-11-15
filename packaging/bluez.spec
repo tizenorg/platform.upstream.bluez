@@ -96,7 +96,6 @@ autoreconf -fiv
 
 export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__"
 %configure  --with-pic \
-			--libexecdir=/lib \
 			--disable-usb	\
 			--enable-test	\
 			--enable-library	\
@@ -161,7 +160,7 @@ install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_c
 #%{_bindir}/dfutool
 %{_bindir}/hciattach
 %{_bindir}/hciconfig
-/lib/bluetooth/bluetoothd
+%{_libexecdir}/bluetooth/bluetoothd
 %{_bindir}/bccmd
 #%{_sbindir}/hid2hci
 %dir /usr/lib/udev
@@ -195,8 +194,8 @@ install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_c
 
 %files -n obexd
 %defattr(-,root,root,-)
-/lib/bluetooth/obexd
-%{_libdir}/systemd/user/obex.service
+%{_libexecdir}/bluetooth/obexd
+%{_unitdir_user}/obex.service
 %{_datadir}/dbus-1/services/org.bluez.obex.service
 %{_sysconfdir}/obex/root-setup.d/000_create-symlinks
 %{_bindir}/obex-root-setup
