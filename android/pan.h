@@ -21,62 +21,7 @@
  *
  */
 
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
+void bt_pan_handle_cmd(int sk, uint8_t opcode, void *buf, uint16_t len);
 
-#include <fcntl.h>
-#include <stdio.h>
-#include <stdarg.h>
-#include <unistd.h>
-#include <sys/uio.h>
-
-#include <glib.h>
-
-void info(const char *format, ...)
-{
-	va_list ap;
-
-	va_start(ap, format);
-
-	vfprintf(stdout, format, ap);
-	fprintf(stdout, "\n");
-
-	va_end(ap);
-}
-
-void warn(const char *format, ...)
-{
-	va_list ap;
-
-	va_start(ap, format);
-
-	vfprintf(stderr, format, ap);
-	fprintf(stderr, "\n");
-
-	va_end(ap);
-}
-
-void error(const char *format, ...)
-{
-	va_list ap;
-
-	va_start(ap, format);
-
-	vfprintf(stderr, format, ap);
-	fprintf(stderr, "\n");
-
-	va_end(ap);
-}
-
-void btd_debug(const char *format, ...)
-{
-	va_list ap;
-
-	va_start(ap, format);
-
-	vfprintf(stdout, format, ap);
-	fprintf(stdout, "\n");
-
-	va_end(ap);
-}
+bool bt_pan_register(int sk, const bdaddr_t *addr);
+void bt_pan_unregister(void);
