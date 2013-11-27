@@ -100,6 +100,8 @@ export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__"
 			--disable-usb	\
 			--enable-test	\
 			--enable-library	\
+			--enable-experimental	\
+			--enable-readline	\
 			--with-systemdunitdir=%{_unitdir}	\
 			%{?with_libcapng}
 make %{?_smp_mflags} all V=1
@@ -126,6 +128,9 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 
 install -D -m 0755 %SOURCE101 %{buildroot}%{_bindir}/obex-root-setup
 install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
+install -D -m 0755 tools/btiotest $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/bluetooth-player $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/mpris-player $RPM_BUILD_ROOT/%{_bindir}/
 
 %post -n libbluetooth -p /sbin/ldconfig
 
@@ -190,8 +195,13 @@ install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_c
 %{_bindir}/l2test
 %{_bindir}/rctest
 %{_bindir}/bluetoothctl
+%{_bindir}/btiotest
+%{_bindir}/mpris-player
+%{_bindir}/bluetooth-player
 %{_bindir}/btmon
 %{_bindir}/hcidump
+%{_bindir}/bluezutils.py
+%{_bindir}/dbusdef.py
 
 %docs_package
 
