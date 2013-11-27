@@ -127,6 +127,9 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 install -D -m 0755 %SOURCE101 %{buildroot}%{_bindir}/obex-root-setup
 install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
 
+install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
+
+
 %post -n libbluetooth -p /sbin/ldconfig
 
 %postun -n libbluetooth -p /sbin/ldconfig
@@ -137,6 +140,7 @@ install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_c
 %license COPYING 
 %{_bindir}/hcitool
 %{_bindir}/l2ping
+%{_bindir}/obexctl
 %{_bindir}/rfcomm
 %{_bindir}/sdptool
 %{_bindir}/ciptool
