@@ -132,6 +132,9 @@ install -D -m 0755 tools/btiotest $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/bluetooth-player $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/mpris-player $RPM_BUILD_ROOT/%{_bindir}/
 
+install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
+
+
 %post -n libbluetooth -p /sbin/ldconfig
 
 %postun -n libbluetooth -p /sbin/ldconfig
@@ -142,6 +145,7 @@ install -D -m 0755 tools/mpris-player $RPM_BUILD_ROOT/%{_bindir}/
 %license COPYING 
 %{_bindir}/hcitool
 %{_bindir}/l2ping
+%{_bindir}/obexctl
 %{_bindir}/rfcomm
 %{_bindir}/sdptool
 %{_bindir}/ciptool
