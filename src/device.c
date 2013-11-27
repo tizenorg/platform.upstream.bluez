@@ -31,8 +31,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdbool.h>
-#include <sys/stat.h>
-#include <sys/ioctl.h>
 #include <errno.h>
 #include <dirent.h>
 #include <time.h>
@@ -64,7 +62,6 @@
 #include "sdp-client.h"
 #include "attrib/gatt.h"
 #include "agent.h"
-#include "sdp-xml.h"
 #include "storage.h"
 #include "attrib-server.h"
 
@@ -148,7 +145,7 @@ typedef void (*attio_error_cb) (const GError *gerr, gpointer user_data);
 typedef void (*attio_success_cb) (gpointer user_data);
 
 struct att_callbacks {
-	attio_error_cb error;		/* Callback for error */
+	attio_error_cb err;		/* Callback for error */
 	attio_success_cb success;	/* Callback for success */
 	gpointer user_data;
 };
@@ -1159,8 +1156,15 @@ static void device_profile_connected(struct btd_device *dev,
 	if (dev->pending == NULL)
 		return;
 
-	if (!dev->connected && err == -EHOSTDOWN)
-		goto done;
+	if (!dev->connected) {
+		switch (-err) {
+		case EHOSTDOWN: /* page timeout */
+		case EHOSTUNREACH: /* adapter not powered */
+		case ECONNABORTED: /* adapter powered down */
+			goto done;
+		}
+	}
+
 
 	pending = dev->pending->data;
 	l = find_service_with_profile(dev->pending, profile);
@@ -1299,6 +1303,9 @@ static DBusMessage *connect_profiles(struct btd_device *dev, DBusMessage *msg,
 
 	if (dev->pending || dev->connect || dev->browse)
 		return btd_error_in_progress(msg);
+
+	if (!btd_adapter_get_powered(dev->adapter))
+		return btd_error_not_ready(msg);
 
 	device_set_temporary(dev, FALSE);
 
@@ -3243,8 +3250,8 @@ static void att_connect_cb(GIOChannel *io, GError *gerr, gpointer user_data)
 	if (gerr) {
 		DBG("%s", gerr->message);
 
-		if (attcb->error)
-			attcb->error(gerr, user_data);
+		if (attcb->err)
+			attcb->err(gerr, user_data);
 
 		err = -ECONNABORTED;
 		goto done;
@@ -3348,7 +3355,7 @@ int device_connect_le(struct btd_device *dev)
 	DBG("Connection attempt to: %s", addr);
 
 	attcb = g_new0(struct att_callbacks, 1);
-	attcb->error = att_error_cb;
+	attcb->err = att_error_cb;
 	attcb->success = att_success_cb;
 	attcb->user_data = dev;
 
@@ -3438,7 +3445,7 @@ static int device_browse_primary(struct btd_device *device, DBusMessage *msg)
 	}
 
 	attcb = g_new0(struct att_callbacks, 1);
-	attcb->error = att_browse_error_cb;
+	attcb->err = att_browse_error_cb;
 	attcb->success = att_browse_cb;
 	attcb->user_data = device;
 
@@ -3446,6 +3453,7 @@ static int device_browse_primary(struct btd_device *device, DBusMessage *msg)
 				attcb, NULL, NULL,
 				BT_IO_OPT_SOURCE_BDADDR,
 				adapter_get_address(adapter),
+				BT_IO_OPT_SOURCE_TYPE, BDADDR_LE_PUBLIC,
 				BT_IO_OPT_DEST_BDADDR, &device->bdaddr,
 				BT_IO_OPT_DEST_TYPE, device->bdaddr_type,
 				BT_IO_OPT_CID, ATT_CID,

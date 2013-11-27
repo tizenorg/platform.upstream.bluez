@@ -1187,17 +1187,8 @@ static struct a2dp_server *find_server(GSList *list, struct btd_adapter *a)
 static struct a2dp_server *a2dp_server_register(struct btd_adapter *adapter)
 {
 	struct a2dp_server *server;
-	int av_err;
 
 	server = g_new0(struct a2dp_server, 1);
-
-	av_err = avdtp_init(adapter);
-	if (av_err < 0) {
-		DBG("AVDTP not registered");
-		g_free(server);
-		return NULL;
-	}
-
 	server->adapter = btd_adapter_ref(adapter);
 	servers = g_slist_append(servers, server);
 
@@ -1217,8 +1208,6 @@ static void a2dp_unregister_sep(struct a2dp_sep *sep)
 
 static void a2dp_server_unregister(struct a2dp_server *server)
 {
-	avdtp_exit(server->adapter);
-
 	servers = g_slist_remove(servers, server);
 	btd_adapter_unref(server->adapter);
 	g_free(server);
@@ -1872,9 +1861,21 @@ static void a2dp_sink_remove(struct btd_service *service)
 static int a2dp_source_connect(struct btd_service *service)
 {
 	struct btd_device *dev = btd_service_get_device(service);
+	struct btd_adapter *adapter = device_get_adapter(dev);
+	struct a2dp_server *server;
 	const char *path = device_get_path(dev);
 
 	DBG("path %s", path);
+
+	server = find_server(servers, adapter);
+	if (!server || !server->sink_enabled) {
+		DBG("Unexpected error: cannot find server");
+		return -EPROTONOSUPPORT;
+	}
+
+	/* Return protocol not available if no record/endpoint exists */
+	if (server->sink_record_id == 0)
+		return -ENOPROTOOPT;
 
 	return source_connect(service);
 }
@@ -1892,9 +1893,21 @@ static int a2dp_source_disconnect(struct btd_service *service)
 static int a2dp_sink_connect(struct btd_service *service)
 {
 	struct btd_device *dev = btd_service_get_device(service);
+	struct btd_adapter *adapter = device_get_adapter(dev);
+	struct a2dp_server *server;
 	const char *path = device_get_path(dev);
 
 	DBG("path %s", path);
+
+	server = find_server(servers, adapter);
+	if (!server || !server->source_enabled) {
+		DBG("Unexpected error: cannot find server");
+		return -EPROTONOSUPPORT;
+	}
+
+	/* Return protocol not available if no record/endpoint exists */
+	if (server->source_record_id == 0)
+		return -ENOPROTOOPT;
 
 	return sink_connect(service);
 }
