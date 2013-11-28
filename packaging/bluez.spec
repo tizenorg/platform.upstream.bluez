@@ -69,8 +69,9 @@ Contains the files required by CUPS for printing to Bluetooth-connected
 printers.
 
 %package -n obexd
-Summary: OBEX Server A basic OBEX server implementation
-Group: Applications/System
+Summary:        OBEX Server A basic OBEX server implementation
+Group:          Applications/System
+Requires:       bluez
 
 %description -n obexd
 OBEX Server A basic OBEX server implementation.
