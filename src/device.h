@@ -33,7 +33,7 @@ struct btd_device *device_create_from_storage(struct btd_adapter *adapter,
 char *btd_device_get_storage_path(struct btd_device *device,
 				const char *filename);
 
-void device_set_name(struct btd_device *device, const char *name);
+void btd_device_device_set_name(struct btd_device *device, const char *name);
 void device_store_cached_name(struct btd_device *dev, const char *name);
 void device_get_name(struct btd_device *device, char *name, size_t len);
 bool device_name_known(struct btd_device *device);
@@ -46,7 +46,7 @@ uint16_t btd_device_get_version(struct btd_device *device);
 void device_remove(struct btd_device *device, gboolean remove_stored);
 int device_address_cmp(gconstpointer a, gconstpointer b);
 int device_bdaddr_cmp(gconstpointer a, gconstpointer b);
-GSList *device_get_uuids(struct btd_device *device);
+GSList *btd_device_get_uuids(struct btd_device *device);
 void device_probe_profiles(struct btd_device *device, GSList *profiles);
 const sdp_record_t *btd_device_get_record(struct btd_device *device,
 						const char *uuid);
@@ -69,12 +69,12 @@ gboolean device_is_paired(struct btd_device *device);
 gboolean device_is_bonded(struct btd_device *device);
 gboolean device_is_trusted(struct btd_device *device);
 void device_set_paired(struct btd_device *device, gboolean paired);
-void device_set_temporary(struct btd_device *device, gboolean temporary);
-void device_set_trusted(struct btd_device *device, gboolean trusted);
+void btd_device_set_temporary(struct btd_device *device, gboolean temporary);
+void btd_device_set_trusted(struct btd_device *device, gboolean trusted);
 void device_set_bonded(struct btd_device *device, gboolean bonded);
 void device_set_legacy(struct btd_device *device, bool legacy);
 void device_set_rssi(struct btd_device *device, int8_t rssi);
-gboolean device_is_connected(struct btd_device *device);
+gboolean btd_device_is_connected(struct btd_device *device);
 bool device_is_retrying(struct btd_device *device);
 void device_bonding_complete(struct btd_device *device, uint8_t status);
 gboolean device_is_bonding(struct btd_device *device, const char *sender);
@@ -130,6 +130,8 @@ bool device_remove_svc_complete_callback(struct btd_device *dev,
 
 struct btd_service *btd_device_get_service(struct btd_device *dev,
 						const char *remote_uuid);
+
+int device_discover_services(struct btd_device *device);
 
 void btd_device_init(void);
 void btd_device_cleanup(void);

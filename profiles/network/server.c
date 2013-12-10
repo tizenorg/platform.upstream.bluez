@@ -48,7 +48,7 @@
 #include "error.h"
 #include "sdpd.h"
 
-#include "common.h"
+#include "bnep.h"
 #include "server.h"
 
 #define NETWORK_SERVER_INTERFACE "org.bluez.NetworkServer1"
@@ -268,9 +268,6 @@ static int server_connadd(struct network_server *ns,
 {
 	char devname[16];
 	int err, nsk;
-
-	memset(devname, 0, sizeof(devname));
-	strcpy(devname, "bnep%d");
 
 	nsk = g_io_channel_unix_get_fd(session->io);
 	err = bnep_connadd(nsk, dst_role, devname);
@@ -765,7 +762,7 @@ static struct network_adapter *create_adapter(struct btd_adapter *adapter)
 	na->io = bt_io_listen(NULL, confirm_event, na,
 				NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR,
-				adapter_get_address(adapter),
+				btd_adapter_get_address(adapter),
 				BT_IO_OPT_PSM, BNEP_PSM,
 				BT_IO_OPT_OMTU, BNEP_MTU,
 				BT_IO_OPT_IMTU, BNEP_MTU,
@@ -823,7 +820,7 @@ int server_register(struct btd_adapter *adapter, uint16_t id)
 									path);
 
 done:
-	bacpy(&ns->src, adapter_get_address(adapter));
+	bacpy(&ns->src, btd_adapter_get_address(adapter));
 	ns->id = id;
 	ns->na = na;
 	ns->record_id = 0;

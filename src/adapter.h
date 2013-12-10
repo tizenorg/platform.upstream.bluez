@@ -90,16 +90,16 @@ bool btd_adapter_get_connectable(struct btd_adapter *adapter);
 
 uint32_t btd_adapter_get_class(struct btd_adapter *adapter);
 const char *btd_adapter_get_name(struct btd_adapter *adapter);
-struct btd_device *adapter_get_device(struct btd_adapter *adapter,
+struct btd_device *btd_adapter_get_device(struct btd_adapter *adapter,
 					const bdaddr_t *addr,
 					uint8_t addr_type);
 sdp_list_t *btd_adapter_get_services(struct btd_adapter *adapter);
 
-struct btd_device *adapter_find_device(struct btd_adapter *adapter,
+struct btd_device *btd_adapter_find_device(struct btd_adapter *adapter,
 							const bdaddr_t *dst);
 
 const char *adapter_get_path(struct btd_adapter *adapter);
-const bdaddr_t *adapter_get_address(struct btd_adapter *adapter);
+const bdaddr_t *btd_adapter_get_address(struct btd_adapter *adapter);
 int adapter_set_name(struct btd_adapter *adapter, const char *name);
 
 int adapter_service_add(struct btd_adapter *adapter, sdp_record_t *rec);

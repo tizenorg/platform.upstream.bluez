@@ -1887,7 +1887,7 @@ static int a2dp_source_disconnect(struct btd_service *service)
 
 	DBG("path %s", path);
 
-	return source_disconnect(service, FALSE);
+	return source_disconnect(service);
 }
 
 static int a2dp_sink_connect(struct btd_service *service)
@@ -1919,7 +1919,7 @@ static int a2dp_sink_disconnect(struct btd_service *service)
 
 	DBG("path %s", path);
 
-	return sink_disconnect(service, FALSE);
+	return sink_disconnect(service);
 }
 
 static int a2dp_source_server_probe(struct btd_profile *p,

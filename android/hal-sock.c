@@ -34,12 +34,17 @@ static bt_status_t sock_listen_rfcomm(const char *service_name,
 
 	DBG("");
 
+	memset(&cmd, 0, sizeof(cmd));
+
 	cmd.flags = flags;
 	cmd.type = BTSOCK_RFCOMM;
 	cmd.channel = chan;
-	memcpy(cmd.uuid, uuid, sizeof(cmd.uuid));
-	memset(cmd.name, 0, sizeof(cmd.name));
-	memcpy(cmd.name, service_name, strlen(service_name));
+
+	if (uuid)
+		memcpy(cmd.uuid, uuid, sizeof(cmd.uuid));
+
+	if (service_name)
+		memcpy(cmd.name, service_name, strlen(service_name));
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_SOCK, HAL_OP_SOCK_LISTEN,
 				sizeof(cmd), &cmd, NULL, NULL, sock);
@@ -55,8 +60,8 @@ static bt_status_t sock_listen(btsock_type_t type, const char *service_name,
 		return BT_STATUS_PARM_INVALID;
 	}
 
-	DBG("uuid %s chan %d sock %p type %d service_name %s",
-			btuuid2str(uuid), chan, sock, type, service_name);
+	DBG("uuid %s chan %d sock %p type %d service_name %s flags 0x%02x",
+		btuuid2str(uuid), chan, sock, type, service_name, flags);
 
 	switch (type) {
 	case BTSOCK_RFCOMM:
@@ -77,23 +82,28 @@ static bt_status_t sock_connect(const bt_bdaddr_t *bdaddr, btsock_type_t type,
 	struct hal_cmd_sock_connect cmd;
 
 	if ((!uuid && chan <= 0) || !bdaddr || !sock) {
-		error("Invalid params: bd_addr %p, uuid %s, chan %d, sock %p",
-					bdaddr, btuuid2str(uuid), chan, sock);
+		error("Invalid params: bd_addr %s, uuid %s, chan %d, sock %p",
+			bdaddr2str(bdaddr), btuuid2str(uuid), chan, sock);
 		return BT_STATUS_PARM_INVALID;
 	}
 
-	DBG("uuid %s chan %d sock %p type %d", btuuid2str(uuid), chan, sock,
-									type);
+	DBG("bdaddr %s uuid %s chan %d sock %p type %d flags 0x%02x",
+		bdaddr2str(bdaddr), btuuid2str(uuid), chan, sock, type, flags);
 
 	if (type != BTSOCK_RFCOMM) {
 		error("Socket type %u not supported", type);
 		return BT_STATUS_UNSUPPORTED;
 	}
 
+	memset(&cmd, 0, sizeof(cmd));
+
 	cmd.flags = flags;
 	cmd.type = type;
 	cmd.channel = chan;
-	memcpy(cmd.uuid, uuid, sizeof(cmd.uuid));
+
+	if (uuid)
+		memcpy(cmd.uuid, uuid, sizeof(cmd.uuid));
+
 	memcpy(cmd.bdaddr, bdaddr, sizeof(cmd.bdaddr));
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_SOCK, HAL_OP_SOCK_CONNECT,

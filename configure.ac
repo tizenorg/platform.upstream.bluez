@@ -1,5 +1,5 @@
 AC_PREREQ(2.60)
-AC_INIT(bluez, 5.11)
+AC_INIT(bluez, 5.12)
 
 AM_INIT_AUTOMAKE([foreign subdir-objects color-tests silent-rules
 					tar-pax no-dist-gzip dist-xz])
@@ -215,6 +215,11 @@ AC_ARG_ENABLE(experimental, AC_HELP_STRING([--enable-experimental],
 			[enable experimental plugins (SAP, NFC, ...)]),
 					[enable_experimental=${enableval}])
 AM_CONDITIONAL(EXPERIMENTAL, test "${enable_experimental}" = "yes")
+
+AC_ARG_ENABLE(sixaxis, AC_HELP_STRING([--enable-sixaxis],
+		[enable sixaxis plugin]), [enable_sixaxis=${enableval}])
+AM_CONDITIONAL(SIXAXIS, test "${enable_sixaxis}" = "yes" &&
+					 test "${enable_udev}" != "no")
 
 if (test "${prefix}" = "NONE"); then
 	dnl no prefix and no localstatedir, so default to /var

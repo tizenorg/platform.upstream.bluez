@@ -667,7 +667,7 @@ static gboolean input_device_auto_reconnect(gpointer user_data)
 	/* Stop the recurrent reconnection attempts if the device is reconnected
 	 * or is marked for removal. */
 	if (device_is_temporary(idev->device) ||
-					device_is_connected(idev->device))
+					btd_device_is_connected(idev->device))
 		return FALSE;
 
 	/* Only attempt an auto-reconnect for at most 3 minutes (6 * 30s). */
@@ -713,7 +713,7 @@ static void input_device_enter_reconnect_mode(struct input_device *idev)
 	/* If the device is temporary we are not required to reconnect with the
 	 * device. This is likely the case of a removing device. */
 	if (device_is_temporary(idev->device) ||
-					device_is_connected(idev->device))
+					btd_device_is_connected(idev->device))
 		return;
 
 	if (idev->reconnect_timer > 0)
@@ -811,8 +811,11 @@ static struct input_device *input_device_new(struct btd_service *service)
 	struct input_device *idev;
 	char name[HCI_MAX_NAME_LENGTH + 1];
 
+	if (!rec)
+		return NULL;
+
 	idev = g_new0(struct input_device, 1);
-	bacpy(&idev->src, adapter_get_address(adapter));
+	bacpy(&idev->src, btd_adapter_get_address(adapter));
 	bacpy(&idev->dst, device_get_address(device));
 	idev->service = btd_service_ref(service);
 	idev->device = btd_device_ref(device);
@@ -880,7 +883,7 @@ static struct input_device *find_device(const bdaddr_t *src,
 	struct btd_device *device;
 	struct btd_service *service;
 
-	device = adapter_find_device(adapter_find(src), dst);
+	device = btd_adapter_find_device(adapter_find(src), dst);
 	if (device == NULL)
 		return NULL;
 
