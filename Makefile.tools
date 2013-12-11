@@ -281,7 +281,8 @@ profiles_cups_bluetooth_LDADD = @GLIB_LIBS@ @DBUS_LIBS@ \
 endif
 
 test_scripts += test/sap_client.py test/bluezutils.py \
-		test/dbusdef.py test/monitor-bluetooth test/list-devices \
+		test/dbusdef.py test/monitor-bluetooth test/pbap-client \
+		test/ftp-client test/list-devices test/map-client test/opp-client \
 		test/test-discovery test/test-manager test/test-adapter \
 		test/test-device test/simple-agent \
 		test/simple-service test/simple-endpoint test/test-sap-server \
