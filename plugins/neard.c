@@ -227,7 +227,7 @@ static DBusMessage *create_request_oob_reply(struct btd_adapter *adapter,
 	uint8_t *peir = eir;
 	int len;
 
-	len = eir_create_oob(adapter_get_address(adapter),
+	len = eir_create_oob(btd_adapter_get_address(adapter),
 				btd_adapter_get_name(adapter),
 				btd_adapter_get_class(adapter), hash,
 				randomizer, main_opts.did_vendor,
@@ -640,7 +640,7 @@ static void store_params(struct btd_adapter *adapter, struct btd_device *device,
 
 	if (params->name) {
 		device_store_cached_name(device, params->name);
-		device_set_name(device, params->name);
+		btd_device_device_set_name(device, params->name);
 	}
 
 	/* TODO handle UUIDs? */
@@ -701,7 +701,8 @@ static DBusMessage *push_oob(DBusConnection *conn, DBusMessage *msg, void *data)
 		return error_reply(msg, EINVAL);
 	}
 
-	device = adapter_get_device(adapter, &remote.address, BDADDR_BREDR);
+	device = btd_adapter_get_device(adapter, &remote.address,
+								BDADDR_BREDR);
 
 	err = check_device(device);
 	if (err < 0) {
@@ -769,7 +770,8 @@ static DBusMessage *request_oob(DBusConnection *conn, DBusMessage *msg,
 	if (bacmp(&remote.address, BDADDR_ANY) == 0)
 		goto read_local;
 
-	device = adapter_get_device(adapter, &remote.address, BDADDR_BREDR);
+	device = btd_adapter_get_device(adapter, &remote.address,
+								BDADDR_BREDR);
 
 	err = check_device(device);
 	if (err < 0) {

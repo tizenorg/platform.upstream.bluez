@@ -417,6 +417,11 @@
 				</sequence>				\
 			</sequence>					\
 		</attribute>						\
+		<attribute id=\"0x0005\">				\
+			<sequence>					\
+				<uuid value=\"0x1002\" />		\
+			</sequence>					\
+		</attribute>						\
 		<attribute id=\"0x0009\">				\
 			<sequence>					\
 				<sequence>				\
@@ -458,6 +463,11 @@
 				</sequence>				\
 			</sequence>					\
 		</attribute>						\
+		<attribute id=\"0x0005\">				\
+			<sequence>					\
+				<uuid value=\"0x1002\" />		\
+			</sequence>					\
+		</attribute>						\
 		<attribute id=\"0x0009\">				\
 			<sequence>					\
 				<sequence>				\
@@ -494,6 +504,11 @@
 				<sequence>				\
 					<uuid value=\"0x0008\"/>	\
 				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0005\">				\
+			<sequence>					\
+				<uuid value=\"0x1002\" />		\
 			</sequence>					\
 		</attribute>						\
 		<attribute id=\"0x0009\">				\
@@ -703,7 +718,7 @@ static void ext_io_destroy(gpointer p)
 	}
 
 	if (ext_io->resolving)
-		bt_cancel_discovery(adapter_get_address(ext_io->adapter),
+		bt_cancel_discovery(btd_adapter_get_address(ext_io->adapter),
 					device_get_address(ext_io->device));
 
 	if (ext_io->adapter)
@@ -1032,7 +1047,7 @@ static struct ext_io *create_conn(struct ext_io *server, GIOChannel *io,
 	GIOCondition cond;
 	char addr[18];
 
-	device = adapter_find_device(server->adapter, dst);
+	device = btd_adapter_find_device(server->adapter, dst);
 	if (device == NULL) {
 		ba2str(dst, addr);
 		error("%s device %s not found", server->ext->name, addr);
@@ -1242,7 +1257,7 @@ static uint32_t ext_start_servers(struct ext_profile *ext,
 
 		io = bt_io_listen(connect, confirm, l2cap, NULL, &err,
 					BT_IO_OPT_SOURCE_BDADDR,
-					adapter_get_address(adapter),
+					btd_adapter_get_address(adapter),
 					BT_IO_OPT_MODE, ext->mode,
 					BT_IO_OPT_PSM, psm,
 					BT_IO_OPT_SEC_LEVEL, ext->sec_level,
@@ -1280,7 +1295,7 @@ static uint32_t ext_start_servers(struct ext_profile *ext,
 
 		io = bt_io_listen(connect, confirm, rfcomm, NULL, &err,
 					BT_IO_OPT_SOURCE_BDADDR,
-					adapter_get_address(adapter),
+					btd_adapter_get_address(adapter),
 					BT_IO_OPT_CHANNEL, chan,
 					BT_IO_OPT_SEC_LEVEL, ext->sec_level,
 					BT_IO_OPT_INVALID);
@@ -1565,7 +1580,7 @@ static void record_cb(sdp_list_t *recs, int err, gpointer user_data)
 		goto failed;
 	}
 
-	err = connect_io(conn, adapter_get_address(conn->adapter),
+	err = connect_io(conn, btd_adapter_get_address(conn->adapter),
 					device_get_address(conn->device));
 	if (err < 0) {
 		error("Connecting %s failed: %s", ext->name, strerror(-err));
@@ -1622,10 +1637,10 @@ static int ext_connect_dev(struct btd_service *service)
 	if (ext->remote_psm || ext->remote_chan) {
 		conn->psm = ext->remote_psm;
 		conn->chan = ext->remote_chan;
-		err = connect_io(conn, adapter_get_address(adapter),
+		err = connect_io(conn, btd_adapter_get_address(adapter),
 						device_get_address(dev));
 	} else {
-		err = resolve_service(conn, adapter_get_address(adapter),
+		err = resolve_service(conn, btd_adapter_get_address(adapter),
 						device_get_address(dev));
 	}
 

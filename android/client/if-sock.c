@@ -35,6 +35,10 @@ ENDMAP
 static int listen_fd[MAX_LISTEN_FD];
 static int listen_fd_count;
 
+static const char * const uuids[] = {
+	"00001101", "00001105", "0000112f", NULL
+};
+
 /*
  * This function reads data from file descriptor and
  * prints it to the user
@@ -130,6 +134,7 @@ static void read_accepted(int fd)
 
 	memset(&msg, 0, sizeof(msg));
 	memset(&iv, 0, sizeof(iv));
+	memset(cmsgbuf, 0, sizeof(cmsgbuf));
 
 	iv.iov_base = &cs;
 	iv.iov_len = sizeof(cs);
@@ -192,6 +197,9 @@ static void listen_c(int argc, const char **argv, enum_func *enum_func,
 	if (argc == 3) {
 		*user = TYPE_ENUM(btsock_type_t);
 		*enum_func = enum_defines;
+	} else if (argc == 5) {
+		*user = (void *) uuids;
+		*enum_func = enum_strings;
 	}
 }
 
@@ -263,6 +271,9 @@ static void connect_c(int argc, const char **argv, enum_func *enum_func,
 	} else if (argc == 4) {
 		*user = TYPE_ENUM(btsock_type_t);
 		*enum_func = enum_defines;
+	} else if (argc == 5) {
+		*user = (void *) uuids;
+		*enum_func = enum_strings;
 	}
 }
 
@@ -327,9 +338,9 @@ static void connect_p(int argc, const char **argv)
 /* Methods available in btsock_interface_t */
 static struct method methods[] = {
 	STD_METHODCH(listen,
-			"<sock_type> <srvc_name> <uuid> [<channle>] [<flags>]"),
+			"<sock_type> <srvc_name> <uuid> [<channel>] [<flags>]"),
 	STD_METHODCH(connect,
-			"<addr> <sock_type> <uuid> <channle> [<flags>]"),
+			"<addr> <sock_type> <uuid> <channel> [<flags>]"),
 	END_METHOD
 };
 

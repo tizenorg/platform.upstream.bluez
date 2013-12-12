@@ -315,6 +315,31 @@ static const struct l2cap_server_data l2cap_server_nval_cid_test2 = {
 	.expect_rsp_len = sizeof(l2cap_nval_cfg_rsp),
 };
 
+static const struct l2cap_client_data le_client_connect_success_test = {
+	.client_psm = 0x0080,
+	.server_psm = 0x0080,
+};
+
+static const struct l2cap_client_data le_client_connect_nval_psm_test = {
+	.client_psm = 0x0080,
+	.expect_err = ECONNREFUSED,
+};
+
+static const uint8_t le_connect_req[] = {	0x80, 0x00, /* PSM */
+						0x41, 0x00, /* SCID */
+						0x20, 0x00, /* MTU */
+						0x20, 0x00, /* MPS */
+						0x05, 0x00, /* Credits */
+};
+
+static const struct l2cap_server_data le_server_success_test = {
+	.server_psm = 0x0080,
+	.send_req_code = BT_L2CAP_PDU_LE_CONN_REQ,
+	.send_req = le_connect_req,
+	.send_req_len = sizeof(le_connect_req),
+	.expect_rsp_code = BT_L2CAP_PDU_LE_CONN_RSP,
+};
+
 static void client_connectable_complete(uint16_t opcode, uint8_t status,
 					const void *param, uint8_t len,
 					void *user_data)
@@ -736,6 +761,15 @@ int main(int argc, char *argv[])
 	test_l2cap_bredr("L2CAP BR/EDR Server - Invalid Config CID",
 				&l2cap_server_nval_cid_test2,
 				setup_powered_server, test_server);
+
+	test_l2cap_le("L2CAP LE Client - Success",
+				&le_client_connect_success_test,
+				setup_powered_client, test_connect);
+	test_l2cap_le("L2CAP LE Client - Invalid PSM",
+					&le_client_connect_nval_psm_test,
+					setup_powered_client, test_connect);
+	test_l2cap_le("L2CAP LE Server - Success", &le_server_success_test,
+					setup_powered_server, test_server);
 
 	return tester_run();
 }

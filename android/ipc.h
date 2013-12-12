@@ -21,6 +21,19 @@
  *
  */
 
-void ipc_send(int sk, uint8_t service_id, uint8_t opcode, uint16_t len,
+struct ipc_handler {
+	void (*handler) (const void *buf, uint16_t len);
+	bool var_len;
+	size_t data_len;
+};
+void ipc_init(void);
+void ipc_cleanup(void);
+
+void ipc_send_rsp(uint8_t service_id, uint8_t opcode, uint8_t status);
+void ipc_send_rsp_full(uint8_t service_id, uint8_t opcode, uint16_t len,
 							void *param, int fd);
-void ipc_send_rsp(int sk, uint8_t service_id, uint8_t status);
+void ipc_send_notif(uint8_t service_id, uint8_t opcode,  uint16_t len,
+								void *param);
+void ipc_register(uint8_t service, const struct ipc_handler *handlers,
+								uint8_t size);
+void ipc_unregister(uint8_t service);

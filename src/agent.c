@@ -319,6 +319,9 @@ static void simple_agent_reply(DBusPendingCall *call, void *user_data)
 	 * is only called after a reply has been received */
 	message = dbus_pending_call_steal_reply(call);
 
+	/* Protect from the callback freeing the agent */
+	agent_ref(agent);
+
 	dbus_error_init(&err);
 	if (dbus_set_error_from_message(&err, message)) {
 		DBG("agent error reply: %s, %s", err.name, err.message);
@@ -330,6 +333,7 @@ static void simple_agent_reply(DBusPendingCall *call, void *user_data)
 			agent_cancel(agent);
 			dbus_message_unref(message);
 			dbus_error_free(&err);
+			agent_unref(agent);
 			return;
 		}
 
@@ -350,6 +354,7 @@ done:
 
 	agent->request = NULL;
 	agent_request_free(req, TRUE);
+	agent_unref(agent);
 }
 
 static int agent_call_authorize_service(struct agent_request *req,
@@ -421,6 +426,9 @@ static void pincode_reply(DBusPendingCall *call, void *user_data)
 	 * is only called after a reply has been received */
 	message = dbus_pending_call_steal_reply(call);
 
+	/* Protect from the callback freeing the agent */
+	agent_ref(agent);
+
 	dbus_error_init(&err);
 	if (dbus_set_error_from_message(&err, message)) {
 		error("Agent %s replied with an error: %s, %s",
@@ -460,6 +468,7 @@ done:
 	dbus_pending_call_cancel(req->call);
 	agent->request = NULL;
 	agent_request_free(req, TRUE);
+	agent_unref(agent);
 }
 
 static int pincode_request_new(struct agent_request *req, const char *device_path,

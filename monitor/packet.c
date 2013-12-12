@@ -66,6 +66,7 @@
 #define COLOR_HCI_ACLDATA		COLOR_CYAN
 #define COLOR_HCI_SCODATA		COLOR_YELLOW
 
+#define COLOR_UNKNOWN_ERROR		COLOR_WHITE_BG
 #define COLOR_UNKNOWN_FEATURE_BIT	COLOR_WHITE_BG
 #define COLOR_UNKNOWN_EVENT_MASK	COLOR_WHITE_BG
 #define COLOR_UNKNOWN_LE_STATES		COLOR_WHITE_BG
@@ -345,6 +346,8 @@ static const struct {
 	{ 0x3d, "Connection Terminated due to MIC Failure"		},
 	{ 0x3e, "Connection Failed to be Established"			},
 	{ 0x3f, "MAC Connection Failed"					},
+	{ 0x40, "Coarse Clock Adjustment Rejected "
+		"but Will Try to Adjust Using Clock Dragging"		},
 	{ }
 };
 
@@ -352,19 +355,24 @@ static void print_error(const char *label, uint8_t error)
 {
 	const char *str = "Unknown";
 	const char *color_on, *color_off;
+	bool unknown = true;
 	int i;
 
 	for (i = 0; error2str_table[i].str; i++) {
 		if (error2str_table[i].error == error) {
 			str = error2str_table[i].str;
+			unknown = false;
 			break;
 		}
 	}
 
 	if (use_color()) {
-		if (error)
-			color_on = COLOR_RED;
-		else
+		if (error) {
+			if (unknown)
+				color_on = COLOR_UNKNOWN_ERROR;
+			else
+				color_on = COLOR_RED;
+		} else
 			color_on = COLOR_GREEN;
 		color_off = COLOR_OFF;
 	} else {
@@ -453,6 +461,11 @@ static void print_addr_type(const char *label, uint8_t addr_type)
 	}
 
 	print_field("%s: %s (0x%2.2x)", label, str, addr_type);
+}
+
+static void print_lt_addr(uint8_t lt_addr)
+{
+	print_field("LT address: %d", lt_addr);
 }
 
 static void print_handle(uint16_t handle)
@@ -1002,7 +1015,6 @@ static void print_afh_mode(uint8_t mode)
 	case 0x01:
 		str = "Enabled";
 		break;
-		break;
 	default:
 		str = "Reserved";
 		break;
@@ -1047,6 +1059,31 @@ static void print_ssp_debug_mode(uint8_t mode)
 	}
 
 	print_field("Debug mode: %s (0x%2.2x)", str, mode);
+}
+
+static void print_secure_conn_support(uint8_t support)
+{
+	const char *str;
+
+	switch (support) {
+	case 0x00:
+		str = "Disabled";
+		break;
+	case 0x01:
+		str = "Enabled";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Support: %s (0x%2.2x)", str, support);
+}
+
+static void print_auth_payload_timeout(uint16_t timeout)
+{
+	print_field("Timeout: %d msec (0x%4.4x)",
+					btohs(timeout) * 10, btohs(timeout));
 }
 
 static void print_pscan_rep_mode(uint8_t pscan_rep_mode)
@@ -1138,6 +1175,31 @@ static void print_clock_accuracy(uint16_t accuracy)
 				btohs(accuracy) * 0.3125, btohs(accuracy));
 }
 
+static void print_broadcast_fragment(uint8_t fragment)
+{
+	const char *str;
+
+	switch (fragment) {
+	case 0x00:
+		str = "Continuation fragment";
+		break;
+	case 0x01:
+		str = "Starting fragment";
+		break;
+	case 0x02:
+		str = "Ending fragment";
+		break;
+	case 0x03:
+		str = "No fragmentation";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Fragment: %s (0x%2.2x)", str, fragment);
+}
+
 static void print_link_type(uint8_t link_type)
 {
 	const char *str;
@@ -1202,6 +1264,9 @@ static void print_encr_mode_change(uint8_t encr_mode, uint16_t handle)
 			str = "Enabled";
 			break;
 		}
+		break;
+	case 0x02:
+		str = "Enabled with AES-CCM";
 		break;
 	default:
 		str = "Reserved";
@@ -1283,13 +1348,19 @@ static void print_key_type(uint8_t key_type)
 		str = "Debug Combination key";
 		break;
 	case 0x04:
-		str = "Unauthenticated Combination key";
+		str = "Unauthenticated Combination key from P-192";
 		break;
 	case 0x05:
-		str = "Authenticated Combination key";
+		str = "Authenticated Combination key from P-192";
 		break;
 	case 0x06:
 		str = "Changed Combination key";
+		break;
+	case 0x07:
+		str = "Unauthenticated Combination key from P-256";
+		break;
+	case 0x08:
+		str = "Authenticated Combination key from P-256";
 		break;
 	default:
 		str = "Reserved";
@@ -1388,7 +1459,13 @@ static void print_oob_data(uint8_t oob_data)
 		str = "Authentication data not present";
 		break;
 	case 0x01:
-		str = "Authentication data present";
+		str = "P-192 authentication data present";
+		break;
+	case 0x02:
+		str = "P-256 authentication data present";
+		break;
+	case 0x03:
+		str = "P-192 and P-256 authentication data present";
 		break;
 	default:
 		str = "Reserved";
@@ -1898,6 +1975,7 @@ static const struct features_data features_page1[] = {
 	{  0, "Secure Simple Pairing (Host Support)"	},
 	{  1, "LE Supported (Host)"			},
 	{  2, "Simultaneous LE and BR/EDR (Host)"	},
+	{  3, "Secure Connections (Host Support)"	},
 	{ }
 };
 
@@ -1907,11 +1985,20 @@ static const struct features_data features_page2[] = {
 	{  2, "Synchronization Train"			},
 	{  3, "Synchronization Scan"			},
 	{  4, "Inquiry Response Notification Event"	},
+	{  5, "Generalized interlaced scan"		},
+	{  6, "Coarse Clock Adjustment"			},
+	{  8, "Secure Connections (Controller Support)"	},
+	{  9, "Ping"					},
+	{ 11, "Train nudging"				},
 	{ }
 };
 
 static const struct features_data features_le[] = {
 	{  0, "LE Encryption"				},
+	{  1, "Connection Parameter Request Procedure"	},
+	{  2, "Extended Reject Indication"		},
+	{  3, "Slave-initiated Features Exchange"	},
+	{  4, "LE Ping"					},
 	{ }
 };
 
@@ -2180,6 +2267,7 @@ static const struct {
 	{ 20, "Slave Page Response Timeout"				},
 	{ 21, "Connectionless Slave Broadcast Channel Map Change"	},
 	{ 22, "Inquiry Response Notification"				},
+	{ 23, "Authenticated Payload Timeout Expired"			},
 	{ }
 };
 
@@ -2211,11 +2299,12 @@ static const struct {
 	uint8_t bit;
 	const char *str;
 } events_le_table[] = {
-	{  0, "LE Connection Complete"		},
-	{  1, "LE Advertising Report"		},
-	{  2, "LE Connection Update Complete"	},
-	{  3, "LE Read Remote Used Features"	},
-	{  4, "LE Long Term Key Request"	},
+	{  0, "LE Connection Complete"			},
+	{  1, "LE Advertising Report"			},
+	{  2, "LE Connection Update Complete"		},
+	{  3, "LE Read Remote Used Features"		},
+	{  4, "LE Long Term Key Request"		},
+	{  5, "LE Remote Connection Parameter Request"	},
 	{ }
 };
 
@@ -3106,9 +3195,9 @@ static void setup_sync_conn_cmd(const void *data, uint8_t size)
 	print_pkt_type(cmd->pkt_type);
 }
 
-static void accept_sync_conn_cmd(const void *data, uint8_t size)
+static void accept_sync_conn_request_cmd(const void *data, uint8_t size)
 {
-	const struct bt_hci_cmd_accept_sync_conn *cmd = data;
+	const struct bt_hci_cmd_accept_sync_conn_request *cmd = data;
 
 	print_bdaddr(cmd->bdaddr);
 	print_field("Transmit bandwidth: %d", btohl(cmd->tx_bandwidth));
@@ -3119,9 +3208,9 @@ static void accept_sync_conn_cmd(const void *data, uint8_t size)
 	print_pkt_type(cmd->pkt_type);
 }
 
-static void reject_sync_conn_cmd(const void *data, uint8_t size)
+static void reject_sync_conn_request_cmd(const void *data, uint8_t size)
 {
-	const struct bt_hci_cmd_reject_sync_conn *cmd = data;
+	const struct bt_hci_cmd_reject_sync_conn_request *cmd = data;
 
 	print_bdaddr(cmd->bdaddr);
 	print_reason(cmd->reason);
@@ -3269,6 +3358,91 @@ static void flow_spec_modify_cmd(const void *data, uint8_t size)
 	print_handle(cmd->handle);
 	print_flow_spec("TX", cmd->tx_flow_spec);
 	print_flow_spec("RX", cmd->rx_flow_spec);
+}
+
+static void truncated_page_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_truncated_page *cmd = data;
+
+	print_bdaddr(cmd->bdaddr);
+	print_pscan_rep_mode(cmd->pscan_rep_mode);
+	print_clock_offset(cmd->clock_offset);
+}
+
+static void truncated_page_cancel_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_truncated_page_cancel *cmd = data;
+
+	print_bdaddr(cmd->bdaddr);
+}
+
+static void set_slave_broadcast_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_set_slave_broadcast *cmd = data;
+
+	print_field("Enable: 0x%2.2x", cmd->enable);
+	print_lt_addr(cmd->lt_addr);
+	print_field("LPO allowed: 0x%2.2x", cmd->lpo_allowed);
+	print_pkt_type(cmd->pkt_type);
+	print_slot_625("Min interval", cmd->min_interval);
+	print_slot_625("Max interval", cmd->max_interval);
+	print_slot_625("Supervision timeout", cmd->timeout);
+}
+
+static void set_slave_broadcast_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_set_slave_broadcast *rsp = data;
+
+	print_status(rsp->status);
+	print_lt_addr(rsp->lt_addr);
+	print_interval(rsp->interval);
+}
+
+static void set_slave_broadcast_receive_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_set_slave_broadcast_receive *cmd = data;
+
+	print_field("Enable: 0x%2.2x", cmd->enable);
+	print_bdaddr(cmd->bdaddr);
+	print_lt_addr(cmd->lt_addr);
+	print_interval(cmd->interval);
+	print_field("Offset: 0x%8.8x", btohl(cmd->offset));
+	print_field("Next broadcast instant: 0x%4.4x", btohs(cmd->instant));
+	print_slot_625("Supervision timeout", cmd->timeout);
+	print_field("Remote timing accuracy: %d ppm", cmd->accuracy);
+	print_field("Skip: 0x%2.2x", cmd->skip);
+	print_pkt_type(cmd->pkt_type);
+	print_channel_map(cmd->map);
+}
+
+static void set_slave_broadcast_receive_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_set_slave_broadcast_receive *rsp = data;
+
+	print_status(rsp->status);
+	print_bdaddr(rsp->bdaddr);
+	print_lt_addr(rsp->lt_addr);
+}
+
+static void receive_sync_train_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_receive_sync_train *cmd = data;
+
+	print_bdaddr(cmd->bdaddr);
+	print_timeout(cmd->timeout);
+	print_window(cmd->window);
+	print_interval(cmd->interval);
+}
+
+static void remote_oob_ext_data_request_reply_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_remote_oob_ext_data_request_reply *cmd = data;
+
+	print_bdaddr(cmd->bdaddr);
+	print_hash("P-192", cmd->hash192);
+	print_randomizer("P-192", cmd->randomizer192);
+	print_hash("P-256", cmd->hash256);
+	print_randomizer("P-256", cmd->randomizer256);
 }
 
 static void hold_mode_cmd(const void *data, uint8_t size)
@@ -4211,6 +4385,59 @@ static void write_le_host_supported_cmd(const void *data, uint8_t size)
 	print_field("Simultaneous: 0x%2.2x", cmd->simultaneous);
 }
 
+static void set_reserved_lt_addr_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_set_reserved_lt_addr *cmd = data;
+
+	print_lt_addr(cmd->lt_addr);
+}
+
+static void set_reserved_lt_addr_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_set_reserved_lt_addr *rsp = data;
+
+	print_status(rsp->status);
+	print_lt_addr(rsp->lt_addr);
+}
+
+static void delete_reserved_lt_addr_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_delete_reserved_lt_addr *cmd = data;
+
+	print_lt_addr(cmd->lt_addr);
+}
+
+static void delete_reserved_lt_addr_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_delete_reserved_lt_addr *rsp = data;
+
+	print_status(rsp->status);
+	print_lt_addr(rsp->lt_addr);
+}
+
+static void set_slave_broadcast_data_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_set_slave_broadcast_data *cmd = data;
+
+	print_lt_addr(cmd->lt_addr);
+	print_broadcast_fragment(cmd->fragment);
+	print_field("Length: %d", cmd->length);
+
+	if (size - 3 != cmd->length)
+		print_text(COLOR_ERROR, "invalid data size (%d != %d)",
+						size - 3, cmd->length);
+
+	packet_hexdump(data + 3, size - 3);
+}
+
+static void set_slave_broadcast_data_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_set_slave_broadcast_data *rsp = data;
+
+	print_status(rsp->status);
+	print_lt_addr(rsp->lt_addr);
+}
+
 static void read_sync_train_params_rsp(const void *data, uint8_t size)
 {
 	const struct bt_hci_rsp_read_sync_train_params *rsp = data;
@@ -4220,6 +4447,83 @@ static void read_sync_train_params_rsp(const void *data, uint8_t size)
 	print_field("Timeout: %.3f msec (0x%8.8x)",
 			btohl(rsp->timeout) * 0.625, btohl(rsp->timeout));
 	print_field("Service Data: 0x%2.2x", rsp->service_data);
+}
+
+static void write_sync_train_params_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_sync_train_params *cmd = data;
+
+	print_slot_625("Min interval", cmd->min_interval);
+	print_slot_625("Max interval", cmd->max_interval);
+	print_field("Timeout: %.3f msec (0x%8.8x)",
+			btohl(cmd->timeout) * 0.625, btohl(cmd->timeout));
+	print_field("Service Data: 0x%2.2x", cmd->service_data);
+}
+
+static void write_sync_train_params_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_write_sync_train_params *rsp = data;
+
+	print_status(rsp->status);
+	print_interval(rsp->interval);
+}
+
+static void read_secure_conn_support_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_secure_conn_support *rsp = data;
+
+	print_status(rsp->status);
+	print_secure_conn_support(rsp->support);
+}
+
+static void write_secure_conn_support_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_secure_conn_support *cmd = data;
+
+	print_secure_conn_support(cmd->support);
+}
+
+static void read_auth_payload_timeout_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_read_auth_payload_timeout *cmd = data;
+
+	print_handle(cmd->handle);
+}
+
+static void read_auth_payload_timeout_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_auth_payload_timeout *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+	print_auth_payload_timeout(rsp->timeout);
+}
+
+static void write_auth_payload_timeout_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_write_auth_payload_timeout *cmd = data;
+
+	print_handle(cmd->handle);
+	print_auth_payload_timeout(cmd->timeout);
+}
+
+static void write_auth_payload_timeout_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_write_auth_payload_timeout *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+}
+
+static void read_local_oob_ext_data_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_local_oob_ext_data *rsp = data;
+
+	print_status(rsp->status);
+	print_hash("P-192", rsp->hash192);
+	print_randomizer("P-192", rsp->randomizer192);
+	print_hash("P-256", rsp->hash256);
+	print_randomizer("P-256", rsp->randomizer256);
 }
 
 static void read_local_version_rsp(const void *data, uint8_t size)
@@ -4575,13 +4879,16 @@ static void le_set_adv_parameters_cmd(const void *data, uint8_t size)
 		str = "Connectable undirected - ADV_IND";
 		break;
 	case 0x01:
-		str = "Connectable directed - ADV_DIRECT_IND";
+		str = "Connectable directed - ADV_DIRECT_IND (high duty cycle)";
 		break;
 	case 0x02:
 		str = "Scannable undirected - ADV_SCAN_IND";
 		break;
 	case 0x03:
 		str = "Non connectable undirect - ADV_NONCONN_IND";
+		break;
+	case 0x04:
+		str = "Connectable directed - ADV_DIRECT_IND (low duty cycle)";
 		break;
 	default:
 		str = "Reserved";
@@ -5047,10 +5354,10 @@ static const struct opcode_data opcode_table[] = {
 				read_lmp_handle_rsp, 8, true },
 	{ 0x0428, 131, "Setup Synchronous Connection",
 				setup_sync_conn_cmd, 17, true },
-	{ 0x0429, 132, "Accept Synchronous Connection",
-				accept_sync_conn_cmd, 21, true },
-	{ 0x042a, 133, "Reject Synchronous Connection",
-				reject_sync_conn_cmd, 7, true },
+	{ 0x0429, 132, "Accept Synchronous Connection Request",
+				accept_sync_conn_request_cmd, 21, true },
+	{ 0x042a, 133, "Reject Synchronous Connection Request",
+				reject_sync_conn_request_cmd, 7, true },
 	{ 0x042b, 151, "IO Capability Request Reply",
 				io_capability_request_reply_cmd, 9, true,
 				status_bdaddr_rsp, 7, true },
@@ -5093,13 +5400,25 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x043c, 175, "Flow Specifcation Modify",
 				flow_spec_modify_cmd, 34, true },
 	{ 0x043d, 235, "Enhanced Setup Synchronous Connection" },
-	{ 0x043e, 236, "Enhanced Accept Synchronous Connection" },
-	{ 0x043f, 246, "Truncated Page" },
-	{ 0x0440, 247, "Truncated Page Cancel" },
-	{ 0x0441, 248, "Set Connectionless Slave Broadcast" },
-	{ 0x0442, 249, "Set Connectionless Slave Broadcast Receive" },
-	{ 0x0443, 250, "Start Synchronization Train" },
-	{ 0x0444, 251, "Receive Synchronization Train" },
+	{ 0x043e, 236, "Enhanced Accept Synchronous Connection Request" },
+	{ 0x043f, 246, "Truncated Page",
+				truncated_page_cmd, 9, true },
+	{ 0x0440, 247, "Truncated Page Cancel",
+				truncated_page_cancel_cmd, 6, true,
+				status_bdaddr_rsp, 7, true },
+	{ 0x0441, 248, "Set Connectionless Slave Broadcast",
+				set_slave_broadcast_cmd, 11, true,
+				set_slave_broadcast_rsp, 4, true },
+	{ 0x0442, 249, "Set Connectionless Slave Broadcast Receive",
+				set_slave_broadcast_receive_cmd, 34, true,
+				set_slave_broadcast_receive_rsp, 8, true },
+	{ 0x0443, 250, "Start Synchronization Train",
+				null_cmd, 0, true },
+	{ 0x0444, 251, "Receive Synchronization Train",
+				receive_sync_train_cmd, 12, true },
+	{ 0x0445, 257, "Remote OOB Extended Data Request Reply",
+				remote_oob_ext_data_request_reply_cmd, 70, true,
+				status_bdaddr_rsp, 7, true },
 
 	/* OGF 2 - Link Policy */
 	{ 0x0801,  33, "Holde Mode",
@@ -5379,13 +5698,40 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x0c71, 241, "Set MWS Transport Layer" },
 	{ 0x0c72, 242, "Set MWS Scan Frequency Table" },
 	{ 0x0c73, 244, "Set MWS Pattern Configuration" },
-	{ 0x0c74, 252, "Set Reserved LT_ADDR" },
-	{ 0x0c75, 253, "Delete Reserved LT_ADDR" },
-	{ 0x0c76, 254, "Set Connectionless Slave Broadcast Data" },
+	{ 0x0c74, 252, "Set Reserved LT_ADDR",
+				set_reserved_lt_addr_cmd, 1, true,
+				set_reserved_lt_addr_rsp, 2, true },
+	{ 0x0c75, 253, "Delete Reserved LT_ADDR",
+				delete_reserved_lt_addr_cmd, 1, true,
+				delete_reserved_lt_addr_rsp, 2, true },
+	{ 0x0c76, 254, "Set Connectionless Slave Broadcast Data",
+				set_slave_broadcast_data_cmd, 3, false,
+				set_slave_broadcast_data_rsp, 2, true },
 	{ 0x0c77, 255, "Read Synchronization Train Parameters",
 				null_cmd, 0, true,
 				read_sync_train_params_rsp, 8, true },
-	{ 0x0c78, 256, "Write Synchronization Train Parameters" },
+	{ 0x0c78, 256, "Write Synchronization Train Parameters",
+				write_sync_train_params_cmd, 9, true,
+				write_sync_train_params_rsp, 3, true },
+	{ 0x0c79, 258, "Read Secure Connections Host Support",
+				null_cmd, 0, true,
+				read_secure_conn_support_rsp, 2, true },
+	{ 0x0c7a, 259, "Write Secure Connections Host Support",
+				write_secure_conn_support_cmd, 1, true,
+				status_rsp, 1, true },
+	{ 0x0c7b, 260, "Read Authenticated Payload Timeout",
+				read_auth_payload_timeout_cmd, 2, true,
+				read_auth_payload_timeout_rsp, 5, true },
+	{ 0x0c7c, 261, "Write Authenticated Payload Timeout",
+				write_auth_payload_timeout_cmd, 4, true,
+				write_auth_payload_timeout_rsp, 3, true },
+	{ 0x0c7d, 262, "Read Local OOB Extended Data",
+				null_cmd, 0, true,
+				read_local_oob_ext_data_rsp, 65, true },
+	{ 0x0c7e, 264, "Read Extended Page Timeout" },
+	{ 0x0c7f, 265, "Write Extended Page Timeout" },
+	{ 0x0c80, 266, "Read Extended Inquiry Length" },
+	{ 0x0c81, 267, "Write Extended Inquiry Length" },
 
 	/* OGF 4 - Information Parameter */
 	{ 0x1001, 115, "Read Local Version Information",
@@ -5460,6 +5806,7 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x1807, 189, "Enable AMP Receiver Reports" },
 	{ 0x1808, 190, "AMP Test End" },
 	{ 0x1809, 191, "AMP Test" },
+	{ 0x180a, 263, "Write Secure Connections Test Mode" },
 
 	/* OGF 8 - LE Control */
 	{ 0x2001, 200, "LE Set Event Mask",
@@ -5548,6 +5895,8 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x201f, 230, "LE Test End",
 				null_cmd, 0, true,
 				le_test_end_rsp, 3, true },
+	{ 0x2020, 268, "LE Remote Connection Parameter Request Reply" },
+	{ 0x2021, 269, "LE Remote Connection Parameter Request Negative Reply" },
 	{ }
 };
 
@@ -5563,11 +5912,11 @@ static const char *get_supported_command(int bit)
 	return NULL;
 }
 
-static void status_evt(const void *data, uint8_t size)
+static void inquiry_complete_evt(const void *data, uint8_t size)
 {
-	uint8_t status = *((uint8_t *) data);
+	const struct bt_hci_evt_inquiry_complete *evt = data;
 
-	print_status(status);
+	print_status(evt->status);
 }
 
 static void inquiry_result_evt(const void *data, uint8_t size)
@@ -6254,6 +6603,80 @@ static void amp_status_change_evt(const void *data, uint8_t size)
 	print_amp_status(evt->amp_status);
 }
 
+static void sync_train_complete_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_sync_train_complete *evt = data;
+
+	print_status(evt->status);
+}
+
+static void sync_train_received_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_sync_train_received *evt = data;
+
+	print_status(evt->status);
+	print_bdaddr(evt->bdaddr);
+	print_field("Offset: 0x%8.8x", btohl(evt->offset));
+	print_channel_map(evt->map);
+	print_lt_addr(evt->lt_addr);
+	print_field("Next broadcast instant: 0x%4.4x", btohs(evt->instant));
+	print_interval(evt->interval);
+	print_field("Service Data: 0x%2.2x", evt->service_data);
+}
+
+static void slave_broadcast_receive_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_slave_broadcast_receive *evt = data;
+
+	print_bdaddr(evt->bdaddr);
+	print_lt_addr(evt->lt_addr);
+	print_field("Clock: 0x%8.8x", btohl(evt->clock));
+	print_field("Offset: 0x%8.8x", btohl(evt->offset));
+	print_field("Receive status: 0x%2.2x", evt->status);
+	print_broadcast_fragment(evt->fragment);
+	print_field("Length: %d", evt->length);
+
+	if (size - 18 != evt->length)
+		print_text(COLOR_ERROR, "invalid data size (%d != %d)",
+						size - 18, evt->length);
+
+	packet_hexdump(data + 18, size - 18);
+}
+
+static void slave_broadcast_timeout_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_slave_broadcast_timeout *evt = data;
+
+	print_bdaddr(evt->bdaddr);
+	print_lt_addr(evt->lt_addr);
+}
+
+static void truncated_page_complete_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_truncated_page_complete *evt = data;
+
+	print_status(evt->status);
+	print_bdaddr(evt->bdaddr);
+}
+
+static void slave_page_response_timeout_evt(const void *data, uint8_t size)
+{
+}
+
+static void slave_broadcast_channel_map_change_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_slave_broadcast_channel_map_change *evt = data;
+
+	print_channel_map(evt->map);
+}
+
+static void auth_payload_timeout_expired_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_auth_payload_timeout_expired *evt = data;
+
+	print_handle(evt->handle);
+}
+
 static void le_conn_complete_evt(const void *data, uint8_t size)
 {
 	const struct bt_hci_evt_le_conn_complete *evt = data;
@@ -6368,6 +6791,7 @@ static const struct subevent_data subevent_table[] = {
 				le_remote_features_complete_evt, 11, true },
 	{ 0x05, "LE Long Term Key Request",
 				le_long_term_key_request_evt, 12, true },
+	{ 0x06, "LE Remote Connection Parameter Request" },
 	{ }
 };
 
@@ -6436,7 +6860,7 @@ struct event_data {
 
 static const struct event_data event_table[] = {
 	{ 0x01, "Inquiry Complete",
-				status_evt, 1, true },
+				inquiry_complete_evt, 1, true },
 	{ 0x02, "Inquiry Result",
 				inquiry_result_evt, 1, false },
 	{ 0x03, "Connect Complete",
@@ -6564,6 +6988,24 @@ static const struct event_data event_table[] = {
 				short_range_mode_change_evt, 3, true },
 	{ 0x4d, "AMP Status Change",
 				amp_status_change_evt, 2, true },
+	{ 0x4e, "Triggered Clock Capture" },
+	{ 0x4f, "Synchronization Train Complete",
+				sync_train_complete_evt, 1, true },
+	{ 0x50, "Synchronization Train Received",
+				sync_train_received_evt, 29, true },
+	{ 0x51, "Connectionless Slave Broadcast Receive",
+				slave_broadcast_receive_evt, 18, false },
+	{ 0x52, "Connectionless Slave Broadcast Timeout",
+				slave_broadcast_timeout_evt, 7, true },
+	{ 0x53, "Truncated Page Complete",
+				truncated_page_complete_evt, 7, true },
+	{ 0x54, "Slave Page Response Timeout",
+				slave_page_response_timeout_evt, 0, true },
+	{ 0x55, "Connectionless Slave Broadcast Channel Map Change",
+				slave_broadcast_channel_map_change_evt, 10, true },
+	{ 0x56, "Inquiry Response Notification" },
+	{ 0x57, "Authenticated Payload Timeout Expired",
+				auth_payload_timeout_expired_evt, 2, true },
 	{ 0xfe, "Testing" },
 	{ 0xff, "Vendor", vendor_evt, 0, false },
 	{ }

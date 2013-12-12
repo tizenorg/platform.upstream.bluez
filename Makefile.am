@@ -80,7 +80,7 @@ include_HEADERS += $(lib_headers)
 lib_LTLIBRARIES += lib/libbluetooth.la
 
 lib_libbluetooth_la_SOURCES = $(lib_headers) $(lib_sources)
-lib_libbluetooth_la_LDFLAGS = $(AM_LDFLAGS) -version-info 20:2:17
+lib_libbluetooth_la_LDFLAGS = $(AM_LDFLAGS) -version-info 20:3:17
 lib_libbluetooth_la_DEPENDENCIES = $(local_headers)
 endif
 
@@ -249,6 +249,14 @@ unit_test_sdp_SOURCES = unit/test-sdp.c \
 				src/sdpd-service.c src/sdpd-request.c
 unit_test_sdp_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 
+unit_tests += unit/test-avdtp
+
+unit_test_avdtp_SOURCES = unit/test-avdtp.c \
+				src/shared/util.h src/shared/util.c \
+				src/log.h src/log.c \
+				android/avdtp.c android/avdtp.h
+unit_test_avdtp_LDADD = @GLIB_LIBS@
+
 unit_tests += unit/test-gdbus-client
 
 unit_test_gdbus_client_SOURCES = unit/test-gdbus-client.c
@@ -320,7 +328,7 @@ $(lib_libbluetooth_la_OBJECTS): $(local_headers)
 
 lib/bluetooth/%.h: lib/%.h
 	$(AM_V_at)$(MKDIR_P) lib/bluetooth
-	$(AM_V_GEN)$(LN_S) -f $(abs_top_builddir)/$< $@
+	$(AM_V_GEN)$(LN_S) -f "$(abs_top_builddir)"/$< $@
 
 clean-local:
 	$(RM) -r lib/bluetooth

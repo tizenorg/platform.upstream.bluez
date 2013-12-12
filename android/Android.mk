@@ -25,6 +25,7 @@ LOCAL_SRC_FILES := \
 	hidhost.c \
 	socket.c \
 	ipc.c ipc.h \
+	avdtp.c \
 	a2dp.c \
 	pan.c \
 	../src/log.c \
@@ -41,6 +42,7 @@ LOCAL_SRC_FILES := \
 	../lib/hci.c \
 	../btio/btio.c \
 	../src/sdp-client.c \
+	../profiles/network/bnep.c \
 
 LOCAL_C_INCLUDES := \
 	$(call include-path-for, glib) \
@@ -65,6 +67,7 @@ lib_headers := \
 	sdp.h \
 	rfcomm.h \
 	sco.h \
+	bnep.h \
 
 $(shell mkdir -p $(LOCAL_PATH)/../lib/bluetooth)
 

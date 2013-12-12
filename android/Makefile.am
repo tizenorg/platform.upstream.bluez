@@ -19,11 +19,13 @@ android_bluetoothd_SOURCES = android/main.c \
 				android/bluetooth.h android/bluetooth.c \
 				android/hidhost.h android/hidhost.c \
 				android/ipc.h android/ipc.c \
+				android/avdtp.h android/avdtp.c \
 				android/a2dp.h android/a2dp.c \
 				android/socket.h android/socket.c \
 				android/pan.h android/pan.c \
 				btio/btio.h btio/btio.c \
-				src/sdp-client.h src/sdp-client.c
+				src/sdp-client.h src/sdp-client.c \
+				profiles/network/bnep.h profiles/network/bnep.c
 
 android_bluetoothd_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 
@@ -83,4 +85,7 @@ android_haltest_LDFLAGS = -pthread
 
 endif
 
-EXTRA_DIST += android/Android.mk android/hal-ipc-api.txt android/README
+EXTRA_DIST += android/Android.mk android/hal-ipc-api.txt android/README \
+		android/pics-gap.txt android/pics-hid.txt \
+		android/pics-pan.txt android/pics-did.txt \
+		android/pics-opp.txt android/pics-pbap.txt
