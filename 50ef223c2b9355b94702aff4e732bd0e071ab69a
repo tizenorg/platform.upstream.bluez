@@ -1,0 +1,11 @@
+Code-Review+2: Casey Schaufler <casey.schaufler@intel.com>
+Code-Review+1: Patrick McCarty <patrick.mccarty@linux.intel.com>
+Code-Review+1: Philippe Coval <philippe.coval@open.eurogiciel.org>
+Code-Review+1: Lukasz Stelmach <l.stelmach@samsung.com>
+Verified+1: Sebastian Chlad <sebastianx.chlad@intel.com>
+Code-Review+1: Kévin THIERRY <kevin.thierry@eurogiciel.fr>
+Submitted-by: wu zheng <wu.zheng@intel.com>
+Submitted-at: Wed, 18 Dec 2013 01:27:49 -0800
+Reviewed-on: https://review.tizen.org/gerrit/13853
+Project: platform/upstream/bluez
+Branch: refs/heads/tizen
