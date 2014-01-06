@@ -87,7 +87,7 @@ static void policy_connect(struct policy_data *data,
 {
 	struct btd_profile *profile = btd_service_get_profile(service);
 
-	DBG("%s profile %s", device_get_path(data->dev), profile->name);
+	DBG("%s profile %s", btd_device_get_path(data->dev), profile->name);
 
 	btd_service_connect(service);
 }
@@ -97,7 +97,7 @@ static void policy_disconnect(struct policy_data *data,
 {
 	struct btd_profile *profile = btd_service_get_profile(service);
 
-	DBG("%s profile %s", device_get_path(data->dev), profile->name);
+	DBG("%s profile %s", btd_device_get_path(data->dev), profile->name);
 
 	btd_service_disconnect(service);
 }
@@ -633,7 +633,7 @@ static void disconnect_cb(struct btd_device *dev, uint8_t reason)
 		return;
 
 	DBG("Device %s identified for auto-reconnection",
-							device_get_path(dev));
+						btd_device_get_path(dev));
 
 	reconnect->timer = g_timeout_add_seconds(reconnect->timeout,
 							reconnect_timeout,
