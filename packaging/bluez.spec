@@ -131,6 +131,7 @@ install -D -m 0755 tools/btiotest $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/bluetooth-player $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/mpris-player $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/btmgmt $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/scotest $RPM_BUILD_ROOT/%{_bindir}/
 
 install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 
@@ -205,6 +206,7 @@ install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 %{_bindir}/btmon
 %{_bindir}/hcidump
 %{_bindir}/btmgmt
+%{_bindir}/scotest
 
 %docs_package
 
