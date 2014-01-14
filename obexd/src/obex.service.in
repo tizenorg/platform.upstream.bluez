@@ -4,7 +4,7 @@ Description=Bluetooth OBEX service
 [Service]
 Type=dbus
 BusName=org.bluez.obex
-ExecStart=/bin/sh -c 'if [ -z `ps ax | grep -v grep | grep obexd` ] ; then exec @libexecdir@/obexd -d --noplugin=syncevolution,pcsuite,irmc --symlinks -r /opt/usr/media; fi'
+ExecStart=/bin/sh -c 'if [ -z `ps ax | grep -v grep | grep obexd` ] ; then eval $(tzplatform-get TZ_USER_CONTENT); exec @libexecdir@/obexd -d --noplugin=syncevolution,pcsuite,irmc --symlinks -r $TZ_USER_CONTENT; fi'
 
 [Install]
 Alias=dbus-org.bluez.obex.service
