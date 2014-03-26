@@ -8,7 +8,8 @@ pathmap_INCL += glib:external/bluetooth/glib
 
 # Specify common compiler flags
 BLUEZ_COMMON_CFLAGS := -DVERSION=\"$(BLUEZ_VERSION)\" \
-	-DPLATFORM_SDK_VERSION=$(PLATFORM_SDK_VERSION)
+	-DPLATFORM_SDK_VERSION=$(PLATFORM_SDK_VERSION) \
+	-DANDROID_STORAGEDIR=\"/data/misc/bluetooth\" \
 
 # Disable warnings enabled by Android but not enabled in autotools build
 BLUEZ_COMMON_CFLAGS += -Wno-pointer-arith -Wno-missing-field-initializers
@@ -199,7 +200,54 @@ LOCAL_C_INCLUDES += \
 LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS)
 
 LOCAL_MODULE_PATH := $(TARGET_OUT_OPTIONAL_EXECUTABLES)
-LOCAL_MODULE_TAGS := eng
+LOCAL_MODULE_TAGS := debug
 LOCAL_MODULE := btmon
+
+include $(BUILD_EXECUTABLE)
+
+#
+# A2DP audio
+#
+
+include $(CLEAR_VARS)
+
+LOCAL_SRC_FILES := hal-audio.c
+
+LOCAL_C_INCLUDES = \
+	$(call include-path-for, system-core) \
+	$(call include-path-for, libhardware) \
+
+LOCAL_SHARED_LIBRARIES := \
+	libcutils \
+
+LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS) \
+
+LOCAL_MODULE_PATH := $(TARGET_OUT_SHARED_LIBRARIES)/hw
+LOCAL_MODULE_TAGS := optional
+LOCAL_MODULE := audio.a2dp.default
+
+include $(BUILD_SHARED_LIBRARY)
+
+#
+# l2cap-test
+#
+
+include $(CLEAR_VARS)
+
+LOCAL_SRC_FILES := \
+	../tools/l2test.c \
+	../lib/bluetooth.c \
+	../lib/hci.c \
+
+LOCAL_C_INCLUDES := \
+	$(LOCAL_PATH)/.. \
+	$(LOCAL_PATH)/../lib \
+	$(LOCAL_PATH)/../src/shared \
+
+LOCAL_CFLAGS := $(BLUEZ_COMMON_CFLAGS)
+
+LOCAL_MODULE_PATH := $(TARGET_OUT_OPTIONAL_EXECUTABLES)
+LOCAL_MODULE_TAGS := debug
+LOCAL_MODULE := l2test
 
 include $(BUILD_EXECUTABLE)
