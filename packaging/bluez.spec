@@ -20,20 +20,20 @@ BuildRequires:  udev
 BuildRequires:  pkgconfig(libnl-1)
 BuildRequires:  libical-devel
 Url:            http://www.bluez.org
-Version:        5.12
+Version:        5.13
 Release:        0
 Summary:        Bluetooth Stack for Linux
 License:        GPL-2.0+
-Group:          Connectivity/Bluetooth
+Group:          Network & Connectivity/Bluetooth
 Source:         bluez-%{version}.tar.gz
 Source2:        bluez-coldplug.init
 Source3:        bluetooth.sysconfig
 Source4:        bluetooth.sh
 Source5:        baselibs.conf
 Source7:        bluetooth.modprobe
-Source101:	obex-root-setup
-Source102:	create-symlinks
-Source1001: 	bluez.manifest
+Source101:      obex-root-setup
+Source102:      create-symlinks
+Source1001:     bluez.manifest
 
 %define cups_lib_dir %{_prefix}/lib/cups
 
@@ -53,7 +53,7 @@ stack.
 %package -n libbluetooth
 Summary:        Bluetooth Libraries
 License:        GPL-2.0+
-Group:          Connectivity/Bluetooth
+Group:          Network & Connectivity/Bluetooth
 
 %description -n libbluetooth
 Bluetooth protocol stack libraries.
@@ -61,7 +61,7 @@ Bluetooth protocol stack libraries.
 %package cups
 Summary:        CUPS Driver for Bluetooth Printers
 License:        GPL-2.0+
-Group:          Connectivity/Bluetooth
+Group:          Network & Connectivity/Bluetooth
 Requires:       libbluetooth = %{version}
 
 %description cups
@@ -69,15 +69,16 @@ Contains the files required by CUPS for printing to Bluetooth-connected
 printers.
 
 %package -n obexd
-Summary: OBEX Server A basic OBEX server implementation
-Group: Applications/System
+Summary:        OBEX Server A basic OBEX server implementation
+Group:          Network & Connectivity/Bluetooth
+Requires:       tizen-platform-config-tools
 
 %description -n obexd
 OBEX Server A basic OBEX server implementation.
 
 %package test
 Summary:        Tools for testing of various Bluetooth-functions
-License:        GPL-2.0+ ; MIT
+License:        GPL-2.0+ and MIT
 Group:          Development/Tools
 Requires:       dbus-python
 Requires:       libbluetooth = %{version}
@@ -96,12 +97,14 @@ autoreconf -fiv
 
 export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__"
 %configure  --with-pic \
-			--libexecdir=/lib \
-			--disable-usb	\
-			--enable-test	\
-			--enable-library	\
-			--with-systemdunitdir=%{_unitdir}	\
-			%{?with_libcapng}
+            --libexecdir=/lib \
+            --disable-usb	\
+            --enable-test	\
+            --enable-library	\
+            --enable-experimental	\
+            --enable-readline	\
+            --with-systemdunitdir=%{_unitdir}	\
+            %{?with_libcapng}
 make %{?_smp_mflags} all V=1
 
 %check
@@ -110,7 +113,6 @@ make check
 %install
 %make_install
 
-# bluez-test
 rm -rvf $RPM_BUILD_ROOT/%{_libdir}/gstreamer-*
 install --mode=0755 -D %{S:4} $RPM_BUILD_ROOT/usr/lib/udev/bluetooth.sh
 install --mode=0644 -D %{S:7} $RPM_BUILD_ROOT/%{_sysconfdir}/modprobe.d/50-bluetooth.conf
@@ -123,12 +125,15 @@ fi
 # no idea why this is suddenly necessary...
 install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 
-
 install -D -m 0755 %SOURCE101 %{buildroot}%{_bindir}/obex-root-setup
 install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
+install -D -m 0755 tools/btiotest $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/bluetooth-player $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/mpris-player $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/btmgmt $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/scotest $RPM_BUILD_ROOT/%{_bindir}/
 
 install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
-
 
 %post -n libbluetooth -p /sbin/ldconfig
 
@@ -194,8 +199,13 @@ install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 %{_bindir}/l2test
 %{_bindir}/rctest
 %{_bindir}/bluetoothctl
+%{_bindir}/btiotest
+%{_bindir}/mpris-player
+%{_bindir}/bluetooth-player
 %{_bindir}/btmon
 %{_bindir}/hcidump
+%{_bindir}/btmgmt
+%{_bindir}/scotest
 
 %docs_package
 
