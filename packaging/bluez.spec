@@ -19,6 +19,7 @@ BuildRequires:  readline-devel
 BuildRequires:  udev
 BuildRequires:  pkgconfig(libnl-1)
 BuildRequires:  libical-devel
+BuildRequires:  pkgconfig(libtzplatform-config)
 Url:            http://www.bluez.org
 Version:        5.13
 Release:        0
@@ -95,7 +96,7 @@ cp %{SOURCE1001} .
 %build
 autoreconf -fiv
 
-export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__"
+export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__"
 %configure  --with-pic \
             --libexecdir=/lib \
             --disable-usb	\
@@ -165,20 +166,20 @@ install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 %{_unitdir}/bluetooth.service
 
 %files devel
-%manifest %{name}.manifest
+#%manifest %{name}.manifest
 %defattr(-, root, root)
 /usr/include/bluetooth
 %{_libdir}/libbluetooth.so
 %{_libdir}/pkgconfig/bluez.pc
 
 %files -n libbluetooth
-%manifest %{name}.manifest
+#%manifest %{name}.manifest
 %defattr(-, root, root)
 %{_libdir}/libbluetooth.so.*
 %license COPYING
 
 %files cups
-%manifest %{name}.manifest
+#%manifest %{name}.manifest
 %defattr(-,root,root)
 %dir %{cups_lib_dir}
 %dir %{cups_lib_dir}/backend
@@ -193,7 +194,7 @@ install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 %{_bindir}/obex-root-setup
 
 %files test
-%manifest %{name}.manifest
+#%manifest %{name}.manifest
 %defattr(-,root,root)
 %{_libdir}/bluez/test/*
 %{_bindir}/l2test
