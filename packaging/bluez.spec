@@ -19,6 +19,7 @@ BuildRequires:  readline-devel
 BuildRequires:  udev
 BuildRequires:  pkgconfig(libnl-1)
 BuildRequires:  libical-devel
+BuildRequires:  pkgconfig(libtzplatform-config)
 Url:            http://www.bluez.org
 Version:        5.12
 Release:        0
@@ -95,7 +96,7 @@ cp %{SOURCE1001} .
 %build
 autoreconf -fiv
 
-export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__"
+export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__"
 %configure  --with-pic \
             --libexecdir=/lib \
             --disable-usb	\

@@ -40,10 +40,13 @@
 #include <sys/socket.h>
 #include <signal.h>
 
+#include <glib.h>
+
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
 
+#include "src/textfile.h"
 #include "src/oui.h"
 
 /* Unofficial value, might still change */
