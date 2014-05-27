@@ -21,7 +21,7 @@ BuildRequires:  pkgconfig(libnl-1)
 BuildRequires:  libical-devel
 BuildRequires:  pkgconfig(libtzplatform-config)
 Url:            http://www.bluez.org
-Version:        5.12
+Version:        5.19
 Release:        0
 Summary:        Bluetooth Stack for Linux
 License:        GPL-2.0+
