@@ -38,17 +38,30 @@
 #define EIR_DEVICE_ID               0x10  /* device ID */
 #define EIR_GAP_APPEARANCE          0x19  /* GAP appearance */
 
+/* Flags Descriptions */
+#define EIR_LIM_DISC                0x01 /* LE Limited Discoverable Mode */
+#define EIR_GEN_DISC                0x02 /* LE General Discoverable Mode */
+#define EIR_BREDR_UNSUP             0x04 /* BR/EDR Not Supported */
+#define EIR_CONTROLLER              0x08 /* Simultaneous LE and BR/EDR to Same
+					    Device Capable (Controller) */
+#define EIR_SIM_HOST                0x10 /* Simultaneous LE and BR/EDR to Same
+					    Device Capable (Host) */
+
 struct eir_data {
 	GSList *services;
-	int flags;
+	unsigned int flags;
 	char *name;
 	uint32_t class;
 	uint16_t appearance;
-	gboolean name_complete;
+	bool name_complete;
 	int8_t tx_power;
 	uint8_t *hash;
 	uint8_t *randomizer;
 	bdaddr_t addr;
+	uint16_t did_vendor;
+	uint16_t did_product;
+	uint16_t did_version;
+	uint16_t did_source;
 };
 
 void eir_data_free(struct eir_data *eir);

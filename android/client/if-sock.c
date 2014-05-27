@@ -46,7 +46,8 @@ static const char * const uuids[] = {
 static void receive_from_client(struct pollfd *pollfd)
 {
 	char buf[16];
-	/* Buffer for lines:
+	/*
+	 * Buffer for lines:
 	 * 41 42 43 20 20 00 31 32 00 07 04 00 00 00 00 00 ABC  .12.....
 	 */
 	char outbuf[sizeof(buf) * 4 + 2];
@@ -154,21 +155,19 @@ static void read_accepted(int fd)
 
 	for (cmsgptr = CMSG_FIRSTHDR(&msg);
 		cmsgptr != NULL; cmsgptr = CMSG_NXTHDR(&msg, cmsgptr)) {
-		int *descs;
 		int count;
 
 		if (cmsgptr->cmsg_level != SOL_SOCKET ||
 			cmsgptr->cmsg_type != SCM_RIGHTS)
 			continue;
 
-		descs = (int *) CMSG_DATA(cmsgptr);
+		memcpy(&accepted_fd, CMSG_DATA(cmsgptr), sizeof(accepted_fd));
 		count = ((cmsgptr->cmsg_len - CMSG_LEN(0)) / sizeof(int));
 
 		if (count != 1)
 			haltest_error("Failed to accept descriptors count=%d\n",
 									count);
 
-		accepted_fd = descs[0];
 		break;
 	}
 
@@ -189,7 +188,7 @@ static void client_connected(struct pollfd *pollfd)
 		read_accepted(pollfd->fd);
 }
 
-/** listen */
+/* listen */
 
 static void listen_c(int argc, const char **argv, enum_func *enum_func,
 								void **user)
@@ -209,7 +208,7 @@ static void listen_p(int argc, const char **argv)
 	const char *service_name;
 	bt_uuid_t service_uuid;
 	int channel;
-	int sock_fd;
+	int sock_fd = -1;
 	int flags;
 
 	RETURN_IF_NULL(if_sock);
@@ -261,7 +260,7 @@ static void listen_p(int argc, const char **argv)
 	}
 }
 
-/** connect */
+/* connect */
 
 static void connect_c(int argc, const char **argv, enum_func *enum_func,
 								void **user)
@@ -283,7 +282,7 @@ static void connect_p(int argc, const char **argv)
 	btsock_type_t type;
 	bt_uuid_t uuid;
 	int channel;
-	int sock_fd;
+	int sock_fd = -1;
 	int flags;
 
 	/* Address */

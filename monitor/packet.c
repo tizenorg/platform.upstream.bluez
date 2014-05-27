@@ -2,22 +2,22 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2011-2012  Intel Corporation
- *  Copyright (C) 2004-2010  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 2011-2014  Intel Corporation
+ *  Copyright (C) 2002-2010  Marcel Holtmann <marcel@holtmann.org>
  *
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Lesser General Public
+ *  License as published by the Free Software Foundation; either
+ *  version 2.1 of the License, or (at your option) any later version.
  *
- *  This program is distributed in the hope that it will be useful,
+ *  This library is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Lesser General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
+ *  You should have received a copy of the GNU Lesser General Public
+ *  License along with this library; if not, write to the Free Software
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
@@ -41,13 +41,16 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
 
+#include "src/shared/util.h"
+#include "src/shared/btsnoop.h"
 #include "display.h"
 #include "bt.h"
 #include "ll.h"
+#include "hwdb.h"
+#include "keys.h"
 #include "uuid.h"
 #include "l2cap.h"
 #include "control.h"
-#include "btsnoop.h"
 #include "vendor.h"
 #include "packet.h"
 
@@ -68,9 +71,11 @@
 
 #define COLOR_UNKNOWN_ERROR		COLOR_WHITE_BG
 #define COLOR_UNKNOWN_FEATURE_BIT	COLOR_WHITE_BG
+#define COLOR_UNKNOWN_COMMAND_BIT	COLOR_WHITE_BG
 #define COLOR_UNKNOWN_EVENT_MASK	COLOR_WHITE_BG
 #define COLOR_UNKNOWN_LE_STATES		COLOR_WHITE_BG
 #define COLOR_UNKNOWN_SERVICE_CLASS	COLOR_WHITE_BG
+#define COLOR_UNKNOWN_PKT_TYPE_BIT	COLOR_WHITE_BG
 
 #define COLOR_PHY_PACKET		COLOR_BLUE
 
@@ -394,54 +399,9 @@ static void print_reason(uint8_t reason)
 	print_error("Reason", reason);
 }
 
-static void print_bdaddr(const uint8_t *bdaddr)
+void packet_print_error(const char *label, uint8_t error)
 {
-	print_field("Address: %2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X"
-					" (OUI %2.2X-%2.2X-%2.2X)",
-					bdaddr[5], bdaddr[4], bdaddr[3],
-					bdaddr[2], bdaddr[1], bdaddr[0],
-					bdaddr[5], bdaddr[4], bdaddr[3]);
-}
-
-static void print_addr(const char *label, const uint8_t *addr,
-						uint8_t addr_type)
-{
-	const char *str;
-
-	switch (addr_type) {
-	case 0x00:
-		print_field("%s: %2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X"
-				" (OUI %2.2X-%2.2X-%2.2X)", label,
-					addr[5], addr[4], addr[3],
-					addr[2], addr[1], addr[0],
-					addr[5], addr[4], addr[3]);
-		break;
-	case 0x01:
-		switch ((addr[5] & 0xc0) >> 6) {
-		case 0x00:
-			str = "Non-Resolvable";
-			break;
-		case 0x01:
-			str = "Resolvable";
-			break;
-		case 0x03:
-			str = "Static";
-			break;
-		default:
-			str = "Reserved";
-			break;
-		}
-
-		print_field("%s: %2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X (%s)",
-					label, addr[5], addr[4], addr[3],
-					addr[2], addr[1], addr[0], str);
-		break;
-	default:
-		print_field("%s: %2.2X-%2.2X-%2.2X-%2.2X-%2.2X-%2.2X",
-					label, addr[5], addr[4], addr[3],
-					addr[2], addr[1], addr[0]);
-		break;
-	}
+	print_error(label, error);
 }
 
 static void print_addr_type(const char *label, uint8_t addr_type)
@@ -463,6 +423,81 @@ static void print_addr_type(const char *label, uint8_t addr_type)
 	print_field("%s: %s (0x%2.2x)", label, str, addr_type);
 }
 
+static void print_addr_resolve(const char *label, const uint8_t *addr,
+					uint8_t addr_type, bool resolve)
+{
+	const char *str;
+	char *company;
+
+	switch (addr_type) {
+	case 0x00:
+		if (!hwdb_get_company(addr, &company))
+			company = NULL;
+
+		if (company) {
+			print_field("%s: %2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X"
+					" (%s)", label, addr[5], addr[4],
+							addr[3], addr[2],
+							addr[1], addr[0],
+							company);
+			free(company);
+		} else {
+			print_field("%s: %2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X"
+					" (OUI %2.2X-%2.2X-%2.2X)", label,
+						addr[5], addr[4], addr[3],
+						addr[2], addr[1], addr[0],
+						addr[5], addr[4], addr[3]);
+		}
+		break;
+	case 0x01:
+		switch ((addr[5] & 0xc0) >> 6) {
+		case 0x00:
+			str = "Non-Resolvable";
+			break;
+		case 0x01:
+			str = "Resolvable";
+			break;
+		case 0x03:
+			str = "Static";
+			break;
+		default:
+			str = "Reserved";
+			break;
+		}
+
+		print_field("%s: %2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X (%s)",
+					label, addr[5], addr[4], addr[3],
+					addr[2], addr[1], addr[0], str);
+
+		if (resolve && (addr[5] & 0xc0) == 0x40) {
+			uint8_t ident[6], ident_type;
+
+			if (keys_resolve_identity(addr, ident, &ident_type)) {
+				print_addr_type("  Identity type", ident_type);
+				print_addr_resolve("  Identity", ident,
+							ident_type, false);
+			}
+		}
+		break;
+	default:
+		print_field("%s: %2.2X-%2.2X-%2.2X-%2.2X-%2.2X-%2.2X",
+					label, addr[5], addr[4], addr[3],
+					addr[2], addr[1], addr[0]);
+		break;
+	}
+}
+
+static void print_addr(const char *label, const uint8_t *addr,
+						uint8_t addr_type)
+{
+	print_addr_resolve(label, addr, addr_type, true);
+}
+
+static void print_bdaddr(const uint8_t *bdaddr)
+{
+	print_addr("Address", bdaddr, 0x00);
+}
+
 static void print_lt_addr(uint8_t lt_addr)
 {
 	print_field("LT address: %d", lt_addr);
@@ -470,7 +505,7 @@ static void print_lt_addr(uint8_t lt_addr)
 
 static void print_handle(uint16_t handle)
 {
-	print_field("Handle: %d", btohs(handle));
+	print_field("Handle: %d", le16_to_cpu(handle));
 }
 
 static void print_phy_handle(uint8_t phy_handle)
@@ -478,9 +513,82 @@ static void print_phy_handle(uint8_t phy_handle)
 	print_field("Physical handle: %d", phy_handle);
 }
 
+static const struct {
+	uint8_t bit;
+	const char *str;
+} pkt_type_table[] = {
+	{  1, "2-DH1 may not be used"	},
+	{  2, "3-DH1 may not be used"	},
+	{  3, "DM1 may be used"		},
+	{  4, "DH1 may be used"		},
+	{  8, "2-DH3 may not be used"	},
+	{  9, "3-DH3 may not be used"	},
+	{ 10, "DM3 may be used"		},
+	{ 11, "DH3 may be used"		},
+	{ 12, "3-DH5 may not be used"	},
+	{ 13, "3-DH5 may not be used"	},
+	{ 14, "DM5 may be used"		},
+	{ 15, "DH5 may be used"		},
+	{ }
+};
+
 static void print_pkt_type(uint16_t pkt_type)
 {
-	print_field("Packet type: 0x%4.4x", btohs(pkt_type));
+	uint16_t mask;
+	int i;
+
+	print_field("Packet type: 0x%4.4x", le16_to_cpu(pkt_type));
+
+	mask = le16_to_cpu(pkt_type);
+
+	for (i = 0; pkt_type_table[i].str; i++) {
+		if (le16_to_cpu(pkt_type) & (1 << pkt_type_table[i].bit)) {
+			print_field("  %s", pkt_type_table[i].str);
+			mask &= ~(1 << pkt_type_table[i].bit);
+		}
+	}
+
+	if (mask)
+		print_text(COLOR_UNKNOWN_PKT_TYPE_BIT,
+				"  Unknown packet types (0x%4.4x)", mask);
+}
+
+static const struct {
+	uint8_t bit;
+	const char *str;
+} pkt_type_sco_table[] = {
+	{  0, "HV1 may be used"		},
+	{  1, "HV2 may be used"		},
+	{  2, "HV3 may be used"		},
+	{  3, "EV3 may be used"		},
+	{  4, "EV4 may be used"		},
+	{  5, "EV5 may be used"		},
+	{  6, "2-EV3 may not be used"	},
+	{  7, "3-EV3 may not be used"	},
+	{  8, "2-EV5 may not be used"	},
+	{  9, "3-EV5 may not be used"	},
+	{ }
+};
+
+static void print_pkt_type_sco(uint16_t pkt_type)
+{
+	uint16_t mask;
+	int i;
+
+	print_field("Packet type: 0x%4.4x", le16_to_cpu(pkt_type));
+
+	mask = le16_to_cpu(pkt_type);
+
+	for (i = 0; pkt_type_sco_table[i].str; i++) {
+		if (le16_to_cpu(pkt_type) & (1 << pkt_type_sco_table[i].bit)) {
+			print_field("  %s", pkt_type_sco_table[i].str);
+			mask &= ~(1 << pkt_type_sco_table[i].bit);
+		}
+	}
+
+	if (mask)
+		print_text(COLOR_UNKNOWN_PKT_TYPE_BIT,
+				"  Unknown packet types (0x%4.4x)", mask);
 }
 
 static void print_iac(const uint8_t *lap)
@@ -753,6 +861,77 @@ static void print_dev_class(const uint8_t *dev_class)
 				"  Unknown service class (0x%2.2x)", mask);
 }
 
+static const struct {
+	uint16_t val;
+	bool generic;
+	const char *str;
+} appearance_table[] = {
+	{    0, true,  "Unknown"		},
+	{   64, true,  "Phone"			},
+	{  128, true,  "Computer"		},
+	{  192, true,  "Watch"			},
+	{  193, false, "Sports Watch"		},
+	{  256, true,  "Clock"			},
+	{  320, true,  "Display"		},
+	{  384, true,  "Remote Control"		},
+	{  448, true,  "Eye-glasses"		},
+	{  512, true,  "Tag"			},
+	{  576, true,  "Keyring"		},
+	{  640, true,  "Media Player"		},
+	{  704, true,  "Barcode Scanner"	},
+	{  768, true,  "Thermometer"		},
+	{  769, false, "Thermometer: Ear"	},
+	{  832, true,  "Heart Rate Sensor"	},
+	{  833, false, "Heart Rate Belt"	},
+	{  896, true,  "Blood Pressure"		},
+	{  897, false, "Blood Pressure: Arm"	},
+	{  898, false, "Blood Pressure: Wrist"	},
+	{  960, true,  "Human Interface Device"	},
+	{  961, false, "Keyboard"		},
+	{  962, false, "Mouse"			},
+	{  963, false, "Joystick"		},
+	{  964, false, "Gamepad"		},
+	{  965, false, "Digitizer Tablet"	},
+	{  966, false, "Card Reader"		},
+	{  967, false, "Digital Pen"		},
+	{  968, false, "Barcode Scanner"	},
+	{ 1024, true,  "Glucose Meter"		},
+	{ 1088, true,  "Running Walking Sensor"	},
+	{ 1152, true,  "Cycling"		},
+	{ 1216, true,  "Undefined"		},
+
+	{ 3136, true,  "Pulse Oximeter"		},
+	{ 3200, true,  "Undefined"		},
+
+	{ 5184, true,  "Outdoor Sports Activity"},
+	{ 5248, true,  "Undefined"		},
+	{ }
+};
+
+static void print_appearance(uint16_t appearance)
+{
+	const char *str = NULL;
+	int i, type = 0;
+
+	for (i = 0; appearance_table[i].str; i++) {
+		if (appearance_table[i].generic) {
+			if (appearance < appearance_table[i].val)
+				break;
+			type = i;
+		}
+
+		if (appearance_table[i].val == appearance) {
+			str = appearance_table[i].str;
+			break;
+		}
+	}
+
+	if (!str)
+		str = appearance_table[type].str;
+
+	print_field("Appearance: %s (0x%4.4x)", str, appearance);
+}
+
 static void print_num_broadcast_retrans(uint8_t num_retrans)
 {
 	print_field("Number of broadcast retransmissions: %u", num_retrans);
@@ -845,7 +1024,76 @@ static void print_host_flow_control(uint8_t enable)
 
 static void print_voice_setting(uint16_t setting)
 {
-	print_field("Setting: 0x%4.4x", btohs(setting));
+	uint8_t input_coding = (le16_to_cpu(setting) & 0x0300) >> 8;
+	uint8_t input_data_format = (le16_to_cpu(setting) & 0xc0) >> 6;
+	uint8_t air_coding_format = le16_to_cpu(setting) & 0x0003;
+	const char *str;
+
+	print_field("Setting: 0x%4.4x", le16_to_cpu(setting));
+
+	switch (input_coding) {
+	case 0x00:
+		str = "Linear";
+		break;
+	case 0x01:
+		str ="u-law";
+		break;
+	case 0x02:
+		str = "A-law";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("  Input Coding: %s", str);
+
+	switch (input_data_format) {
+	case 0x00:
+		str = "1's complement";
+		break;
+	case 0x01:
+		str = "2's complement";
+		break;
+	case 0x02:
+		str = "Sign-Magnitude";
+		break;
+	case 0x03:
+		str = "Unsigned";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("  Input Data Format: %s", str);
+
+	if (input_coding == 0x00) {
+		print_field("  Input Sample Size: %s",
+			le16_to_cpu(setting) & 0x20 ? "16-bit" : "8-bit");
+		print_field("  # of bits padding at MSB: %d",
+					(le16_to_cpu(setting) & 0x1c) >> 2);
+	}
+
+	switch (air_coding_format) {
+	case 0x00:
+		str = "CVSD";
+		break;
+	case 0x01:
+		str ="u-law";
+		break;
+	case 0x02:
+		str = "A-law";
+		break;
+	case 0x03:
+		str = "Transparent Data";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("  Air Coding Format: %s", str);
 }
 
 static void print_retransmission_effort(uint8_t effort)
@@ -900,7 +1148,7 @@ static void print_scan_enable(uint8_t scan_enable)
 
 static void print_link_policy(uint16_t link_policy)
 {
-	uint16_t policy = btohs(link_policy);
+	uint16_t policy = le16_to_cpu(link_policy);
 
 	print_field("Link policy: 0x%4.4x", policy);
 
@@ -1083,7 +1331,7 @@ static void print_secure_conn_support(uint8_t support)
 static void print_auth_payload_timeout(uint16_t timeout)
 {
 	print_field("Timeout: %d msec (0x%4.4x)",
-					btohs(timeout) * 10, btohs(timeout));
+			le16_to_cpu(timeout) * 10, le16_to_cpu(timeout));
 }
 
 static void print_pscan_rep_mode(uint8_t pscan_rep_mode)
@@ -1158,21 +1406,47 @@ static void print_pscan_mode(uint8_t pscan_mode)
 
 static void print_clock_offset(uint16_t clock_offset)
 {
-	print_field("Clock offset: 0x%4.4x", btohs(clock_offset));
+	print_field("Clock offset: 0x%4.4x", le16_to_cpu(clock_offset));
 }
 
 static void print_clock(uint32_t clock)
 {
-	print_field("Clock: 0x%8.8x", btohl(clock));
+	print_field("Clock: 0x%8.8x", le32_to_cpu(clock));
+}
+
+static void print_clock_type(uint8_t type)
+{
+	const char *str;
+
+	switch (type) {
+	case 0x00:
+		str = "Local clock";
+		break;
+	case 0x01:
+		str = "Piconet clock";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Type: %s (0x%2.2x)", str, type);
 }
 
 static void print_clock_accuracy(uint16_t accuracy)
 {
-	if (btohs(accuracy) == 0xffff)
-		print_field("Accuracy: Unknown (0x%4.4x)", btohs(accuracy));
+	if (le16_to_cpu(accuracy) == 0xffff)
+		print_field("Accuracy: Unknown (0x%4.4x)",
+						le16_to_cpu(accuracy));
 	else
 		print_field("Accuracy: %.4f msec (0x%4.4x)",
-				btohs(accuracy) * 0.3125, btohs(accuracy));
+						le16_to_cpu(accuracy) * 0.3125,
+						le16_to_cpu(accuracy));
+}
+
+static void print_lpo_allowed(uint8_t lpo_allowed)
+{
+	print_field("LPO allowed: 0x%2.2x", lpo_allowed);
 }
 
 static void print_broadcast_fragment(uint8_t fragment)
@@ -1246,7 +1520,7 @@ static void print_encr_mode_change(uint8_t encr_mode, uint16_t handle)
 	const char *str;
 	uint8_t conn_type;
 
-	conn_type = get_type(btohs(handle));
+	conn_type = get_type(le16_to_cpu(handle));
 
 	switch (encr_mode) {
 	case 0x00:
@@ -1410,19 +1684,29 @@ static void print_pin_code(const uint8_t *pin_code, uint8_t pin_len)
 	print_field("PIN code: %s", str);
 }
 
-static void print_hash(const char *label, const uint8_t *hash)
+static void print_hash_p192(const uint8_t *hash)
 {
-	print_key("Hash C from %s", hash);
+	print_key("Hash C from P-192", hash);
 }
 
-static void print_randomizer(const char *label, const uint8_t *randomizer)
+static void print_hash_p256(const uint8_t *hash)
 {
-	print_key("Randomizer R with %s", randomizer);
+	print_key("Hash C from P-256", hash);
+}
+
+static void print_randomizer_p192(const uint8_t *randomizer)
+{
+	print_key("Randomizer R with P-192", randomizer);
+}
+
+static void print_randomizer_p256(const uint8_t *randomizer)
+{
+	print_key("Randomizer R with P-256", randomizer);
 }
 
 static void print_passkey(uint32_t passkey)
 {
-	print_field("Passkey: %06d", btohl(passkey));
+	print_field("Passkey: %06d", le32_to_cpu(passkey));
 }
 
 static void print_io_capability(uint8_t capability)
@@ -1504,6 +1788,16 @@ static void print_authentication(uint8_t authentication)
 	}
 
 	print_field("Authentication: %s (0x%2.2x)", str, authentication);
+}
+
+void packet_print_io_capability(uint8_t capability)
+{
+	print_io_capability(capability);
+}
+
+void packet_print_io_authentication(uint8_t authentication)
+{
+	print_authentication(authentication);
 }
 
 static void print_location_domain_aware(uint8_t aware)
@@ -1622,10 +1916,10 @@ static void print_flow_spec(const char *label, const uint8_t *data)
 
 	print_field("%s flow spec: 0x%2.2x", label, data[0]);
 	print_field("  Service type: %s (0x%2.2x)", str, data[1]);
-	print_field("  Maximum SDU size: 0x%4.4x", bt_get_le16(data + 2));
-	print_field("  SDU inter-arrival time: 0x%8.8x", bt_get_le32(data + 4));
-	print_field("  Access latency: 0x%8.8x", bt_get_le32(data + 8));
-	print_field("  Flush timeout: 0x%8.8x", bt_get_le32(data + 12));
+	print_field("  Maximum SDU size: 0x%4.4x", get_le16(data + 2));
+	print_field("  SDU inter-arrival time: 0x%8.8x", get_le32(data + 4));
+	print_field("  Access latency: 0x%8.8x", get_le32(data + 8));
+	print_field("  Flush timeout: 0x%8.8x", get_le32(data + 12));
 }
 
 static void print_short_range_mode(uint8_t mode)
@@ -1702,13 +1996,13 @@ static void print_rssi(int8_t rssi)
 static void print_slot_625(const char *label, uint16_t value)
 {
 	 print_field("%s: %.3f msec (0x%4.4x)", label,
-					btohs(value) * 0.625, btohs(value));
+				le16_to_cpu(value) * 0.625, le16_to_cpu(value));
 }
 
 static void print_slot_125(const char *label, uint16_t value)
 {
 	print_field("%s: %.2f msec (0x%4.4x)", label,
-					btohs(value) * 1.25, btohs(value));
+				le16_to_cpu(value) * 1.25, le16_to_cpu(value));
 }
 
 static void print_timeout(uint16_t timeout)
@@ -1782,13 +2076,39 @@ static void print_name(const uint8_t *name)
 
 static void print_channel_map(const uint8_t *map)
 {
+	unsigned int count = 0, start = 0;
 	char str[21];
-	int i;
+	int i, n;
 
 	for (i = 0; i < 10; i++)
 		sprintf(str + (i * 2), "%2.2x", map[i]);
 
 	print_field("Channel map: 0x%s", str);
+
+	for (i = 0; i < 10; i++) {
+		for (n = 0; n < 8; n++) {
+			if (map[i] & (1 << n)) {
+				if (count == 0)
+					start = (i * 8) + n;
+				count++;
+				continue;
+			}
+
+			if (count > 1) {
+				print_field("  Channel %u-%u",
+						start, start + count - 1 );
+				count = 0;
+			} else if (count > 0) {
+				print_field("  Channel %u", start);
+				count = 0;
+			}
+		}
+	}
+}
+
+void packet_print_channel_map_lmp(const uint8_t *map)
+{
+	print_channel_map(map);
 }
 
 static void print_flush_timeout(uint16_t timeout)
@@ -1841,13 +2161,13 @@ void packet_print_version(const char *label, uint8_t version,
 static void print_hci_version(uint8_t version, uint16_t revision)
 {
 	packet_print_version("HCI version", version,
-				"Revision", btohs(revision));
+				"Revision", le16_to_cpu(revision));
 }
 
 static void print_lmp_version(uint8_t version, uint16_t subversion)
 {
 	packet_print_version("LMP version", version,
-				"Subversion", btohs(subversion));
+				"Subversion", le16_to_cpu(subversion));
 }
 
 static void print_pal_version(uint8_t version, uint16_t subversion)
@@ -1864,7 +2184,9 @@ static void print_pal_version(uint8_t version, uint16_t subversion)
 	}
 
 	print_field("PAL version: %s (0x%2.2x) - Subversion %d (0x%4.4x)",
-			str, version, btohs(subversion), btohs(subversion));
+						str, version,
+						le16_to_cpu(subversion),
+						le16_to_cpu(subversion));
 }
 
 void packet_print_company(const char *label, uint16_t company)
@@ -1874,7 +2196,7 @@ void packet_print_company(const char *label, uint16_t company)
 
 static void print_manufacturer(uint16_t manufacturer)
 {
-	packet_print_company("Manufacturer", btohs(manufacturer));
+	packet_print_company("Manufacturer", le16_to_cpu(manufacturer));
 }
 
 static const char *get_supported_command(int bit);
@@ -1901,7 +2223,12 @@ static void print_commands(const uint8_t *commands)
 				continue;
 
 			cmd = get_supported_command((i * 8) + n);
-			print_field("  %s (Octet %d - Bit %d)", cmd, i, n);
+			if (cmd)
+				print_field("  %s (Octet %d - Bit %d)",
+								cmd, i, n);
+			else
+				print_text(COLOR_UNKNOWN_COMMAND_BIT,
+						"  Octet %d - Bit %d ", i, n);
 		}
 	}
 }
@@ -2057,6 +2384,11 @@ static void print_features(uint8_t page, const uint8_t *features_array,
 						"(0x%16.16" PRIx64 ")", mask);
 }
 
+void packet_print_features_lmp(const uint8_t *features, uint8_t page)
+{
+	print_features(page, features, 0x00);
+}
+
 void packet_print_features_ll(const uint8_t *features)
 {
 	print_features(0, features, 0x01);
@@ -2138,13 +2470,34 @@ static void print_le_states(const uint8_t *states_array)
 
 static void print_le_channel_map(const uint8_t *map)
 {
+	unsigned int count = 0, start = 0;
 	char str[11];
-	int i;
+	int i, n;
 
 	for (i = 0; i < 5; i++)
 		sprintf(str + (i * 2), "%2.2x", map[i]);
 
 	print_field("Channel map: 0x%s", str);
+
+	for (i = 0; i < 5; i++) {
+		for (n = 0; n < 8; n++) {
+			if (map[i] & (1 << n)) {
+				if (count == 0)
+					start = (i * 8) + n;
+				count++;
+				continue;
+			}
+
+			if (count > 1) {
+				print_field("  Channel %u-%u",
+						start, start + count - 1 );
+				count = 0;
+			} else if (count > 0) {
+				print_field("  Channel %u", start);
+				count = 0;
+			}
+		}
+	}
 }
 
 void packet_print_channel_map_ll(const uint8_t *map)
@@ -2152,9 +2505,14 @@ void packet_print_channel_map_ll(const uint8_t *map)
 	print_le_channel_map(map);
 }
 
-static void print_random_number(const uint8_t *number)
+static void print_random_number(uint64_t rand)
 {
-	print_hex_field("Random number", number, 8);
+	print_field("Random number: 0x%16.16" PRIx64, le64_to_cpu(rand));
+}
+
+static void print_encrypted_diversifier(uint16_t ediv)
+{
+	print_field("Encrypted diversifier: 0x%4.4x", le16_to_cpu(ediv));
 }
 
 static const struct {
@@ -2385,50 +2743,91 @@ static void print_fec(uint8_t fec)
 static void print_manufacturer_apple(const void *data, uint8_t data_len)
 {
 	uint8_t type = *((uint8_t *) data);
-	uint8_t len;
-	const uint8_t *uuid;
-	uint16_t minor, major;
-	int8_t tx_power;
-	char identifier[100];
 
 	if (data_len < 1)
 		return;
 
-	switch (type) {
-	case 0x01:
+	if (type == 0x01) {
+		char identifier[100];
+
 		snprintf(identifier, sizeof(identifier) - 1, "%s",
 						(const char *) (data + 1));
+
 		print_field("  Identifier: %s", identifier);
-		break;
-	case 0x02:
-		len = *((uint8_t *) (data + 1));
-		if (len != 0x15 || len != data_len - 2) {
-			print_hex_field("  Data", data, data_len);
+		return;
+	}
+
+	while (data_len > 0) {
+		uint8_t len;
+		const char *str;
+
+		type = *((uint8_t *) data);
+		data++;
+		data_len--;
+
+		if (type == 0x00)
+			continue;
+
+		if (data_len < 1)
+			break;
+
+		switch (type) {
+		case 0x02:
+			str = "iBeacon";
+			break;
+		case 0x05:
+			str = "AirDrop";
+			break;
+		case 0x09:
+			str = "Apple TV";
+			break;
+		default:
+			str = "Unknown";
 			break;
 		}
 
-		uuid = data + 2;
-		print_field("  iBeacon: %8.8x-%4.4x-%4.4x-%4.4x-%8.8x%4.4x",
-				bt_get_le32(&uuid[12]), bt_get_le16(&uuid[10]),
-				bt_get_le16(&uuid[8]), bt_get_le16(&uuid[6]),
-				bt_get_le32(&uuid[2]), bt_get_le16(&uuid[0]));
+		print_field("  Type: %s (%u)", str, type);
 
-		major = bt_get_le16(data + 18);
-		minor = bt_get_le16(data + 20);
-		print_field("  Version: %u.%u", major, minor);
+		len = *((uint8_t *) data);
+		data++;
+		data_len--;
 
-		tx_power = *(int8_t *) (data + 22);
-		print_field("  TX power: %d dB", tx_power);
-		break;
-	default:
-		print_hex_field("  Data", data, data_len);
-		break;
+		if (len < 1)
+			continue;
+
+		if (len > data_len)
+			break;
+
+		if (type == 0x02 && len == 0x15) {
+			const uint8_t *uuid;
+			uint16_t minor, major;
+			int8_t tx_power;
+
+			uuid = data;
+			print_field("  UUID: %8.8x-%4.4x-%4.4x-%4.4x-%8.8x%4.4x",
+				get_le32(&uuid[12]), get_le16(&uuid[10]),
+				get_le16(&uuid[8]), get_le16(&uuid[6]),
+				get_le32(&uuid[2]), get_le16(&uuid[0]));
+
+			major = get_le16(data + 16);
+			minor = get_le16(data + 18);
+			print_field("  Version: %u.%u", major, minor);
+
+			tx_power = *(int8_t *) (data + 20);
+			print_field("  TX power: %d dB", tx_power);
+		} else
+			print_hex_field("  Data", data, len);
+
+		data += len;
+		data_len -= len;
 	}
+
+	packet_hexdump(data, data_len);
 }
 
 static void print_manufacturer_data(const void *data, uint8_t data_len)
 {
-	uint16_t company = bt_get_le16(data);
+	uint16_t company = get_le16(data);
 
 	packet_print_company("Company", company);
 
@@ -2445,35 +2844,63 @@ static void print_manufacturer_data(const void *data, uint8_t data_len)
 
 static void print_device_id(const void *data, uint8_t data_len)
 {
-	uint16_t source;
+	uint16_t source, vendor, product, version;
+	char modalias[26], *vendor_str, *product_str;
 	const char *str;
 
 	if (data_len < 8)
 		return;
 
-	source = bt_get_le16(data);
+	source = get_le16(data);
+	vendor = get_le16(data + 2);
+	product = get_le16(data + 4);
+	version = get_le16(data + 6);
 
 	switch (source) {
 	case 0x0001:
 		str = "Bluetooth SIG assigned";
+		sprintf(modalias, "bluetooth:v%04Xp%04Xd%04X",
+						vendor, product, version);
 		break;
 	case 0x0002:
 		str = "USB Implementer's Forum assigned";
+		sprintf(modalias, "usb:v%04Xp%04Xd%04X",
+						vendor, product, version);
 		break;
 	default:
 		str = "Reserved";
+		modalias[0] = '\0';
 		break;
 	}
 
 	print_field("Device ID: %s (0x%4.4x)", str, source);
 
-	if (source == 0x0001)
-		packet_print_company("  Vendor", bt_get_le16(data + 2));
-	else
-		print_field("  Vendor: 0x%4.4x", bt_get_le16(data + 2));
+	if (!hwdb_get_vendor_model(modalias, &vendor_str, &product_str)) {
+		vendor_str = NULL;
+		product_str = NULL;
+	}
 
-	print_field("  Product: 0x%4.4x", bt_get_le16(data + 4));
-	print_field("  Version: 0x%4.4x", bt_get_le16(data + 6));
+	if (source != 0x0001) {
+		if (vendor_str)
+			print_field("  Vendor: %s (0x%4.4x)",
+						vendor_str, vendor);
+		else
+			print_field("  Vendor: 0x%4.4x", vendor);
+	} else
+		packet_print_company("  Vendor", vendor);
+
+	if (product_str)
+		print_field("  Product: %s (0x%4.4x)", product_str, product);
+	else
+		print_field("  Product: 0x%4.4x", product);
+
+	print_field("  Version: %u.%u.%u (0x%4.4x)",
+					(version & 0xff00) >> 8,
+					(version & 0x00f0) >> 4,
+					(version & 0x000f), version);
+
+	free(vendor_str);
+	free(product_str);
 }
 
 static void print_uuid16_list(const char *label, const void *data,
@@ -2485,7 +2912,7 @@ static void print_uuid16_list(const char *label, const void *data,
 	print_field("%s: %u entr%s", label, count, count == 1 ? "y" : "ies");
 
 	for (i = 0; i < count; i++) {
-		uint16_t uuid = bt_get_le16(data + (i * 2));
+		uint16_t uuid = get_le16(data + (i * 2));
 		print_field("  %s (0x%4.4x)", uuid16_to_str(uuid), uuid);
 	}
 }
@@ -2499,7 +2926,7 @@ static void print_uuid32_list(const char *label, const void *data,
 	print_field("%s: %u entr%s", label, count, count == 1 ? "y" : "ies");
 
 	for (i = 0; i < count; i++) {
-		uint32_t uuid = bt_get_le32(data + (i * 4));
+		uint32_t uuid = get_le32(data + (i * 4));
 		print_field("  %s (0x%8.8x)", uuid32_to_str(uuid), uuid);
 	}
 }
@@ -2516,9 +2943,9 @@ static void print_uuid128_list(const char *label, const void *data,
 		const uint8_t *uuid = data + (i * 16);
 
 		print_field("  %8.8x-%4.4x-%4.4x-%4.4x-%8.8x%4.4x",
-				bt_get_le32(&uuid[12]), bt_get_le16(&uuid[10]),
-				bt_get_le16(&uuid[8]), bt_get_le16(&uuid[6]),
-				bt_get_le32(&uuid[2]), bt_get_le16(&uuid[0]));
+				get_le32(&uuid[12]), get_le16(&uuid[10]),
+				get_le16(&uuid[8]), get_le16(&uuid[6]),
+				get_le32(&uuid[2]), get_le16(&uuid[0]));
 	}
 }
 
@@ -2663,13 +3090,13 @@ static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 		case BT_EIR_SSP_HASH_P192:
 			if (data_len < 16)
 				break;
-			print_hash("P-192", data);
+			print_hash_p192(data);
 			break;
 
 		case BT_EIR_SSP_RANDOMIZER_P192:
 			if (data_len < 16)
 				break;
-			print_randomizer("P-192", data);
+			print_randomizer_p192(data);
 			break;
 
 		case BT_EIR_DEVICE_ID:
@@ -2688,8 +3115,8 @@ static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 			if (data_len < 4)
 				break;
 			print_field("Slave Conn. Interval: 0x%4.4x - 0x%4.4x",
-							bt_get_le16(&data[0]),
-							bt_get_le16(&data[2]));
+							get_le16(&data[0]),
+							get_le16(&data[2]));
 			break;
 
 		case BT_EIR_SERVICE_UUID16:
@@ -2710,7 +3137,7 @@ static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 			if (data_len < 2)
 				break;
 			sprintf(label, "Service Data (UUID 0x%4.4x)",
-							bt_get_le16(&data[0]));
+							get_le16(&data[0]));
 			print_hex_field(label, &data[2], data_len - 2);
 			break;
 
@@ -2729,19 +3156,19 @@ static void print_eir(const uint8_t *eir, uint8_t eir_len, bool le)
 		case BT_EIR_GAP_APPEARANCE:
 			if (data_len < 2)
 				break;
-			print_field("Appearance: 0x%4.4x", bt_get_le16(data));
+			print_appearance(get_le16(data));
 			break;
 
 		case BT_EIR_SSP_HASH_P256:
 			if (data_len < 16)
 				break;
-			print_hash("P-256", data);
+			print_hash_p256(data);
 			break;
 
 		case BT_EIR_SSP_RANDOMIZER_P256:
 			if (data_len < 16)
 				break;
-			print_randomizer("P-256", data);
+			print_randomizer_p256(data);
 			break;
 
 		case BT_EIR_3D_INFO_DATA:
@@ -2846,22 +3273,17 @@ void packet_control(struct timeval *tv, uint16_t index, uint16_t opcode,
 	control_message(opcode, data, size);
 }
 
-struct monitor_new_index {
-	uint8_t  type;
-	uint8_t  bus;
-	bdaddr_t bdaddr;
-	char     name[8];
-} __attribute__((packed));
-
-#define MONITOR_NEW_INDEX_SIZE 16
-
-#define MONITOR_DEL_INDEX_SIZE 0
+static int addr2str(const uint8_t *addr, char *str)
+{
+	return sprintf(str, "%2.2X:%2.2X:%2.2X:%2.2X:%2.2X:%2.2X",
+			addr[5], addr[4], addr[3], addr[2], addr[1], addr[0]);
+}
 
 #define MAX_INDEX 16
 
 struct index_data {
-	uint8_t  type;
-	bdaddr_t bdaddr;
+	uint8_t type;
+	uint8_t bdaddr[6];
 };
 
 static struct index_data index_list[MAX_INDEX];
@@ -2869,7 +3291,7 @@ static struct index_data index_list[MAX_INDEX];
 void packet_monitor(struct timeval *tv, uint16_t index, uint16_t opcode,
 					const void *data, uint16_t size)
 {
-	const struct monitor_new_index *ni;
+	const struct btsnoop_opcode_new_index *ni;
 	char str[18], extra_str[24];
 
 	if (index_filter && index_number != index)
@@ -2886,17 +3308,17 @@ void packet_monitor(struct timeval *tv, uint16_t index, uint16_t opcode,
 
 		if (index < MAX_INDEX) {
 			index_list[index].type = ni->type;
-			bacpy(&index_list[index].bdaddr, &ni->bdaddr);
+			memcpy(index_list[index].bdaddr, ni->bdaddr, 6);
 		}
 
-		ba2str(&ni->bdaddr, str);
+		addr2str(ni->bdaddr, str);
 		packet_new_index(tv, index, str, ni->type, ni->bus, ni->name);
 		break;
 	case BTSNOOP_OPCODE_DEL_INDEX:
 		if (index < MAX_INDEX)
-			ba2str(&index_list[index].bdaddr, str);
+			addr2str(index_list[index].bdaddr, str);
 		else
-			ba2str(BDADDR_ANY, str);
+			sprintf(str, "00:00:00:00:00:00");
 
 		packet_del_index(tv, index, str);
 		break;
@@ -3025,7 +3447,7 @@ static void add_sco_conn_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_add_sco_conn *cmd = data;
 
 	print_handle(cmd->handle);
-	print_pkt_type(cmd->pkt_type);
+	print_pkt_type_sco(cmd->pkt_type);
 }
 
 static void create_conn_cancel_cmd(const void *data, uint8_t size)
@@ -3179,7 +3601,7 @@ static void read_lmp_handle_rsp(const void *data, uint8_t size)
 	print_status(rsp->status);
 	print_handle(rsp->handle);
 	print_field("LMP handle: %d", rsp->lmp_handle);
-	print_field("Reserved: %d", btohl(rsp->reserved));
+	print_field("Reserved: %d", le32_to_cpu(rsp->reserved));
 }
 
 static void setup_sync_conn_cmd(const void *data, uint8_t size)
@@ -3187,12 +3609,12 @@ static void setup_sync_conn_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_setup_sync_conn *cmd = data;
 
 	print_handle(cmd->handle);
-	print_field("Transmit bandwidth: %d", btohl(cmd->tx_bandwidth));
-	print_field("Receive bandwidth: %d", btohl(cmd->rx_bandwidth));
-	print_field("Max latency: %d", btohs(cmd->max_latency));
+	print_field("Transmit bandwidth: %d", le32_to_cpu(cmd->tx_bandwidth));
+	print_field("Receive bandwidth: %d", le32_to_cpu(cmd->rx_bandwidth));
+	print_field("Max latency: %d", le16_to_cpu(cmd->max_latency));
 	print_voice_setting(cmd->voice_setting);
 	print_retransmission_effort(cmd->retrans_effort);
-	print_pkt_type(cmd->pkt_type);
+	print_pkt_type_sco(cmd->pkt_type);
 }
 
 static void accept_sync_conn_request_cmd(const void *data, uint8_t size)
@@ -3200,12 +3622,12 @@ static void accept_sync_conn_request_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_accept_sync_conn_request *cmd = data;
 
 	print_bdaddr(cmd->bdaddr);
-	print_field("Transmit bandwidth: %d", btohl(cmd->tx_bandwidth));
-	print_field("Receive bandwidth: %d", btohl(cmd->rx_bandwidth));
-	print_field("Max latency: %d", btohs(cmd->max_latency));
+	print_field("Transmit bandwidth: %d", le32_to_cpu(cmd->tx_bandwidth));
+	print_field("Receive bandwidth: %d", le32_to_cpu(cmd->rx_bandwidth));
+	print_field("Max latency: %d", le16_to_cpu(cmd->max_latency));
 	print_voice_setting(cmd->voice_setting);
 	print_retransmission_effort(cmd->retrans_effort);
-	print_pkt_type(cmd->pkt_type);
+	print_pkt_type_sco(cmd->pkt_type);
 }
 
 static void reject_sync_conn_request_cmd(const void *data, uint8_t size)
@@ -3260,8 +3682,8 @@ static void remote_oob_data_request_reply_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_remote_oob_data_request_reply *cmd = data;
 
 	print_bdaddr(cmd->bdaddr);
-	print_hash("P-192", cmd->hash);
-	print_randomizer("P-192", cmd->randomizer);
+	print_hash_p192(cmd->hash);
+	print_randomizer_p192(cmd->randomizer);
 }
 
 static void remote_oob_data_request_neg_reply_cmd(const void *data, uint8_t size)
@@ -3382,7 +3804,7 @@ static void set_slave_broadcast_cmd(const void *data, uint8_t size)
 
 	print_field("Enable: 0x%2.2x", cmd->enable);
 	print_lt_addr(cmd->lt_addr);
-	print_field("LPO allowed: 0x%2.2x", cmd->lpo_allowed);
+	print_lpo_allowed(cmd->lpo_allowed);
 	print_pkt_type(cmd->pkt_type);
 	print_slot_625("Min interval", cmd->min_interval);
 	print_slot_625("Max interval", cmd->max_interval);
@@ -3406,8 +3828,9 @@ static void set_slave_broadcast_receive_cmd(const void *data, uint8_t size)
 	print_bdaddr(cmd->bdaddr);
 	print_lt_addr(cmd->lt_addr);
 	print_interval(cmd->interval);
-	print_field("Offset: 0x%8.8x", btohl(cmd->offset));
-	print_field("Next broadcast instant: 0x%4.4x", btohs(cmd->instant));
+	print_field("Offset: 0x%8.8x", le32_to_cpu(cmd->offset));
+	print_field("Next broadcast instant: 0x%4.4x",
+					le16_to_cpu(cmd->instant));
 	print_slot_625("Supervision timeout", cmd->timeout);
 	print_field("Remote timing accuracy: %d ppm", cmd->accuracy);
 	print_field("Skip: 0x%2.2x", cmd->skip);
@@ -3439,10 +3862,10 @@ static void remote_oob_ext_data_request_reply_cmd(const void *data, uint8_t size
 	const struct bt_hci_cmd_remote_oob_ext_data_request_reply *cmd = data;
 
 	print_bdaddr(cmd->bdaddr);
-	print_hash("P-192", cmd->hash192);
-	print_randomizer("P-192", cmd->randomizer192);
-	print_hash("P-256", cmd->hash256);
-	print_randomizer("P-256", cmd->randomizer256);
+	print_hash_p192(cmd->hash192);
+	print_randomizer_p192(cmd->randomizer192);
+	print_hash_p256(cmd->hash256);
+	print_randomizer_p256(cmd->randomizer256);
 }
 
 static void hold_mode_cmd(const void *data, uint8_t size)
@@ -3497,10 +3920,10 @@ static void qos_setup_cmd(const void *data, uint8_t size)
 
 	print_service_type(cmd->service_type);
 
-	print_field("Token rate: %d", btohl(cmd->token_rate));
-	print_field("Peak bandwidth: %d", btohl(cmd->peak_bandwidth));
-	print_field("Latency: %d", btohl(cmd->latency));
-	print_field("Delay variation: %d", btohl(cmd->delay_variation));
+	print_field("Token rate: %d", le32_to_cpu(cmd->token_rate));
+	print_field("Peak bandwidth: %d", le32_to_cpu(cmd->peak_bandwidth));
+	print_field("Latency: %d", le32_to_cpu(cmd->latency));
+	print_field("Delay variation: %d", le32_to_cpu(cmd->delay_variation));
 }
 
 static void role_discovery_cmd(const void *data, uint8_t size)
@@ -3584,10 +4007,11 @@ static void flow_spec_cmd(const void *data, uint8_t size)
 	print_flow_direction(cmd->direction);
 	print_service_type(cmd->service_type);
 
-	print_field("Token rate: %d", btohl(cmd->token_rate));
-	print_field("Token bucket size: %d", btohl(cmd->token_bucket_size));
-	print_field("Peak bandwidth: %d", btohl(cmd->peak_bandwidth));
-	print_field("Access latency: %d", btohl(cmd->access_latency));
+	print_field("Token rate: %d", le32_to_cpu(cmd->token_rate));
+	print_field("Token bucket size: %d",
+					le32_to_cpu(cmd->token_bucket_size));
+	print_field("Peak bandwidth: %d", le32_to_cpu(cmd->peak_bandwidth));
+	print_field("Access latency: %d", le32_to_cpu(cmd->access_latency));
 }
 
 static void sniff_subrating_cmd(const void *data, uint8_t size)
@@ -3742,8 +4166,8 @@ static void read_stored_link_key_rsp(const void *data, uint8_t size)
 	const struct bt_hci_rsp_read_stored_link_key *rsp = data;
 
 	print_status(rsp->status);
-	print_field("Max num keys: %d", btohs(rsp->max_num_keys));
-	print_field("Num keys: %d", btohs(rsp->num_keys));
+	print_field("Max num keys: %d", le16_to_cpu(rsp->max_num_keys));
+	print_field("Num keys: %d", le16_to_cpu(rsp->num_keys));
 }
 
 static void write_stored_link_key_cmd(const void *data, uint8_t size)
@@ -3776,7 +4200,7 @@ static void delete_stored_link_key_rsp(const void *data, uint8_t size)
 	const struct bt_hci_rsp_delete_stored_link_key *rsp = data;
 
 	print_status(rsp->status);
-	print_field("Num keys: %d", btohs(rsp->num_keys));
+	print_field("Num keys: %d", le16_to_cpu(rsp->num_keys));
 }
 
 static void write_local_name_cmd(const void *data, uint8_t size)
@@ -4039,9 +4463,11 @@ static void host_buffer_size_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_host_buffer_size *cmd = data;
 
 	print_field("ACL MTU: %-4d ACL max packet: %d",
-				btohs(cmd->acl_mtu), btohs(cmd->acl_max_pkt));
+					le16_to_cpu(cmd->acl_mtu),
+					le16_to_cpu(cmd->acl_max_pkt));
 	print_field("SCO MTU: %-4d SCO max packet: %d",
-				cmd->sco_mtu, btohs(cmd->sco_max_pkt));
+					cmd->sco_mtu,
+					le16_to_cpu(cmd->sco_max_pkt));
 }
 
 static void read_link_supv_timeout_cmd(const void *data, uint8_t size)
@@ -4248,8 +4674,8 @@ static void read_local_oob_data_rsp(const void *data, uint8_t size)
 	const struct bt_hci_rsp_read_local_oob_data *rsp = data;
 
 	print_status(rsp->status);
-	print_hash("P-192", rsp->hash);
-	print_randomizer("P-192", rsp->randomizer);
+	print_hash_p192(rsp->hash);
+	print_randomizer_p192(rsp->randomizer);
 }
 
 static void read_inquiry_resp_tx_power_rsp(const void *data, uint8_t size)
@@ -4445,7 +4871,8 @@ static void read_sync_train_params_rsp(const void *data, uint8_t size)
 	print_status(rsp->status);
 	print_interval(rsp->interval);
 	print_field("Timeout: %.3f msec (0x%8.8x)",
-			btohl(rsp->timeout) * 0.625, btohl(rsp->timeout));
+					le32_to_cpu(rsp->timeout) * 0.625,
+					le32_to_cpu(rsp->timeout));
 	print_field("Service Data: 0x%2.2x", rsp->service_data);
 }
 
@@ -4456,7 +4883,8 @@ static void write_sync_train_params_cmd(const void *data, uint8_t size)
 	print_slot_625("Min interval", cmd->min_interval);
 	print_slot_625("Max interval", cmd->max_interval);
 	print_field("Timeout: %.3f msec (0x%8.8x)",
-			btohl(cmd->timeout) * 0.625, btohl(cmd->timeout));
+					le32_to_cpu(cmd->timeout) * 0.625,
+					le32_to_cpu(cmd->timeout));
 	print_field("Service Data: 0x%2.2x", cmd->service_data);
 }
 
@@ -4520,10 +4948,10 @@ static void read_local_oob_ext_data_rsp(const void *data, uint8_t size)
 	const struct bt_hci_rsp_read_local_oob_ext_data *rsp = data;
 
 	print_status(rsp->status);
-	print_hash("P-192", rsp->hash192);
-	print_randomizer("P-192", rsp->randomizer192);
-	print_hash("P-256", rsp->hash256);
-	print_randomizer("P-256", rsp->randomizer256);
+	print_hash_p192(rsp->hash192);
+	print_randomizer_p192(rsp->randomizer192);
+	print_hash_p256(rsp->hash256);
+	print_randomizer_p256(rsp->randomizer256);
 }
 
 static void read_local_version_rsp(const void *data, uint8_t size)
@@ -4583,9 +5011,11 @@ static void read_buffer_size_rsp(const void *data, uint8_t size)
 
 	print_status(rsp->status);
 	print_field("ACL MTU: %-4d ACL max packet: %d",
-				btohs(rsp->acl_mtu), btohs(rsp->acl_max_pkt));
+					le16_to_cpu(rsp->acl_mtu),
+					le16_to_cpu(rsp->acl_max_pkt));
 	print_field("SCO MTU: %-4d SCO max packet: %d",
-				rsp->sco_mtu, btohs(rsp->sco_max_pkt));
+					rsp->sco_mtu,
+					le16_to_cpu(rsp->sco_max_pkt));
 }
 
 static void read_country_code_rsp(const void *data, uint8_t size)
@@ -4623,9 +5053,9 @@ static void read_data_block_size_rsp(const void *data, uint8_t size)
 	const struct bt_hci_rsp_read_data_block_size *rsp = data;
 
 	print_status(rsp->status);
-	print_field("Max ACL length: %d", btohs(rsp->max_acl_len));
-	print_field("Block length: %d", btohs(rsp->block_len));
-	print_field("Num blocks: %d", btohs(rsp->num_blocks));
+	print_field("Max ACL length: %d", le16_to_cpu(rsp->max_acl_len));
+	print_field("Block length: %d", le16_to_cpu(rsp->block_len));
+	print_field("Num blocks: %d", le16_to_cpu(rsp->num_blocks));
 }
 
 static void read_failed_contact_counter_cmd(const void *data, uint8_t size)
@@ -4641,7 +5071,7 @@ static void read_failed_contact_counter_rsp(const void *data, uint8_t size)
 
 	print_status(rsp->status);
 	print_handle(rsp->handle);
-	print_field("Counter: %u", htobs(rsp->counter));
+	print_field("Counter: %u", le16_to_cpu(rsp->counter));
 }
 
 static void reset_failed_contact_counter_cmd(const void *data, uint8_t size)
@@ -4711,23 +5141,9 @@ static void read_afh_channel_map_rsp(const void *data, uint8_t size)
 static void read_clock_cmd(const void *data, uint8_t size)
 {
 	const struct bt_hci_cmd_read_clock *cmd = data;
-	const char *str;
 
 	print_handle(cmd->handle);
-
-	switch (cmd->type) {
-	case 0x00:
-		str = "Local clock";
-		break;
-	case 0x01:
-		str = "Piconet clock";
-		break;
-	default:
-		str = "Reserved";
-		break;
-	}
-
-	print_field("Type: %s (0x%2.2x)", str, cmd->type);
+	print_clock_type(cmd->type);
 }
 
 static void read_clock_rsp(const void *data, uint8_t size)
@@ -4764,10 +5180,11 @@ static void read_local_amp_info_rsp(const void *data, uint8_t size)
 	print_status(rsp->status);
 	print_amp_status(rsp->amp_status);
 
-	print_field("Total bandwidth: %d kbps", btohl(rsp->total_bw));
-	print_field("Max guaranteed bandwidth: %d kbps", btohl(rsp->max_bw));
-	print_field("Min latency: %d", btohl(rsp->min_latency));
-	print_field("Max PDU size: %d", btohl(rsp->max_pdu));
+	print_field("Total bandwidth: %d kbps", le32_to_cpu(rsp->total_bw));
+	print_field("Max guaranteed bandwidth: %d kbps",
+						le32_to_cpu(rsp->max_bw));
+	print_field("Min latency: %d", le32_to_cpu(rsp->min_latency));
+	print_field("Max PDU size: %d", le32_to_cpu(rsp->max_pdu));
 
 	switch (rsp->amp_type) {
 	case 0x00:
@@ -4783,10 +5200,11 @@ static void read_local_amp_info_rsp(const void *data, uint8_t size)
 
 	print_field("Controller type: %s (0x%2.2x)", str, rsp->amp_type);
 
-	print_field("PAL capabilities: 0x%4.4x", btohs(rsp->pal_cap));
-	print_field("Max ASSOC length: %d", btohs(rsp->max_assoc_len));
-	print_field("Max flush timeout: %d", btohl(rsp->max_flush_to));
-	print_field("Best effort flush timeout: %d", btohl(rsp->be_flush_to));
+	print_field("PAL capabilities: 0x%4.4x", le16_to_cpu(rsp->pal_cap));
+	print_field("Max ASSOC length: %d", le16_to_cpu(rsp->max_assoc_len));
+	print_field("Max flush timeout: %d", le32_to_cpu(rsp->max_flush_to));
+	print_field("Best effort flush timeout: %d",
+					le32_to_cpu(rsp->be_flush_to));
 }
 
 static void read_local_amp_assoc_cmd(const void *data, uint8_t size)
@@ -4794,8 +5212,8 @@ static void read_local_amp_assoc_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_read_local_amp_assoc *cmd = data;
 
 	print_phy_handle(cmd->phy_handle);
-	print_field("Length so far: %d", btohs(cmd->len_so_far));
-	print_field("Max ASSOC length: %d", btohs(cmd->max_assoc_len));
+	print_field("Length so far: %d", le16_to_cpu(cmd->len_so_far));
+	print_field("Max ASSOC length: %d", le16_to_cpu(cmd->max_assoc_len));
 }
 
 static void read_local_amp_assoc_rsp(const void *data, uint8_t size)
@@ -4804,7 +5222,8 @@ static void read_local_amp_assoc_rsp(const void *data, uint8_t size)
 
 	print_status(rsp->status);
 	print_phy_handle(rsp->phy_handle);
-	print_field("Remaining ASSOC length: %d", btohs(rsp->remain_assoc_len));
+	print_field("Remaining ASSOC length: %d",
+					le16_to_cpu(rsp->remain_assoc_len));
 
 	packet_hexdump(data + 4, size - 4);
 }
@@ -4814,8 +5233,9 @@ static void write_remote_amp_assoc_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_write_remote_amp_assoc *cmd = data;
 
 	print_phy_handle(cmd->phy_handle);
-	print_field("Length so far: %d", btohs(cmd->len_so_far));
-	print_field("Remaining ASSOC length: %d", btohs(cmd->remain_assoc_len));
+	print_field("Length so far: %d", le16_to_cpu(cmd->len_so_far));
+	print_field("Remaining ASSOC length: %d",
+					le16_to_cpu(cmd->remain_assoc_len));
 
 	packet_hexdump(data + 5, size - 5);
 }
@@ -4826,6 +5246,32 @@ static void write_remote_amp_assoc_rsp(const void *data, uint8_t size)
 
 	print_status(rsp->status);
 	print_phy_handle(rsp->phy_handle);
+}
+
+static void set_triggered_clock_capture_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_set_triggered_clock_capture *cmd = data;
+	const char *str;
+
+	print_handle(cmd->handle);
+
+	switch (cmd->enable) {
+	case 0x00:
+		str = "Disabled";
+		break;
+	case 0x01:
+		str = "Enabled";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Capture: %s (0x%2.2x)", str, cmd->enable);
+
+	print_clock_type(cmd->type);
+	print_lpo_allowed(cmd->lpo_allowed);
+	print_field("Clock captures to filter: %u", cmd->num_filter);
 }
 
 static void write_ssp_debug_mode_cmd(const void *data, uint8_t size)
@@ -4847,7 +5293,7 @@ static void le_read_buffer_size_rsp(const void *data, uint8_t size)
 	const struct bt_hci_rsp_le_read_buffer_size *rsp = data;
 
 	print_status(rsp->status);
-	print_field("Data packet length: %d", btohs(rsp->le_mtu));
+	print_field("Data packet length: %d", le16_to_cpu(rsp->le_mtu));
 	print_field("Num data packets: %d", rsp->le_max_pkt);
 }
 
@@ -5099,9 +5545,10 @@ static void le_create_conn_cmd(const void *data, uint8_t size)
 
 	print_slot_125("Min connection interval", cmd->min_interval);
 	print_slot_125("Max connection interval", cmd->max_interval);
-	print_field("Connection latency: 0x%4.4x", btohs(cmd->latency));
+	print_field("Connection latency: 0x%4.4x", le16_to_cpu(cmd->latency));
 	print_field("Supervision timeout: %d msec (0x%4.4x)",
-		btohs(cmd->supv_timeout) * 10, btohs(cmd->supv_timeout));
+					le16_to_cpu(cmd->supv_timeout) * 10,
+					le16_to_cpu(cmd->supv_timeout));
 	print_slot_625("Min connection length", cmd->min_length);
 	print_slot_625("Max connection length", cmd->max_length);
 }
@@ -5137,9 +5584,10 @@ static void le_conn_update_cmd(const void *data, uint8_t size)
 	print_handle(cmd->handle);
 	print_slot_125("Min connection interval", cmd->min_interval);
 	print_slot_125("Max connection interval", cmd->max_interval);
-	print_field("Connection latency: 0x%4.4x", btohs(cmd->latency));
+	print_field("Connection latency: 0x%4.4x", le16_to_cpu(cmd->latency));
 	print_field("Supervision timeout: %d msec (0x%4.4x)",
-		btohs(cmd->supv_timeout) * 10, btohs(cmd->supv_timeout));
+					le16_to_cpu(cmd->supv_timeout) * 10,
+					le16_to_cpu(cmd->supv_timeout));
 	print_slot_625("Min connection length", cmd->min_length);
 	print_slot_625("Max connection length", cmd->max_length);
 }
@@ -5203,9 +5651,8 @@ static void le_start_encrypt_cmd(const void *data, uint8_t size)
 	const struct bt_hci_cmd_le_start_encrypt *cmd = data;
 
 	print_handle(cmd->handle);
-	print_random_number(cmd->number);
-	print_field("Encryption diversifier: 0x%4.4x",
-					btohs(cmd->diversifier));
+	print_random_number(cmd->rand);
+	print_encrypted_diversifier(cmd->ediv);
 	print_key("Long term key", cmd->ltk);
 }
 
@@ -5271,7 +5718,7 @@ static void le_test_end_rsp(const void *data, uint8_t size)
 	const struct bt_hci_rsp_le_test_end *rsp = data;
 
 	print_status(rsp->status);
-	print_field("Number of packets: %d", btohs(rsp->num_packets));
+	print_field("Number of packets: %d", le16_to_cpu(rsp->num_packets));
 }
 
 struct opcode_data {
@@ -5792,7 +6239,9 @@ static const struct opcode_data opcode_table[] = {
 				write_remote_amp_assoc_cmd, 6, false,
 				write_remote_amp_assoc_rsp, 2, true },
 	{ 0x140c, 243, "Get MWS Transport Layer Configuration" },
-	{ 0x140d, 245, "Set Triggered Clock Capture" },
+	{ 0x140d, 245, "Set Triggered Clock Capture",
+				set_triggered_clock_capture_cmd, 6, true,
+				status_rsp, 1, true },
 
 	/* OGF 6 - Testing */
 	{ 0x1801, 128, "Read Loopback Mode" },
@@ -5946,7 +6395,7 @@ static void conn_complete_evt(const void *data, uint8_t size)
 	print_encr_mode(evt->encr_mode);
 
 	if (evt->status == 0x00)
-		assign_handle(btohs(evt->handle), 0x00);
+		assign_handle(le16_to_cpu(evt->handle), 0x00);
 }
 
 static void conn_request_evt(const void *data, uint8_t size)
@@ -5967,7 +6416,7 @@ static void disconnect_complete_evt(const void *data, uint8_t size)
 	print_reason(evt->reason);
 
 	if (evt->status == 0x00)
-		release_handle(btohs(evt->handle));
+		release_handle(le16_to_cpu(evt->handle));
 }
 
 static void auth_complete_evt(const void *data, uint8_t size)
@@ -6042,16 +6491,16 @@ static void qos_setup_complete_evt(const void *data, uint8_t size)
 
 	print_service_type(evt->service_type);
 
-	print_field("Token rate: %d", btohl(evt->token_rate));
-	print_field("Peak bandwidth: %d", btohl(evt->peak_bandwidth));
-	print_field("Latency: %d", btohl(evt->latency));
-	print_field("Delay variation: %d", btohl(evt->delay_variation));
+	print_field("Token rate: %d", le32_to_cpu(evt->token_rate));
+	print_field("Peak bandwidth: %d", le32_to_cpu(evt->peak_bandwidth));
+	print_field("Latency: %d", le32_to_cpu(evt->latency));
+	print_field("Delay variation: %d", le32_to_cpu(evt->delay_variation));
 }
 
 static void cmd_complete_evt(const void *data, uint8_t size)
 {
 	const struct bt_hci_evt_cmd_complete *evt = data;
-	uint16_t opcode = btohs(evt->opcode);
+	uint16_t opcode = le16_to_cpu(evt->opcode);
 	uint16_t ogf = cmd_opcode_ogf(opcode);
 	uint16_t ocf = cmd_opcode_ocf(opcode);
 	const struct opcode_data *opcode_data = NULL;
@@ -6072,15 +6521,32 @@ static void cmd_complete_evt(const void *data, uint8_t size)
 			opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
 		opcode_str = opcode_data->str;
 	} else {
-		opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
-		opcode_str = "Unknown";
+		if (ogf == 0x3f) {
+			opcode_color = COLOR_HCI_COMMAND;
+			opcode_str = "Vendor";
+		} else {
+			opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
+			opcode_str = "Unknown";
+		}
 	}
 
 	print_indent(6, opcode_color, "", opcode_str, COLOR_OFF,
 			" (0x%2.2x|0x%4.4x) ncmd %d", ogf, ocf, evt->ncmd);
 
 	if (!opcode_data || !opcode_data->rsp_func) {
-		packet_hexdump(data + 3, size - 3);
+		if (size > 3) {
+			uint8_t status = *((uint8_t *) (data + 3));
+
+			print_status(status);
+			packet_hexdump(data + 4, size - 4);
+		}
+		return;
+	}
+
+	if (opcode_data->rsp_size > 1 && size - 3 == 1) {
+		uint8_t status = *((uint8_t *) (data + 3));
+
+		print_status(status);
 		return;
 	}
 
@@ -6104,7 +6570,7 @@ static void cmd_complete_evt(const void *data, uint8_t size)
 static void cmd_status_evt(const void *data, uint8_t size)
 {
 	const struct bt_hci_evt_cmd_status *evt = data;
-	uint16_t opcode = btohs(evt->opcode);
+	uint16_t opcode = le16_to_cpu(evt->opcode);
 	uint16_t ogf = cmd_opcode_ogf(opcode);
 	uint16_t ocf = cmd_opcode_ocf(opcode);
 	const struct opcode_data *opcode_data = NULL;
@@ -6122,8 +6588,13 @@ static void cmd_status_evt(const void *data, uint8_t size)
 		opcode_color = COLOR_HCI_COMMAND;
 		opcode_str = opcode_data->str;
 	} else {
-		opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
-		opcode_str = "Unknown";
+		if (ogf == 0x3f) {
+			opcode_color = COLOR_HCI_COMMAND;
+			opcode_str = "Vendor";
+		} else {
+			opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
+			opcode_str = "Unknown";
+		}
 	}
 
 	print_indent(6, opcode_color, "", opcode_str, COLOR_OFF,
@@ -6161,7 +6632,7 @@ static void num_completed_packets_evt(const void *data, uint8_t size)
 
 	print_field("Num handles: %d", evt->num_handles);
 	print_handle(evt->handle);
-	print_field("Count: %d", btohs(evt->count));
+	print_field("Count: %d", le16_to_cpu(evt->count));
 
 	if (size > sizeof(*evt))
 		packet_hexdump(data + sizeof(*evt), size - sizeof(*evt));
@@ -6281,10 +6752,11 @@ static void flow_spec_complete_evt(const void *data, uint8_t size)
 	print_flow_direction(evt->direction);
 	print_service_type(evt->service_type);
 
-	print_field("Token rate: %d", btohl(evt->token_rate));
-	print_field("Token bucket size: %d", btohl(evt->token_bucket_size));
-	print_field("Peak bandwidth: %d", btohl(evt->peak_bandwidth));
-	print_field("Access latency: %d", btohl(evt->access_latency));
+	print_field("Token rate: %d", le32_to_cpu(evt->token_rate));
+	print_field("Token bucket size: %d",
+					le32_to_cpu(evt->token_bucket_size));
+	print_field("Peak bandwidth: %d", le32_to_cpu(evt->peak_bandwidth));
+	print_field("Access latency: %d", le32_to_cpu(evt->access_latency));
 }
 
 static void inquiry_result_with_rssi_evt(const void *data, uint8_t size)
@@ -6323,8 +6795,8 @@ static void sync_conn_complete_evt(const void *data, uint8_t size)
 	print_link_type(evt->link_type);
 	print_field("Transmission interval: 0x%2.2x", evt->tx_interval);
 	print_field("Retransmission window: 0x%2.2x", evt->retrans_window);
-	print_field("RX packet length: %d", btohs(evt->rx_pkt_len));
-	print_field("TX packet length: %d", btohs(evt->tx_pkt_len));
+	print_field("RX packet length: %d", le16_to_cpu(evt->rx_pkt_len));
+	print_field("TX packet length: %d", le16_to_cpu(evt->tx_pkt_len));
 	print_air_mode(evt->air_mode);
 }
 
@@ -6336,8 +6808,8 @@ static void sync_conn_changed_evt(const void *data, uint8_t size)
 	print_handle(evt->handle);
 	print_field("Transmission interval: 0x%2.2x", evt->tx_interval);
 	print_field("Retransmission window: 0x%2.2x", evt->retrans_window);
-	print_field("RX packet length: %d", btohs(evt->rx_pkt_len));
-	print_field("TX packet length: %d", btohs(evt->tx_pkt_len));
+	print_field("RX packet length: %d", le16_to_cpu(evt->rx_pkt_len));
+	print_field("TX packet length: %d", le16_to_cpu(evt->tx_pkt_len));
 }
 
 static void sniff_subrating_evt(const void *data, uint8_t size)
@@ -6576,7 +7048,8 @@ static void num_completed_data_blocks_evt(const void *data, uint8_t size)
 {
 	const struct bt_hci_evt_num_completed_data_blocks *evt = data;
 
-	print_field("Total num data blocks: %d", btohs(evt->total_num_blocks));
+	print_field("Total num data blocks: %d",
+				le16_to_cpu(evt->total_num_blocks));
 	print_field("Num handles: %d", evt->num_handles);
 	print_handle(evt->handle);
 	print_field("Num packets: %d", evt->num_packets);
@@ -6616,10 +7089,11 @@ static void sync_train_received_evt(const void *data, uint8_t size)
 
 	print_status(evt->status);
 	print_bdaddr(evt->bdaddr);
-	print_field("Offset: 0x%8.8x", btohl(evt->offset));
+	print_field("Offset: 0x%8.8x", le32_to_cpu(evt->offset));
 	print_channel_map(evt->map);
 	print_lt_addr(evt->lt_addr);
-	print_field("Next broadcast instant: 0x%4.4x", btohs(evt->instant));
+	print_field("Next broadcast instant: 0x%4.4x",
+					le16_to_cpu(evt->instant));
 	print_interval(evt->interval);
 	print_field("Service Data: 0x%2.2x", evt->service_data);
 }
@@ -6630,8 +7104,8 @@ static void slave_broadcast_receive_evt(const void *data, uint8_t size)
 
 	print_bdaddr(evt->bdaddr);
 	print_lt_addr(evt->lt_addr);
-	print_field("Clock: 0x%8.8x", btohl(evt->clock));
-	print_field("Offset: 0x%8.8x", btohl(evt->offset));
+	print_field("Clock: 0x%8.8x", le32_to_cpu(evt->clock));
+	print_field("Offset: 0x%8.8x", le32_to_cpu(evt->offset));
 	print_field("Receive status: 0x%2.2x", evt->status);
 	print_broadcast_fragment(evt->fragment);
 	print_field("Length: %d", evt->length);
@@ -6670,6 +7144,14 @@ static void slave_broadcast_channel_map_change_evt(const void *data, uint8_t siz
 	print_channel_map(evt->map);
 }
 
+static void inquiry_response_notify_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_inquiry_response_notify *evt = data;
+
+	print_iac(evt->lap);
+	print_rssi(evt->rssi);
+}
+
 static void auth_payload_timeout_expired_evt(const void *data, uint8_t size)
 {
 	const struct bt_hci_evt_auth_payload_timeout_expired *evt = data;
@@ -6689,11 +7171,12 @@ static void le_conn_complete_evt(const void *data, uint8_t size)
 	print_slot_125("Connection interval", evt->interval);
 	print_slot_125("Connection latency", evt->latency);
 	print_field("Supervision timeout: %d msec (0x%4.4x)",
-		btohs(evt->supv_timeout) * 10, btohs(evt->supv_timeout));
+					le16_to_cpu(evt->supv_timeout) * 10,
+					le16_to_cpu(evt->supv_timeout));
 	print_field("Master clock accuracy: 0x%2.2x", evt->clock_accuracy);
 
 	if (evt->status == 0x00)
-		assign_handle(btohs(evt->handle), 0x01);
+		assign_handle(le16_to_cpu(evt->handle), 0x01);
 }
 
 static void le_adv_report_evt(const void *data, uint8_t size)
@@ -6705,6 +7188,7 @@ static void le_adv_report_evt(const void *data, uint8_t size)
 
 	print_num_reports(evt->num_reports);
 
+report:
 	switch (evt->event_type) {
 	case 0x00:
 		str = "Connectable undirected - ADV_IND";
@@ -6737,8 +7221,12 @@ static void le_adv_report_evt(const void *data, uint8_t size)
 
 	evt_len = sizeof(*evt) + evt->data_len + 1;
 
-	if (size > evt_len)
-		packet_hexdump(data + evt_len, size - evt_len);
+	if (size > evt_len) {
+		data += evt_len - 1;
+		size -= evt_len - 1;
+		evt = data;
+		goto report;
+	}
 }
 
 static void le_conn_update_complete_evt(const void *data, uint8_t size)
@@ -6750,7 +7238,8 @@ static void le_conn_update_complete_evt(const void *data, uint8_t size)
 	print_slot_125("Connection interval", evt->interval);
 	print_slot_125("Connection latency", evt->latency);
 	print_field("Supervision timeout: %d msec (0x%4.4x)",
-		btohs(evt->supv_timeout) * 10, btohs(evt->supv_timeout));
+					le16_to_cpu(evt->supv_timeout) * 10,
+					le16_to_cpu(evt->supv_timeout));
 }
 
 static void le_remote_features_complete_evt(const void *data, uint8_t size)
@@ -6767,9 +7256,8 @@ static void le_long_term_key_request_evt(const void *data, uint8_t size)
 	const struct bt_hci_evt_le_long_term_key_request *evt = data;
 
 	print_handle(evt->handle);
-	print_random_number(evt->number);
-	print_field("Encryption diversifier: 0x%4.4x",
-					btohs(evt->diversifier));
+	print_random_number(evt->rand);
+	print_encrypted_diversifier(evt->ediv);
 }
 
 struct subevent_data {
@@ -7003,7 +7491,8 @@ static const struct event_data event_table[] = {
 				slave_page_response_timeout_evt, 0, true },
 	{ 0x55, "Connectionless Slave Broadcast Channel Map Change",
 				slave_broadcast_channel_map_change_evt, 10, true },
-	{ 0x56, "Inquiry Response Notification" },
+	{ 0x56, "Inquiry Response Notification",
+				inquiry_response_notify_evt, 4, true },
 	{ 0x57, "Authenticated Payload Timeout Expired",
 				auth_payload_timeout_expired_evt, 2, true },
 	{ 0xfe, "Testing" },
@@ -7033,7 +7522,7 @@ void packet_hci_command(struct timeval *tv, uint16_t index,
 					const void *data, uint16_t size)
 {
 	const hci_command_hdr *hdr = data;
-	uint16_t opcode = btohs(hdr->opcode);
+	uint16_t opcode = le16_to_cpu(hdr->opcode);
 	uint16_t ogf = cmd_opcode_ogf(opcode);
 	uint16_t ocf = cmd_opcode_ocf(opcode);
 	const struct opcode_data *opcode_data = NULL;
@@ -7066,8 +7555,13 @@ void packet_hci_command(struct timeval *tv, uint16_t index,
 			opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
 		opcode_str = opcode_data->str;
 	} else {
-		opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
-		opcode_str = "Unknown";
+		if (ogf == 0x3f) {
+			opcode_color = COLOR_HCI_COMMAND;
+			opcode_str = "Vendor";
+		} else {
+			opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
+			opcode_str = "Unknown";
+		}
 	}
 
 	sprintf(extra_str, "(0x%2.2x|0x%4.4x) plen %d", ogf, ocf, hdr->plen);
@@ -7076,6 +7570,13 @@ void packet_hci_command(struct timeval *tv, uint16_t index,
 							opcode_str, extra_str);
 
 	if (!opcode_data || !opcode_data->cmd_func) {
+		packet_hexdump(data, size);
+		return;
+	}
+
+	if (size != hdr->plen) {
+		print_text(COLOR_ERROR, "invalid packet size (%u != %u)", size,
+								hdr->plen);
 		packet_hexdump(data, size);
 		return;
 	}
@@ -7145,6 +7646,13 @@ void packet_hci_event(struct timeval *tv, uint16_t index,
 		return;
 	}
 
+	if (size != hdr->plen) {
+		print_text(COLOR_ERROR, "invalid packet size (%u != %u)", size,
+								hdr->plen);
+		packet_hexdump(data, size);
+		return;
+	}
+
 	if (event_data->fixed) {
 		if (hdr->plen != event_data->size) {
 			print_text(COLOR_ERROR, "invalid packet size");
@@ -7166,8 +7674,8 @@ void packet_hci_acldata(struct timeval *tv, uint16_t index, bool in,
 					const void *data, uint16_t size)
 {
 	const struct bt_hci_acl_hdr *hdr = data;
-	uint16_t handle = btohs(hdr->handle);
-	uint16_t dlen = btohs(hdr->dlen);
+	uint16_t handle = le16_to_cpu(hdr->handle);
+	uint16_t dlen = le16_to_cpu(hdr->dlen);
 	uint8_t flags = acl_flags(handle);
 	char handle_str[16], extra_str[32];
 
@@ -7209,7 +7717,7 @@ void packet_hci_scodata(struct timeval *tv, uint16_t index, bool in,
 					const void *data, uint16_t size)
 {
 	const hci_sco_hdr *hdr = data;
-	uint16_t handle = btohs(hdr->handle);
+	uint16_t handle = le16_to_cpu(hdr->handle);
 	uint8_t flags = acl_flags(handle);
 	char handle_str[16], extra_str[32];
 

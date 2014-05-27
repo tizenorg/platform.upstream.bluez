@@ -20,7 +20,6 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <stdbool.h>
-#include <errno.h>
 #include <poll.h>
 #include <unistd.h>
 #include <stdint.h>
@@ -31,10 +30,10 @@
 #include "hal.h"
 #include "hal-msg.h"
 #include "hal-log.h"
+#include "ipc-common.h"
 #include "hal-ipc.h"
 
-#define CONNECT_TIMEOUT (5 * 1000)
-#define SERVICE_NAME "bluetoothd"
+#define CONNECT_TIMEOUT (10 * 1000)
 
 static int cmd_sk = -1;
 static int notif_sk = -1;
@@ -65,7 +64,7 @@ void hal_ipc_unregister(uint8_t service)
 
 static void handle_msg(void *buf, ssize_t len)
 {
-	struct hal_hdr *msg = buf;
+	struct ipc_hdr *msg = buf;
 	const struct hal_ipc_handler *handler;
 	uint8_t opcode;
 
@@ -100,8 +99,10 @@ static void handle_msg(void *buf, ssize_t len)
 		exit(EXIT_FAILURE);
 	}
 
-	/* opcode is used as table offset and must be adjusted as events start
-	 * with HAL_MINIMUM_EVENT offset */
+	/*
+	 * opcode is used as table offset and must be adjusted as events start
+	 * with HAL_MINIMUM_EVENT offset
+	 */
 	opcode = msg->opcode - HAL_MINIMUM_EVENT;
 
 	/* if opcode is valid */
@@ -131,7 +132,7 @@ static void *notification_handler(void *data)
 	struct iovec iv;
 	struct cmsghdr *cmsg;
 	char cmsgbuf[CMSG_SPACE(sizeof(int))];
-	char buf[BLUEZ_HAL_MTU];
+	char buf[IPC_MTU];
 	ssize_t ret;
 	int fd;
 
@@ -160,8 +161,12 @@ static void *notification_handler(void *data)
 
 		/* socket was shutdown */
 		if (ret == 0) {
-			if (cmd_sk == -1)
+			pthread_mutex_lock(&cmd_sk_mutex);
+			if (cmd_sk == -1) {
+				pthread_mutex_unlock(&cmd_sk_mutex);
 				break;
+			}
+			pthread_mutex_unlock(&cmd_sk_mutex);
 
 			error("Notification socket closed, aborting");
 			exit(EXIT_FAILURE);
@@ -259,8 +264,8 @@ bool hal_ipc_init(void)
 	}
 
 	/* Start Android Bluetooth daemon service */
-	if (property_set("ctl.start", SERVICE_NAME) < 0) {
-		error("Failed to start service %s", SERVICE_NAME);
+	if (property_set("bluetooth.start", "daemon") < 0) {
+		error("Failed to set bluetooth.start=daemon");
 		close(sk);
 		return false;
 	}
@@ -284,10 +289,10 @@ bool hal_ipc_init(void)
 	close(sk);
 
 	err = pthread_create(&notif_th, NULL, notification_handler, NULL);
-	if (err < 0) {
+	if (err) {
 		notif_th = 0;
-		error("Failed to start notification thread: %d (%s)", -err,
-							strerror(-err));
+		error("Failed to start notification thread: %d (%s)", err,
+							strerror(err));
 		close(cmd_sk);
 		cmd_sk = -1;
 		close(notif_sk);
@@ -300,8 +305,10 @@ bool hal_ipc_init(void)
 
 void hal_ipc_cleanup(void)
 {
+	pthread_mutex_lock(&cmd_sk_mutex);
 	close(cmd_sk);
 	cmd_sk = -1;
+	pthread_mutex_unlock(&cmd_sk_mutex);
 
 	shutdown(notif_sk, SHUT_RD);
 
@@ -315,9 +322,9 @@ int hal_ipc_cmd(uint8_t service_id, uint8_t opcode, uint16_t len, void *param,
 	ssize_t ret;
 	struct msghdr msg;
 	struct iovec iv[2];
-	struct hal_hdr cmd;
+	struct ipc_hdr cmd;
 	char cmsgbuf[CMSG_SPACE(sizeof(int))];
-	struct hal_status s;
+	struct ipc_status s;
 	size_t s_len = sizeof(s);
 
 	if (cmd_sk < 0) {
@@ -396,7 +403,7 @@ int hal_ipc_cmd(uint8_t service_id, uint8_t opcode, uint16_t len, void *param,
 	}
 
 	if (cmd.service_id != service_id) {
-		error("Invalid service id (%u vs %u), aborting",
+		error("Invalid service id (0x%x vs 0x%x), aborting",
 						cmd.service_id, service_id);
 		exit(EXIT_FAILURE);
 	}
@@ -407,13 +414,13 @@ int hal_ipc_cmd(uint8_t service_id, uint8_t opcode, uint16_t len, void *param,
 	}
 
 	if (cmd.opcode != opcode && cmd.opcode != HAL_OP_STATUS) {
-		error("Invalid opcode received (%u vs %u), aborting",
+		error("Invalid opcode received (0x%x vs 0x%x), aborting",
 						cmd.opcode, opcode);
 		exit(EXIT_FAILURE);
 	}
 
 	if (cmd.opcode == HAL_OP_STATUS) {
-		struct hal_status *s = rsp;
+		struct ipc_status *s = rsp;
 
 		if (sizeof(*s) != cmd.len) {
 			error("Invalid status length, aborting");

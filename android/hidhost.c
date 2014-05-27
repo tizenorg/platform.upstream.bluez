@@ -2,21 +2,21 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2013  Intel Corporation. All rights reserved.
+ *  Copyright (C) 2013-2014  Intel Corporation. All rights reserved.
  *
  *
- *  This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation; either version 2 of the License, or
- *  (at your option) any later version.
+ *  This library is free software; you can redistribute it and/or
+ *  modify it under the terms of the GNU Lesser General Public
+ *  License as published by the Free Software Foundation; either
+ *  version 2.1 of the License, or (at your option) any later version.
  *
- *  This program is distributed in the hope that it will be useful,
+ *  This library is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ *  Lesser General Public License for more details.
  *
- *  You should have received a copy of the GNU General Public License
- *  along with this program; if not, write to the Free Software
+ *  You should have received a copy of the GNU Lesser General Public
+ *  License along with this library; if not, write to the Free Software
  *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <ctype.h>
 
 #include <glib.h>
 
@@ -37,14 +38,15 @@
 #include "lib/bluetooth.h"
 #include "lib/sdp.h"
 #include "lib/sdp_lib.h"
-#include "lib/uuid.h"
 #include "src/shared/mgmt.h"
+#include "src/shared/util.h"
 #include "src/sdp-client.h"
-#include "src/glib-helper.h"
+#include "src/uuid-helper.h"
 #include "profiles/input/uhid_copy.h"
+#include "src/log.h"
 
-#include "log.h"
 #include "hal-msg.h"
+#include "ipc-common.h"
 #include "ipc.h"
 #include "hidhost.h"
 #include "utils.h"
@@ -81,6 +83,8 @@ static bdaddr_t adapter_addr;
 static GIOChannel *ctrl_io = NULL;
 static GIOChannel *intr_io = NULL;
 static GSList *devices = NULL;
+
+static struct ipc *hal_ipc = NULL;
 
 struct hid_device {
 	bdaddr_t	dst;
@@ -119,14 +123,16 @@ static void uhid_destroy(int fd)
 	ev.type = UHID_DESTROY;
 
 	if (write(fd, &ev, sizeof(ev)) < 0)
-		error("Failed to destroy uHID device: %s (%d)",
+		error("hidhost: Failed to destroy uHID device: %s (%d)",
 						strerror(errno), errno);
 
 	close(fd);
 }
 
-static void hid_device_free(struct hid_device *dev)
+static void hid_device_free(void *data)
 {
+	struct hid_device *dev = data;
+
 	if (dev->ctrl_watch > 0)
 		g_source_remove(dev->ctrl_watch);
 
@@ -148,37 +154,72 @@ static void hid_device_free(struct hid_device *dev)
 		uhid_destroy(dev->uhid_fd);
 
 	g_free(dev->rd_data);
-
-	devices = g_slist_remove(devices, dev);
 	g_free(dev);
 }
 
-static void handle_uhid_event(struct hid_device *dev, struct uhid_event *ev)
+static void hid_device_remove(struct hid_device *dev)
 {
-	int fd, i;
-	uint8_t *req = NULL;
-	uint8_t req_size = 0;
+	devices = g_slist_remove(devices, dev);
+	hid_device_free(dev);
+}
 
-	if (!(dev->ctrl_io))
+static bool hex2buf(const uint8_t *hex, uint8_t *buf, int buf_size)
+{
+	int i, j;
+	char c;
+	uint8_t b;
+
+	for (i = 0, j = 0; i < buf_size; i++, j++) {
+		c = toupper(hex[j]);
+
+		if (c >= '0' && c <= '9')
+			b = c - '0';
+		else if (c >= 'A' && c <= 'F')
+			b = 10 + c - 'A';
+		else
+			return false;
+
+		j++;
+
+		c = toupper(hex[j]);
+
+		if (c >= '0' && c <= '9')
+			b = b * 16 + c - '0';
+		else if (c >= 'A' && c <= 'F')
+			b = b * 16 + 10 + c - 'A';
+		else
+			return false;
+
+		buf[i] = b;
+	}
+
+	return true;
+}
+
+static void handle_uhid_output(struct hid_device *dev,
+						struct uhid_output_req *output)
+{
+	int fd, req_size;
+	uint8_t *req;
+
+	if (!dev->ctrl_io)
 		return;
 
-	req_size = 1 + (ev->u.output.size / 2);
-	req = g_try_malloc0(req_size);
+	req_size = 1 + output->size;
+	req = malloc0(req_size);
 	if (!req)
 		return;
 
-	req[0] = HID_MSG_SET_REPORT | ev->u.output.rtype;
-	for (i = 0; i < (req_size - 1); i++)
-		sscanf((char *) &(ev->u.output.data)[i * 2],
-							"%hhx", &req[1 + i]);
+	req[0] = HID_MSG_SET_REPORT | output->rtype;
+	memcpy(req + 1, output->data, req_size - 1);
 
 	fd = g_io_channel_unix_get_fd(dev->ctrl_io);
 
 	if (write(fd, req, req_size) < 0)
-		error("error writing set_report: %s (%d)",
-						strerror(errno), errno);
+		error("hidhost: error writing set_report: %s (%d)",
+							strerror(errno), errno);
 
-	g_free(req);
+	free(req);
 }
 
 static gboolean uhid_event_cb(GIOChannel *io, GIOCondition cond,
@@ -208,31 +249,38 @@ static gboolean uhid_event_cb(GIOChannel *io, GIOCondition cond,
 	switch (ev.type) {
 	case UHID_START:
 	case UHID_STOP:
-		/* These are called to start and stop the underlying hardware.
+		/*
+		 * These are called to start and stop the underlying hardware.
 		 * We open the channels before creating the device so the
 		 * hardware is always ready. No need to handle these.
 		 * The kernel never destroys a device itself! Only an explicit
-		 * UHID_DESTROY request can remove a device. */
-
+		 * UHID_DESTROY request can remove a device.
+		 */
 		break;
 	case UHID_OPEN:
 	case UHID_CLOSE:
-		/* OPEN/CLOSE are sent whenever user-space opens any interface
+		/*
+		 * OPEN/CLOSE are sent whenever user-space opens any interface
 		 * provided by the kernel HID device. Whenever the open-count
 		 * is non-zero we must be ready for I/O. As long as it is zero,
 		 * we can decide to drop all I/O and put the device
-		 * asleep This is optional, though. */
+		 * asleep This is optional, though.
+		 */
 		break;
 	case UHID_OUTPUT:
+		handle_uhid_output(dev, &ev.u.output);
+		break;
 	case UHID_FEATURE:
-		handle_uhid_event(dev, &ev);
+		/* TODO */
 		break;
 	case UHID_OUTPUT_EV:
-		/* This is only sent by kernels prior to linux-3.11. It
+		/*
+		 * This is only sent by kernels prior to linux-3.11. It
 		 * requires us to parse HID-descriptors in user-space to
 		 * properly handle it. This is redundant as the kernel
 		 * does it already. That's why newer kernels assemble
-		 * the output-reports and send it to us via UHID_OUTPUT. */
+		 * the output-reports and send it to us via UHID_OUTPUT.
+		 */
 		DBG("UHID_OUTPUT_EV unsupported");
 		break;
 	default:
@@ -260,7 +308,8 @@ static gboolean intr_io_watch_cb(GIOChannel *chan, gpointer data)
 	fd = g_io_channel_unix_get_fd(chan);
 	bread = read(fd, buf, sizeof(buf));
 	if (bread < 0) {
-		error("read: %s(%d)", strerror(errno), -errno);
+		error("hidhost: read from interrupt failed: %s(%d)",
+						strerror(errno), -errno);
 		return TRUE;
 	}
 
@@ -296,8 +345,8 @@ static void bt_hid_notify_state(struct hid_device *dev, uint8_t state)
 	bdaddr2android(&dev->dst, ev.bdaddr);
 	ev.state = state;
 
-	ipc_send_notif(HAL_SERVICE_ID_HIDHOST, HAL_EV_HIDHOST_CONN_STATE,
-							sizeof(ev), &ev);
+	ipc_send_notif(hal_ipc, HAL_SERVICE_ID_HIDHOST,
+				HAL_EV_HIDHOST_CONN_STATE, sizeof(ev), &ev);
 }
 
 static gboolean intr_watch_cb(GIOChannel *chan, GIOCondition cond,
@@ -314,9 +363,11 @@ static gboolean intr_watch_cb(GIOChannel *chan, GIOCondition cond,
 error:
 	bt_hid_notify_state(dev, HAL_HIDHOST_STATE_DISCONNECTED);
 
-	/* Checking for ctrl_watch avoids a double g_io_channel_shutdown since
+	/*
+	 * Checking for ctrl_watch avoids a double g_io_channel_shutdown since
 	 * it's likely that ctrl_watch_cb has been queued for dispatching in
-	 * this mainloop iteration */
+	 * this mainloop iteration
+	 */
 	if ((cond & (G_IO_HUP | G_IO_ERR)) && dev->ctrl_watch)
 		g_io_channel_shutdown(chan, TRUE, NULL);
 
@@ -324,7 +375,7 @@ error:
 	if (dev->ctrl_io && !(cond & G_IO_NVAL))
 		g_io_channel_shutdown(dev->ctrl_io, TRUE, NULL);
 
-	hid_device_free(dev);
+	hid_device_remove(dev);
 
 	return FALSE;
 }
@@ -355,8 +406,8 @@ static void bt_hid_notify_proto_mode(struct hid_device *dev, uint8_t *buf,
 		ev.mode = HAL_HIDHOST_UNSUPPORTED_PROTOCOL;
 	}
 
-	ipc_send_notif(HAL_SERVICE_ID_HIDHOST, HAL_EV_HIDHOST_PROTO_MODE,
-							sizeof(ev), &ev);
+	ipc_send_notif(hal_ipc, HAL_SERVICE_ID_HIDHOST,
+				HAL_EV_HIDHOST_PROTO_MODE, sizeof(ev), &ev);
 }
 
 static void bt_hid_notify_get_report(struct hid_device *dev, uint8_t *buf,
@@ -369,26 +420,30 @@ static void bt_hid_notify_get_report(struct hid_device *dev, uint8_t *buf,
 	ba2str(&dev->dst, address);
 	DBG("device %s", address);
 
-	ev_len = sizeof(*ev) + sizeof(struct hal_ev_hidhost_get_report) + 1;
+	ev_len = sizeof(*ev);
 
 	if (!((buf[0] == (HID_MSG_DATA | HID_DATA_TYPE_INPUT)) ||
 			(buf[0] == (HID_MSG_DATA | HID_DATA_TYPE_OUTPUT)) ||
-			(buf[0]	== (HID_MSG_DATA | HID_DATA_TYPE_FEATURE)))) {
+			(buf[0] == (HID_MSG_DATA | HID_DATA_TYPE_FEATURE)))) {
 		ev = g_malloc0(ev_len);
 		ev->status = buf[0];
 		bdaddr2android(&dev->dst, ev->bdaddr);
 		goto send;
 	}
 
-	/* Report porotocol mode reply contains id after hdr, in boot
-	 * protocol mode id doesn't exist */
+	/*
+	 * Report porotocol mode reply contains id after hdr, in boot
+	 * protocol mode id doesn't exist
+	 */
 	ev_len += (dev->boot_dev) ? (len - 1) : (len - 2);
 	ev = g_malloc0(ev_len);
 	ev->status = HAL_HIDHOST_STATUS_OK;
 	bdaddr2android(&dev->dst, ev->bdaddr);
 
-	/* Report porotocol mode reply contains id after hdr, in boot
-	 * protocol mode id doesn't exist */
+	/*
+	 * Report porotocol mode reply contains id after hdr, in boot
+	 * protocol mode id doesn't exist
+	 */
 	if (dev->boot_dev) {
 		ev->len = len - 1;
 		memcpy(ev->data, buf + 1, ev->len);
@@ -398,8 +453,8 @@ static void bt_hid_notify_get_report(struct hid_device *dev, uint8_t *buf,
 	}
 
 send:
-	ipc_send_notif(HAL_SERVICE_ID_HIDHOST, HAL_EV_HIDHOST_GET_REPORT,
-								ev_len, ev);
+	ipc_send_notif(hal_ipc, HAL_SERVICE_ID_HIDHOST,
+				HAL_EV_HIDHOST_GET_REPORT, ev_len, ev);
 	g_free(ev);
 }
 
@@ -423,9 +478,8 @@ static void bt_hid_notify_virtual_unplug(struct hid_device *dev,
 		ev.status = HAL_HIDHOST_STATUS_OK;
 	}
 
-	ipc_send_notif(HAL_SERVICE_ID_HIDHOST, HAL_EV_HIDHOST_VIRTUAL_UNPLUG,
-							sizeof(ev), &ev);
-
+	ipc_send_notif(hal_ipc, HAL_SERVICE_ID_HIDHOST,
+				HAL_EV_HIDHOST_VIRTUAL_UNPLUG, sizeof(ev), &ev);
 }
 
 static gboolean ctrl_io_watch_cb(GIOChannel *chan, gpointer data)
@@ -439,7 +493,8 @@ static gboolean ctrl_io_watch_cb(GIOChannel *chan, gpointer data)
 	fd = g_io_channel_unix_get_fd(chan);
 	bread = read(fd, buf, sizeof(buf));
 	if (bread < 0) {
-		error("read: %s(%d)", strerror(errno), -errno);
+		error("hidhost: read from control failed: %s(%d)",
+						strerror(errno), -errno);
 		return TRUE;
 	}
 
@@ -476,16 +531,18 @@ static gboolean ctrl_watch_cb(GIOChannel *chan, GIOCondition cond,
 error:
 	bt_hid_notify_state(dev, HAL_HIDHOST_STATE_DISCONNECTED);
 
-	/* Checking for intr_watch avoids a double g_io_channel_shutdown since
+	/*
+	 * Checking for intr_watch avoids a double g_io_channel_shutdown since
 	 * it's likely that intr_watch_cb has been queued for dispatching in
-	 * this mainloop iteration */
+	 * this mainloop iteration
+	 */
 	if ((cond & (G_IO_HUP | G_IO_ERR)) && dev->intr_watch)
 		g_io_channel_shutdown(chan, TRUE, NULL);
 
 	if (dev->intr_io && !(cond & G_IO_NVAL))
 		g_io_channel_shutdown(dev->intr_io, TRUE, NULL);
 
-	hid_device_free(dev);
+	hid_device_remove(dev);
 
 	return FALSE;
 }
@@ -508,8 +565,8 @@ static void bt_hid_set_info(struct hid_device *dev)
 	memset(ev.descr, 0, sizeof(ev.descr));
 	memcpy(ev.descr, dev->rd_data, ev.descr_len);
 
-	ipc_send_notif(HAL_SERVICE_ID_HIDHOST, HAL_EV_HIDHOST_INFO, sizeof(ev),
-									&ev);
+	ipc_send_notif(hal_ipc, HAL_SERVICE_ID_HIDHOST, HAL_EV_HIDHOST_INFO,
+							sizeof(ev), &ev);
 }
 
 static int uhid_create(struct hid_device *dev)
@@ -522,7 +579,8 @@ static int uhid_create(struct hid_device *dev)
 	dev->uhid_fd = open(UHID_DEVICE_FILE, O_RDWR | O_CLOEXEC);
 	if (dev->uhid_fd < 0) {
 		err = -errno;
-		error("Failed to open uHID device: %s", strerror(errno));
+		error("hidhost: Failed to open uHID device: %s",
+							strerror(errno));
 		return err;
 	}
 
@@ -539,7 +597,8 @@ static int uhid_create(struct hid_device *dev)
 
 	if (write(dev->uhid_fd, &ev, sizeof(ev)) < 0) {
 		err = -errno;
-		error("Failed to create uHID device: %s", strerror(errno));
+		error("hidhost: Failed to create uHID device: %s",
+							strerror(errno));
 		close(dev->uhid_fd);
 		dev->uhid_fd = -1;
 		return err;
@@ -564,7 +623,8 @@ static void interrupt_connect_cb(GIOChannel *chan, GError *conn_err,
 	DBG("");
 
 	if (conn_err) {
-		error("%s", conn_err->message);
+		error("hidhost: Failed to connect interrupt channel (%s)",
+							conn_err->message);
 		state = HAL_HIDHOST_STATE_FAILED;
 		goto failed;
 	}
@@ -584,7 +644,7 @@ static void interrupt_connect_cb(GIOChannel *chan, GError *conn_err,
 
 failed:
 	bt_hid_notify_state(dev, state);
-	hid_device_free(dev);
+	hid_device_remove(dev);
 }
 
 static void control_connect_cb(GIOChannel *chan, GError *conn_err,
@@ -597,7 +657,8 @@ static void control_connect_cb(GIOChannel *chan, GError *conn_err,
 
 	if (conn_err) {
 		bt_hid_notify_state(dev, HAL_HIDHOST_STATE_DISCONNECTED);
-		error("%s", conn_err->message);
+		error("hidhost: Failed to connect control channel (%s)",
+							conn_err->message);
 		goto failed;
 	}
 
@@ -609,7 +670,8 @@ static void control_connect_cb(GIOChannel *chan, GError *conn_err,
 					BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_LOW,
 					BT_IO_OPT_INVALID);
 	if (!dev->intr_io) {
-		error("%s", err->message);
+		error("hidhost: Failed to connect interrupt channel (%s)",
+								err->message);
 		g_error_free(err);
 		goto failed;
 	}
@@ -621,7 +683,7 @@ static void control_connect_cb(GIOChannel *chan, GError *conn_err,
 	return;
 
 failed:
-	hid_device_free(dev);
+	hid_device_remove(dev);
 }
 
 static void hid_sdp_search_cb(sdp_list_t *recs, int err, gpointer data)
@@ -633,30 +695,18 @@ static void hid_sdp_search_cb(sdp_list_t *recs, int err, gpointer data)
 	DBG("");
 
 	if (err < 0) {
-		error("Unable to get SDP record: %s", strerror(-err));
+		error("hidhost: Unable to get SDP record: %s", strerror(-err));
 		goto fail;
 	}
 
 	if (!recs || !recs->data) {
-		error("No SDP records found");
+		error("hidhost: No SDP records found");
 		goto fail;
 	}
 
 	for (list = recs; list != NULL; list = list->next) {
 		sdp_record_t *rec = list->data;
 		sdp_data_t *data;
-
-		data = sdp_data_get(rec, SDP_ATTR_VENDOR_ID);
-		if (data)
-			dev->vendor = data->val.uint16;
-
-		data = sdp_data_get(rec, SDP_ATTR_PRODUCT_ID);
-		if (data)
-			dev->product = data->val.uint16;
-
-		data = sdp_data_get(rec, SDP_ATTR_VERSION);
-		if (data)
-			dev->version = data->val.uint16;
 
 		data = sdp_data_get(rec, SDP_ATTR_HID_COUNTRY_CODE);
 		if (data)
@@ -708,7 +758,8 @@ static void hid_sdp_search_cb(sdp_list_t *recs, int err, gpointer data)
 					BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_LOW,
 					BT_IO_OPT_INVALID);
 	if (gerr) {
-		error("%s", gerr->message);
+		error("hidhost: Failed to connect control channel (%s)",
+								gerr->message);
 		g_error_free(gerr);
 		goto fail;
 	}
@@ -717,7 +768,57 @@ static void hid_sdp_search_cb(sdp_list_t *recs, int err, gpointer data)
 
 fail:
 	bt_hid_notify_state(dev, HAL_HIDHOST_STATE_DISCONNECTED);
-	hid_device_free(dev);
+	hid_device_remove(dev);
+}
+
+static void hid_sdp_did_search_cb(sdp_list_t *recs, int err, gpointer data)
+{
+	struct hid_device *dev = data;
+	sdp_list_t *list;
+	uuid_t uuid;
+
+	DBG("");
+
+	if (err < 0) {
+		error("hidhost: Unable to get Device ID SDP record: %s",
+								strerror(-err));
+		goto fail;
+	}
+
+	if (!recs || !recs->data) {
+		error("hidhost: No Device ID SDP records found");
+		goto fail;
+	}
+
+	for (list = recs; list; list = list->next) {
+		sdp_record_t *rec = list->data;
+		sdp_data_t *data;
+
+		data = sdp_data_get(rec, SDP_ATTR_VENDOR_ID);
+		if (data)
+			dev->vendor = data->val.uint16;
+
+		data = sdp_data_get(rec, SDP_ATTR_PRODUCT_ID);
+		if (data)
+			dev->product = data->val.uint16;
+
+		data = sdp_data_get(rec, SDP_ATTR_VERSION);
+		if (data)
+			dev->version = data->val.uint16;
+	}
+
+	sdp_uuid16_create(&uuid, HID_SVCLASS_ID);
+	if (bt_search_service(&adapter_addr, &dev->dst, &uuid,
+				hid_sdp_search_cb, dev, NULL, 0) < 0) {
+		error("hidhost: Failed to search SDP details");
+		goto fail;
+	}
+
+	return;
+
+fail:
+	bt_hid_notify_state(dev, HAL_HIDHOST_STATE_DISCONNECTED);
+	hid_device_remove(dev);
 }
 
 static void bt_hid_connect(const void *buf, uint16_t len)
@@ -747,11 +848,11 @@ static void bt_hid_connect(const void *buf, uint16_t len)
 	ba2str(&dev->dst, addr);
 	DBG("connecting to %s", addr);
 
-	bt_string2uuid(&uuid, HID_UUID);
+	sdp_uuid16_create(&uuid, PNP_INFO_SVCLASS_ID);
 	if (bt_search_service(&adapter_addr, &dev->dst, &uuid,
-					hid_sdp_search_cb, dev, NULL) < 0) {
-		error("Failed to search sdp details");
-		hid_device_free(dev);
+				hid_sdp_did_search_cb, dev, NULL, 0) < 0) {
+		error("hidhost: Failed to search DeviceID SDP details");
+		hid_device_remove(dev);
 		status = HAL_STATUS_FAILED;
 		goto failed;
 	}
@@ -762,7 +863,8 @@ static void bt_hid_connect(const void *buf, uint16_t len)
 	status = HAL_STATUS_SUCCESS;
 
 failed:
-	ipc_send_rsp(HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_CONNECT, status);
+	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_CONNECT,
+									status);
 }
 
 static void bt_hid_disconnect(const void *buf, uint16_t len)
@@ -797,7 +899,8 @@ static void bt_hid_disconnect(const void *buf, uint16_t len)
 	status = HAL_STATUS_SUCCESS;
 
 failed:
-	ipc_send_rsp(HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_DISCONNECT, status);
+	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_DISCONNECT,
+									status);
 }
 
 static void bt_hid_virtual_unplug(const void *buf, uint16_t len)
@@ -832,7 +935,7 @@ static void bt_hid_virtual_unplug(const void *buf, uint16_t len)
 	fd = g_io_channel_unix_get_fd(dev->ctrl_io);
 
 	if (write(fd, &hdr, sizeof(hdr)) < 0) {
-		error("error writing virtual unplug command: %s (%d)",
+		error("hidhost: Error writing virtual unplug command: %s (%d)",
 						strerror(errno), errno);
 		status = HAL_STATUS_FAILED;
 		goto failed;
@@ -850,19 +953,29 @@ static void bt_hid_virtual_unplug(const void *buf, uint16_t len)
 	status = HAL_STATUS_SUCCESS;
 
 failed:
-	ipc_send_rsp(HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_VIRTUAL_UNPLUG,
-									status);
+	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_HIDHOST,
+					HAL_OP_HIDHOST_VIRTUAL_UNPLUG, status);
 }
 
 static void bt_hid_info(const void *buf, uint16_t len)
 {
-	/* Data from hal_cmd_hidhost_set_info is usefull only when we create
+	const struct hal_cmd_hidhost_set_info *cmd = buf;
+
+	if (len != sizeof(*cmd) + cmd->descr_len) {
+		error("Invalid hid set info size (%u bytes), terminating", len);
+		raise(SIGTERM);
+		return;
+	}
+
+	/*
+	 * Data from hal_cmd_hidhost_set_info is usefull only when we create
 	 * UHID device. Once device is created all the transactions will be
 	 * done through the fd. There is no way to use this information
-	 * once device is created with HID internals. */
+	 * once device is created with HID internals.
+	 */
 	DBG("Not supported");
 
-	ipc_send_rsp(HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_SET_INFO,
+	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_SET_INFO,
 							HAL_STATUS_UNSUPPORTED);
 }
 
@@ -878,6 +991,15 @@ static void bt_hid_get_protocol(const void *buf, uint16_t len)
 
 	DBG("");
 
+	switch (cmd->mode) {
+	case HAL_HIDHOST_REPORT_PROTOCOL:
+	case HAL_HIDHOST_BOOT_PROTOCOL:
+		break;
+	default:
+		status = HAL_STATUS_INVALID;
+		goto failed;
+	}
+
 	android2bdaddr(&cmd->bdaddr, &dst);
 
 	l = g_slist_find_custom(devices, &dst, device_cmp);
@@ -888,16 +1010,11 @@ static void bt_hid_get_protocol(const void *buf, uint16_t len)
 
 	dev = l->data;
 
-	if (dev->boot_dev) {
-		status = HAL_STATUS_UNSUPPORTED;
-		goto failed;
-	}
-
 	hdr = HID_MSG_GET_PROTOCOL | cmd->mode;
 	fd = g_io_channel_unix_get_fd(dev->ctrl_io);
 
 	if (write(fd, &hdr, sizeof(hdr)) < 0) {
-		error("error writing device_get_protocol: %s (%d)",
+		error("hidhost: Error writing device_get_protocol: %s (%d)",
 						strerror(errno), errno);
 		status = HAL_STATUS_FAILED;
 		goto failed;
@@ -908,8 +1025,8 @@ static void bt_hid_get_protocol(const void *buf, uint16_t len)
 	status = HAL_STATUS_SUCCESS;
 
 failed:
-	ipc_send_rsp(HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_GET_PROTOCOL,
-									status);
+	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_HIDHOST,
+					HAL_OP_HIDHOST_GET_PROTOCOL, status);
 }
 
 static void bt_hid_set_protocol(const void *buf, uint16_t len)
@@ -924,6 +1041,15 @@ static void bt_hid_set_protocol(const void *buf, uint16_t len)
 
 	DBG("");
 
+	switch (cmd->mode) {
+	case HAL_HIDHOST_REPORT_PROTOCOL:
+	case HAL_HIDHOST_BOOT_PROTOCOL:
+		break;
+	default:
+		status = HAL_STATUS_INVALID;
+		goto failed;
+	}
+
 	android2bdaddr(&cmd->bdaddr, &dst);
 
 	l = g_slist_find_custom(devices, &dst, device_cmp);
@@ -934,16 +1060,11 @@ static void bt_hid_set_protocol(const void *buf, uint16_t len)
 
 	dev = l->data;
 
-	if (dev->boot_dev) {
-		status = HAL_STATUS_UNSUPPORTED;
-		goto failed;
-	}
-
 	hdr = HID_MSG_SET_PROTOCOL | cmd->mode;
 	fd = g_io_channel_unix_get_fd(dev->ctrl_io);
 
 	if (write(fd, &hdr, sizeof(hdr)) < 0) {
-		error("error writing device_set_protocol: %s (%d)",
+		error("hidhost: error writing device_set_protocol: %s (%d)",
 						strerror(errno), errno);
 		status = HAL_STATUS_FAILED;
 		goto failed;
@@ -954,8 +1075,8 @@ static void bt_hid_set_protocol(const void *buf, uint16_t len)
 	status = HAL_STATUS_SUCCESS;
 
 failed:
-	ipc_send_rsp(HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_SET_PROTOCOL,
-									status);
+	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_HIDHOST,
+					HAL_OP_HIDHOST_SET_PROTOCOL, status);
 }
 
 static void bt_hid_get_report(const void *buf, uint16_t len)
@@ -970,6 +1091,16 @@ static void bt_hid_get_report(const void *buf, uint16_t len)
 	uint8_t status;
 
 	DBG("");
+
+	switch (cmd->type) {
+	case HAL_HIDHOST_INPUT_REPORT:
+	case HAL_HIDHOST_OUTPUT_REPORT:
+	case HAL_HIDHOST_FEATURE_REPORT:
+		break;
+	default:
+		status = HAL_STATUS_INVALID;
+		goto failed;
+	}
 
 	android2bdaddr(&cmd->bdaddr, &dst);
 
@@ -992,13 +1123,13 @@ static void bt_hid_get_report(const void *buf, uint16_t len)
 
 	if (cmd->buf_size > 0) {
 		req[0] = req[0] | HID_GET_REPORT_SIZE_FIELD;
-		bt_put_le16(cmd->buf_size, &req[2]);
+		put_le16(cmd->buf_size, &req[2]);
 	}
 
 	fd = g_io_channel_unix_get_fd(dev->ctrl_io);
 
 	if (write(fd, req, req_size) < 0) {
-		error("error writing hid_get_report: %s (%d)",
+		error("hidhost: error writing hid_get_report: %s (%d)",
 						strerror(errno), errno);
 		g_free(req);
 		status = HAL_STATUS_FAILED;
@@ -1011,7 +1142,8 @@ static void bt_hid_get_report(const void *buf, uint16_t len)
 	status = HAL_STATUS_SUCCESS;
 
 failed:
-	ipc_send_rsp(HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_GET_REPORT, status);
+	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_GET_REPORT,
+									status);
 }
 
 static void bt_hid_set_report(const void *buf, uint16_t len)
@@ -1020,8 +1152,8 @@ static void bt_hid_set_report(const void *buf, uint16_t len)
 	struct hid_device *dev;
 	GSList *l;
 	bdaddr_t dst;
-	int i, fd;
-	uint8_t *req;
+	int fd;
+	uint8_t *req = NULL;
 	uint8_t req_size;
 	uint8_t status;
 
@@ -1032,6 +1164,16 @@ static void bt_hid_set_report(const void *buf, uint16_t len)
 									len);
 		raise(SIGTERM);
 		return;
+	}
+
+	switch (cmd->type) {
+	case HAL_HIDHOST_INPUT_REPORT:
+	case HAL_HIDHOST_OUTPUT_REPORT:
+	case HAL_HIDHOST_FEATURE_REPORT:
+		break;
+	default:
+		status = HAL_STATUS_INVALID;
+		goto failed;
 	}
 
 	android2bdaddr(&cmd->bdaddr, &dst);
@@ -1057,28 +1199,33 @@ static void bt_hid_set_report(const void *buf, uint16_t len)
 	}
 
 	req[0] = HID_MSG_SET_REPORT | cmd->type;
-	/* Report data coming to HAL is in ascii format, HAL sends
-	 * data in hex to daemon, so convert to binary. */
-	for (i = 0; i < (req_size - 1); i++)
-		sscanf((char *) &(cmd->data)[i * 2], "%hhx", &(req + 1)[i]);
+	/*
+	 * Report data coming to HAL is in ascii format, HAL sends
+	 * data in hex to daemon, so convert to binary.
+	 */
+	if (!hex2buf(cmd->data, req + 1, req_size - 1)) {
+		status = HAL_STATUS_INVALID;
+		goto failed;
+	}
 
 	fd = g_io_channel_unix_get_fd(dev->ctrl_io);
 
 	if (write(fd, req, req_size) < 0) {
-		error("error writing hid_set_report: %s (%d)",
+		error("hidhost: error writing hid_set_report: %s (%d)",
 						strerror(errno), errno);
-		g_free(req);
 		status = HAL_STATUS_FAILED;
 		goto failed;
 	}
 
 	dev->last_hid_msg = HID_MSG_SET_REPORT;
-	g_free(req);
 
 	status = HAL_STATUS_SUCCESS;
 
 failed:
-	ipc_send_rsp(HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_SET_REPORT, status);
+	g_free(req);
+
+	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_SET_REPORT,
+									status);
 }
 
 static void bt_hid_send_data(const void *buf, uint16_t len)
@@ -1087,8 +1234,8 @@ static void bt_hid_send_data(const void *buf, uint16_t len)
 	struct hid_device *dev;
 	GSList *l;
 	bdaddr_t dst;
-	int i, fd;
-	uint8_t *req;
+	int fd;
+	uint8_t *req = NULL;
 	uint8_t req_size;
 	uint8_t status;
 
@@ -1124,27 +1271,31 @@ static void bt_hid_send_data(const void *buf, uint16_t len)
 	}
 
 	req[0] = HID_MSG_DATA | HID_DATA_TYPE_OUTPUT;
-	/* Report data coming to HAL is in ascii format, HAL sends
-	 * data in hex to daemon, so convert to binary. */
-	for (i = 0; i < (req_size - 1); i++)
-		sscanf((char *) &(cmd->data)[i * 2], "%hhx", &(req + 1)[i]);
+	/*
+	 * Report data coming to HAL is in ascii format, HAL sends
+	 * data in hex to daemon, so convert to binary.
+	 */
+	if (!hex2buf(cmd->data, req + 1, req_size - 1)) {
+		status = HAL_STATUS_INVALID;
+		goto failed;
+	}
 
 	fd = g_io_channel_unix_get_fd(dev->intr_io);
 
 	if (write(fd, req, req_size) < 0) {
-		error("error writing data to HID device: %s (%d)",
+		error("hidhost: error writing data to HID device: %s (%d)",
 						strerror(errno), errno);
-		g_free(req);
 		status = HAL_STATUS_FAILED;
 		goto failed;
 	}
 
-	g_free(req);
-
 	status = HAL_STATUS_SUCCESS;
 
 failed:
-	ipc_send_rsp(HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_SEND_DATA, status);
+	g_free(req);
+
+	ipc_send_rsp(hal_ipc, HAL_SERVICE_ID_HIDHOST, HAL_OP_HIDHOST_SEND_DATA,
+									status);
 }
 
 static const struct ipc_handler cmd_handlers[] = {
@@ -1174,7 +1325,7 @@ static const struct ipc_handler cmd_handlers[] = {
 static void connect_cb(GIOChannel *chan, GError *err, gpointer user_data)
 {
 	struct hid_device *dev;
-	bdaddr_t src, dst;
+	bdaddr_t dst;
 	char address[18];
 	uint16_t psm;
 	GError *gerr = NULL;
@@ -1182,17 +1333,17 @@ static void connect_cb(GIOChannel *chan, GError *err, gpointer user_data)
 	uuid_t uuid;
 
 	if (err) {
-		error("%s", err->message);
+		error("hidhost: Connect failed (%s)", err->message);
 		return;
 	}
 
 	bt_io_get(chan, &gerr,
-			BT_IO_OPT_SOURCE_BDADDR, &src,
 			BT_IO_OPT_DEST_BDADDR, &dst,
 			BT_IO_OPT_PSM, &psm,
 			BT_IO_OPT_INVALID);
 	if (gerr) {
-		error("%s", gerr->message);
+		error("hidhost: Failed to read remote address (%s)",
+								gerr->message);
 		g_io_channel_shutdown(chan, TRUE, NULL);
 		g_error_free(gerr);
 		return;
@@ -1212,11 +1363,11 @@ static void connect_cb(GIOChannel *chan, GError *err, gpointer user_data)
 		dev->ctrl_io = g_io_channel_ref(chan);
 		dev->uhid_fd = -1;
 
-		bt_string2uuid(&uuid, HID_UUID);
-		if (bt_search_service(&src, &dev->dst, &uuid,
-					hid_sdp_search_cb, dev, NULL) < 0) {
-			error("failed to search sdp details");
-			hid_device_free(dev);
+		sdp_uuid16_create(&uuid, PNP_INFO_SVCLASS_ID);
+		if (bt_search_service(&adapter_addr, &dev->dst, &uuid,
+				hid_sdp_did_search_cb, dev, NULL, 0) < 0) {
+			error("hidhost: Failed to search DID SDP details");
+			hid_device_remove(dev);
 			return;
 		}
 
@@ -1243,7 +1394,7 @@ static void connect_cb(GIOChannel *chan, GError *err, gpointer user_data)
 	}
 }
 
-bool bt_hid_register(const bdaddr_t *addr)
+bool bt_hid_register(struct ipc *ipc, const bdaddr_t *addr, uint8_t mode)
 {
 	GError *err = NULL;
 
@@ -1257,7 +1408,8 @@ bool bt_hid_register(const bdaddr_t *addr)
 				BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_LOW,
 				BT_IO_OPT_INVALID);
 	if (!ctrl_io) {
-		error("Failed to listen on ctrl channel: %s", err->message);
+		error("hidhost: Failed to listen on control channel: %s",
+								err->message);
 		g_error_free(err);
 		return false;
 	}
@@ -1268,7 +1420,8 @@ bool bt_hid_register(const bdaddr_t *addr)
 				BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_LOW,
 				BT_IO_OPT_INVALID);
 	if (!intr_io) {
-		error("Failed to listen on intr channel: %s", err->message);
+		error("hidhost: Failed to listen on interrupt channel: %s",
+								err->message);
 		g_error_free(err);
 
 		g_io_channel_shutdown(ctrl_io, TRUE, NULL);
@@ -1278,25 +1431,19 @@ bool bt_hid_register(const bdaddr_t *addr)
 		return false;
 	}
 
-	ipc_register(HAL_SERVICE_ID_HIDHOST, cmd_handlers,
+	hal_ipc = ipc;
+
+	ipc_register(hal_ipc, HAL_SERVICE_ID_HIDHOST, cmd_handlers,
 						G_N_ELEMENTS(cmd_handlers));
 
 	return true;
-}
-
-static void free_hid_devices(gpointer data, gpointer user_data)
-{
-	struct hid_device *dev = data;
-
-	bt_hid_notify_state(dev, HAL_HIDHOST_STATE_DISCONNECTED);
-	hid_device_free(dev);
 }
 
 void bt_hid_unregister(void)
 {
 	DBG("");
 
-	g_slist_foreach(devices, free_hid_devices, NULL);
+	g_slist_free_full(devices, hid_device_free);
 	devices = NULL;
 
 	if (ctrl_io) {
@@ -1311,5 +1458,6 @@ void bt_hid_unregister(void)
 		intr_io = NULL;
 	}
 
-	ipc_unregister(HAL_SERVICE_ID_HIDHOST);
+	ipc_unregister(hal_ipc, HAL_SERVICE_ID_HIDHOST);
+	hal_ipc = NULL;
 }

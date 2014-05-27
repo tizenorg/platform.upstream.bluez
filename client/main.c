@@ -29,6 +29,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <signal.h>
 #include <sys/signalfd.h>
 
@@ -153,6 +154,8 @@ static void print_iter(const char *label, const char *name,
 	dbus_uint16_t valu16;
 	dbus_int16_t vals16;
 	const char *valstr;
+	DBusMessageIter subiter;
+	int type;
 
 	if (iter == NULL) {
 		rl_printf("%s%s is nil\n", label, name);
@@ -184,6 +187,24 @@ static void print_iter(const char *label, const char *name,
 	case DBUS_TYPE_INT16:
 		dbus_message_iter_get_basic(iter, &vals16);
 		rl_printf("%s%s: %d\n", label, name, vals16);
+		break;
+	case DBUS_TYPE_ARRAY:
+		dbus_message_iter_recurse(iter, &subiter);
+		rl_printf("%s%s:\n", label, name);
+
+		do {
+			type = dbus_message_iter_get_arg_type(&subiter);
+			if (type == DBUS_TYPE_INVALID)
+				break;
+
+			if (type == DBUS_TYPE_STRING) {
+				dbus_message_iter_get_basic(&subiter, &valstr);
+				rl_printf("\t%s\n", valstr);
+			}
+
+			dbus_message_iter_next(&subiter);
+		} while(true);
+
 		break;
 	default:
 		rl_printf("%s%s has unsupported type\n", label, name);
@@ -315,8 +336,11 @@ static void proxy_removed(GDBusProxy *proxy, void *user_data)
 			dev_list = NULL;
 		}
 	} else if (!strcmp(interface, "org.bluez.AgentManager1")) {
-		if (agent_manager == proxy)
+		if (agent_manager == proxy) {
 			agent_manager = NULL;
+			if (auto_register_agent)
+				agent_unregister(dbus_conn, NULL);
+		}
 	}
 }
 
@@ -851,6 +875,93 @@ static void cmd_trust(const char *arg)
 	g_free(str);
 }
 
+static void cmd_untrust(const char *arg)
+{
+	GDBusProxy *proxy;
+	dbus_bool_t trusted;
+	char *str;
+
+	if (!arg || !strlen(arg)) {
+		rl_printf("Missing device address argument\n");
+		return;
+	}
+
+	proxy = find_proxy_by_address(dev_list, arg);
+	if (!proxy) {
+		rl_printf("Device %s not available\n", arg);
+		return;
+	}
+
+	trusted = FALSE;
+
+	str = g_strdup_printf("%s untrust", arg);
+
+	if (g_dbus_proxy_set_property_basic(proxy, "Trusted",
+					DBUS_TYPE_BOOLEAN, &trusted,
+					generic_callback, str, g_free) == TRUE)
+		return;
+
+	g_free(str);
+}
+
+static void cmd_block(const char *arg)
+{
+	GDBusProxy *proxy;
+	dbus_bool_t blocked;
+	char *str;
+
+	if (!arg || !strlen(arg)) {
+		rl_printf("Missing device address argument\n");
+		return;
+	}
+
+	proxy = find_proxy_by_address(dev_list, arg);
+	if (!proxy) {
+		rl_printf("Device %s not available\n", arg);
+		return;
+	}
+
+	blocked = TRUE;
+
+	str = g_strdup_printf("%s block", arg);
+
+	if (g_dbus_proxy_set_property_basic(proxy, "Blocked",
+					DBUS_TYPE_BOOLEAN, &blocked,
+					generic_callback, str, g_free) == TRUE)
+		return;
+
+	g_free(str);
+}
+
+static void cmd_unblock(const char *arg)
+{
+	GDBusProxy *proxy;
+	dbus_bool_t blocked;
+	char *str;
+
+	if (!arg || !strlen(arg)) {
+		rl_printf("Missing device address argument\n");
+		return;
+	}
+
+	proxy = find_proxy_by_address(dev_list, arg);
+	if (!proxy) {
+		rl_printf("Device %s not available\n", arg);
+		return;
+	}
+
+	blocked = FALSE;
+
+	str = g_strdup_printf("%s unblock", arg);
+
+	if (g_dbus_proxy_set_property_basic(proxy, "Blocked",
+					DBUS_TYPE_BOOLEAN, &blocked,
+					generic_callback, str, g_free) == TRUE)
+		return;
+
+	g_free(str);
+}
+
 static void remove_device_reply(DBusMessage *message, void *user_data)
 {
 	DBusError error;
@@ -1088,6 +1199,12 @@ static const struct {
 							dev_generator },
 	{ "trust",        "<dev>",    cmd_trust, "Trust device",
 							dev_generator },
+	{ "untrust",      "<dev>",    cmd_untrust, "Untrust device",
+							dev_generator },
+	{ "block",        "<dev>",    cmd_block, "Block device",
+								dev_generator },
+	{ "unblock",      "<dev>",    cmd_unblock, "Unblock device",
+								dev_generator },
 	{ "remove",       "<dev>",    cmd_remove, "Remove device",
 							dev_generator },
 	{ "connect",      "<dev>",    cmd_connect, "Connect device",

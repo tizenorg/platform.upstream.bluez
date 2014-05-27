@@ -94,6 +94,9 @@ struct mgmt_rp_read_index_list {
 #define MGMT_SETTING_HS			0x00000100
 #define MGMT_SETTING_LE			0x00000200
 #define MGMT_SETTING_ADVERTISING	0x00000400
+#define MGMT_SETTING_SECURE_CONN	0x00000800
+#define MGMT_SETTING_DEBUG_KEYS		0x00001000
+#define MGMT_SETTING_PRIVACY		0x00002000
 
 #define MGMT_OP_READ_INFO		0x0004
 struct mgmt_rp_read_info {
@@ -176,11 +179,11 @@ struct mgmt_cp_load_link_keys {
 
 struct mgmt_ltk_info {
 	struct mgmt_addr_info addr;
-	uint8_t authenticated;
+	uint8_t type;
 	uint8_t master;
 	uint8_t enc_size;
 	uint16_t ediv;
-	uint8_t rand[8];
+	uint64_t rand;
 	uint8_t val[16];
 } __packed;
 
@@ -270,6 +273,12 @@ struct mgmt_rp_read_local_oob_data {
 	uint8_t hash[16];
 	uint8_t randomizer[16];
 } __packed;
+struct mgmt_rp_read_local_oob_ext_data {
+	uint8_t hash192[16];
+	uint8_t randomizer192[16];
+	uint8_t hash256[16];
+	uint8_t randomizer256[16];
+} __packed;
 
 #define MGMT_OP_ADD_REMOTE_OOB_DATA	0x0021
 struct mgmt_cp_add_remote_oob_data {
@@ -333,6 +342,38 @@ struct mgmt_cp_set_static_address {
 struct mgmt_cp_set_scan_params {
 	uint16_t interval;
 	uint16_t window;
+} __packed;
+
+#define MGMT_OP_SET_SECURE_CONN		0x002D
+
+#define MGMT_OP_SET_DEBUG_KEYS		0x002E
+
+struct mgmt_irk_info {
+	struct mgmt_addr_info addr;
+	uint8_t val[16];
+} __packed;
+
+#define MGMT_OP_SET_PRIVACY		0x002F
+struct mgmt_cp_set_privacy {
+	uint8_t privacy;
+	uint8_t irk[16];
+} __packed;
+
+#define MGMT_OP_LOAD_IRKS		0x0030
+struct mgmt_cp_load_irks {
+	uint16_t irk_count;
+	struct mgmt_irk_info irks[0];
+} __packed;
+
+#define MGMT_OP_GET_CONN_INFO		0x0031
+struct mgmt_cp_get_conn_info {
+	struct mgmt_addr_info addr;
+} __packed;
+struct mgmt_rp_get_conn_info {
+	struct mgmt_addr_info addr;
+	int8_t rssi;
+	int8_t tx_power;
+	int8_t max_tx_power;
 } __packed;
 
 #define MGMT_EV_CMD_COMPLETE		0x0001
@@ -471,6 +512,25 @@ struct mgmt_ev_passkey_notify {
 	uint8_t entered;
 } __packed;
 
+#define MGMT_EV_NEW_IRK			0x0018
+struct mgmt_ev_new_irk {
+	uint8_t  store_hint;
+	bdaddr_t rpa;
+	struct mgmt_irk_info key;
+} __packed;
+
+struct mgmt_csrk_info {
+	struct mgmt_addr_info addr;
+	uint8_t master;
+	uint8_t val[16];
+} __packed;
+
+#define MGMT_EV_NEW_CSRK		0x0019
+struct mgmt_ev_new_csrk {
+	uint8_t store_hint;
+	struct mgmt_csrk_info key;
+} __packed;
+
 static const char *mgmt_op[] = {
 	"<0x0000>",
 	"Read Version",
@@ -517,6 +577,11 @@ static const char *mgmt_op[] = {
 	"Set BR/EDR",
 	"Set Static Address",
 	"Set Scan Parameters",
+	"Set Secure Connections",
+	"Set Debug Keys",
+	"Set Privacy",
+	"Load Identity Resolving Keys",
+	"Get Connection Information",
 };
 
 static const char *mgmt_ev[] = {
@@ -544,6 +609,8 @@ static const char *mgmt_ev[] = {
 	"Device Unblocked",
 	"Device Unpaired",
 	"Passkey Notify",
+	"New Identity Resolving Key",
+	"New Signature Resolving Key",
 };
 
 static const char *mgmt_status[] = {

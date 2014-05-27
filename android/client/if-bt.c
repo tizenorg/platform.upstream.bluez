@@ -80,9 +80,7 @@ static void dump_properties(int num_properties, bt_property_t *properties)
 	}
 }
 
-/*
- * Cache for remote devices, stored in sorted array
- */
+/* Cache for remote devices, stored in sorted array */
 static bt_bdaddr_t *remote_devices = NULL;
 static int remote_devices_cnt = 0;
 static int remote_devices_capacity = 0;
@@ -307,13 +305,11 @@ static void dut_mode_recv_cb(uint16_t opcode, uint8_t *buf, uint8_t len)
 	haltest_info("%s\n", __func__);
 }
 
-#if PLATFORM_SDK_VERSION > 17
 static void le_test_mode_cb(bt_status_t status, uint16_t num_packets)
 {
-	haltest_info("%s %s %d\n", __func__, bt_state_t2str(status),
+	haltest_info("%s %s %d\n", __func__, bt_status_t2str(status),
 								num_packets);
 }
-#endif
 
 static bt_callbacks_t bt_callbacks = {
 	.size = sizeof(bt_callbacks),
@@ -328,9 +324,7 @@ static bt_callbacks_t bt_callbacks = {
 	.acl_state_changed_cb = acl_state_changed_cb,
 	.thread_evt_cb = thread_evt_cb,
 	.dut_mode_recv_cb = dut_mode_recv_cb,
-#if PLATFORM_SDK_VERSION > 17
 	.le_test_mode_cb = le_test_mode_cb
-#endif
 };
 
 static void init_p(int argc, const char **argv)
@@ -470,9 +464,7 @@ static void set_adapter_property_p(int argc, const char **argv)
 	EXEC(if_bluetooth->set_adapter_property, &property);
 }
 
-/*
- * This function is to be used for completion methods that need only address
- */
+/* This function is to be used for completion methods that need only address */
 static void complete_addr_c(int argc, const char **argv, enum_func *enum_func,
 								void **user)
 {
@@ -547,9 +539,7 @@ static void set_remote_device_property_p(int argc, const char **argv)
 	EXEC(if_bluetooth->set_remote_device_property, &addr, &property);
 }
 
-/*
- * For now uuid is not autocompleted. Use routine for complete_addr_c
- */
+/* For now uuid is not autocompleted. Use routine for complete_addr_c */
 #define get_remote_service_record_c complete_addr_c
 
 static void get_remote_service_record_p(int argc, const char **argv)
@@ -726,10 +716,8 @@ static void get_profile_interface_c(int argc, const char **argv,
 		BT_PROFILE_SOCKETS_ID,
 		BT_PROFILE_HIDHOST_ID,
 		BT_PROFILE_PAN_ID,
-#if PLATFORM_SDK_VERSION > 17
 		BT_PROFILE_GATT_ID,
 		BT_PROFILE_AV_RC_ID,
-#endif
 		NULL
 	};
 
@@ -743,7 +731,6 @@ static void get_profile_interface_p(int argc, const char **argv)
 {
 	const char *id;
 	const void **pif = NULL;
-	const void *dummy = NULL;
 
 	RETURN_IF_NULL(if_bluetooth);
 	if (argc <= 2) {
@@ -758,19 +745,17 @@ static void get_profile_interface_p(int argc, const char **argv)
 	else if (strcmp(BT_PROFILE_ADVANCED_AUDIO_ID, id) == 0)
 		pif = (const void **) &if_av;
 	else if (strcmp(BT_PROFILE_HEALTH_ID, id) == 0)
-		pif = &dummy; /* TODO: change when if_hl is there */
+		pif = (const void **) &if_hl;
 	else if (strcmp(BT_PROFILE_SOCKETS_ID, id) == 0)
 		pif = (const void **) &if_sock;
 	else if (strcmp(BT_PROFILE_HIDHOST_ID, id) == 0)
 		pif = (const void **) &if_hh;
 	else if (strcmp(BT_PROFILE_PAN_ID, id) == 0)
 		pif = (const void **) &if_pan;
-#if PLATFORM_SDK_VERSION > 17
 	else if (strcmp(BT_PROFILE_AV_RC_ID, id) == 0)
-		pif = &dummy; /* TODO: change when if_rc is there */
+		pif = (const void **) &if_rc;
 	else if (strcmp(BT_PROFILE_GATT_ID, id) == 0)
 		pif = (const void **) &if_gatt;
-#endif
 	else
 		haltest_error("%s is not correct for get_profile_interface\n",
 									id);
@@ -797,6 +782,32 @@ static void dut_mode_configure_p(int argc, const char **argv)
 	EXEC(if_bluetooth->dut_mode_configure, mode);
 }
 
+static void dut_mode_send_p(int argc, const char **argv)
+{
+	haltest_error("not implemented\n");
+}
+
+static void le_test_mode_p(int argc, const char **argv)
+{
+	haltest_error("not implemented\n");
+}
+
+static void config_hci_snoop_log_p(int argc, const char **argv)
+{
+	uint8_t mode;
+
+	RETURN_IF_NULL(if_bluetooth);
+
+	if (argc <= 2) {
+		haltest_error("No mode specified\n");
+		return;
+	}
+
+	mode = strtol(argv[2], NULL, 0);
+
+	EXEC(if_bluetooth->config_hci_snoop_log, mode);
+}
+
 static struct method methods[] = {
 	STD_METHOD(init),
 	STD_METHOD(cleanup),
@@ -820,6 +831,9 @@ static struct method methods[] = {
 	STD_METHODCH(ssp_reply, "<address> <ssp_veriant> 1|0 [<passkey>]"),
 	STD_METHODCH(get_profile_interface, "<profile id>"),
 	STD_METHODH(dut_mode_configure, "<dut mode>"),
+	STD_METHOD(dut_mode_send),
+	STD_METHOD(le_test_mode),
+	STD_METHODH(config_hci_snoop_log, "<mode>"),
 	END_METHOD
 };
 

@@ -125,8 +125,25 @@ static int set_master_bdaddr(int fd, const bdaddr_t *bdaddr)
 	return ret;
 }
 
-static gboolean setup_leds(GIOChannel *channel, GIOCondition cond,
-							gpointer user_data)
+static uint8_t calc_leds_bitmap(int number)
+{
+	uint8_t bitmap = 0;
+
+	/* TODO we could support up to 10 (1 + 2 + 3 + 4) */
+	if (number > 7)
+		return bitmap;
+
+	if (number > 4) {
+		bitmap |= 0x10;
+		number -= 4;
+	}
+
+	bitmap |= 0x01 << number;
+
+	return bitmap;
+}
+
+static void set_leds_hidraw(int fd, uint8_t leds_bitmap)
 {
 	/*
 	 * the total time the led is active (0xff means forever)
@@ -147,8 +164,25 @@ static gboolean setup_leds(GIOChannel *channel, GIOCondition cond,
 		0xff, 0x27, 0x10, 0x00, 0x32, /* LED_1 */
 		0x00, 0x00, 0x00, 0x00, 0x00,
 	};
-	int number = GPOINTER_TO_INT(user_data);
 	int ret;
+
+	leds_report[10] = leds_bitmap;
+
+	ret = write(fd, leds_report, sizeof(leds_report));
+	if (ret == sizeof(leds_report))
+		return;
+
+	if (ret < 0)
+		error("sixaxis: failed to set LEDS (%s)", strerror(errno));
+	else
+		error("sixaxis: failed to set LEDS (%d bytes written)", ret);
+}
+
+static gboolean setup_leds(GIOChannel *channel, GIOCondition cond,
+							gpointer user_data)
+{
+	int number = GPOINTER_TO_INT(user_data);
+	uint8_t bitmap;
 	int fd;
 
 	if (cond & (G_IO_HUP | G_IO_ERR | G_IO_NVAL))
@@ -156,27 +190,11 @@ static gboolean setup_leds(GIOChannel *channel, GIOCondition cond,
 
 	DBG("number %d", number);
 
-	/* TODO we could support up to 10 (1 + 2 + 3 + 4) */
-	if (number > 7)
-		return FALSE;
-
-	if (number > 4) {
-		leds_report[10] |= 0x10;
-		number -= 4;
-	}
-
-	leds_report[10] |= 0x01 << number;
-
 	fd = g_io_channel_unix_get_fd(channel);
 
-	ret = write(fd, leds_report, sizeof(leds_report));
-	if (ret == sizeof(leds_report))
-		return FALSE;
-
-	if (ret < 0)
-		error("sixaxis: failed to set LEDS (%s)", strerror(errno));
-	else
-		error("sixaxis: failed to set LEDS (%d bytes written)", ret);
+	bitmap = calc_leds_bitmap(number);
+	if (bitmap != 0)
+		set_leds_hidraw(fd, bitmap);
 
 	return FALSE;
 }
@@ -197,7 +215,8 @@ static bool setup_device(int fd, int index, struct btd_adapter *adapter)
 	/* This can happen if controller was plugged while already connected
 	 * eg. to charge up battery.
 	 * Don't set LEDs in that case, hence return false */
-	device = btd_adapter_find_device(adapter, &device_bdaddr);
+	device = btd_adapter_find_device(adapter, &device_bdaddr,
+							BDADDR_BREDR);
 	if (device && btd_device_is_connected(device))
 		return false;
 
@@ -228,7 +247,6 @@ static bool setup_device(int fd, int index, struct btd_adapter *adapter)
 	btd_device_set_pnpid(device, devices[index].source, devices[index].vid,
 				devices[index].pid, devices[index].version);
 	btd_device_set_temporary(device, FALSE);
-	btd_device_set_trusted(device, TRUE);
 
 	return true;
 }
@@ -301,7 +319,7 @@ static int get_supported_device(struct udev_device *udevice, uint16_t *bus)
 	struct udev_device *hid_parent;
 	uint16_t vid, pid;
 	const char *hid_id;
-	int i;
+	guint i;
 
 	hid_parent = udev_device_get_parent_with_subsystem_devtype(udevice,
 								"hid", NULL);
@@ -313,7 +331,7 @@ static int get_supported_device(struct udev_device *udevice, uint16_t *bus)
 	if (sscanf(hid_id, "%hx:%hx:%hx", bus, &vid, &pid) != 3)
 		return -1;
 
-	for (i = 0; G_N_ELEMENTS(devices); i++) {
+	for (i = 0; i < G_N_ELEMENTS(devices); i++) {
 		if (devices[i].vid == vid && devices[i].pid == pid)
 			return i;
 	}

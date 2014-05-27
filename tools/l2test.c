@@ -47,6 +47,8 @@
 #include <bluetooth/hci_lib.h>
 #include <bluetooth/l2cap.h>
 
+#include "src/shared/util.h"
+
 #define NIBBLE_TO_ASCII(c)  ((c) < 0x0a ? (c) + 0x30 : (c) + 0x57)
 
 #define BREDR_DEFAULT_PSM	0x1011
@@ -287,7 +289,7 @@ static int setopts(int sk, struct l2cap_options *opts)
 {
 	if (bdaddr_type == BDADDR_BREDR || cid)
 		return setsockopt(sk, SOL_L2CAP, L2CAP_OPTIONS, opts,
-								sizeof(opts));
+								sizeof(*opts));
 
 	return setsockopt(sk, SOL_BLUETOOTH, BT_RCVMTU, &opts->imtu,
 							sizeof(opts->imtu));
@@ -782,7 +784,7 @@ static void dump_mode(int sk)
 		data_size = imtu;
 
 	if (defer_setup) {
-		len = read(sk, buf, sizeof(buf));
+		len = read(sk, buf, data_size);
 		if (len < 0)
 			syslog(LOG_ERR, "Initial read error: %s (%d)",
 						strerror(errno), errno);
@@ -842,7 +844,7 @@ static void recv_mode(int sk)
 		data_size = imtu;
 
 	if (defer_setup) {
-		len = read(sk, buf, sizeof(buf));
+		len = read(sk, buf, data_size);
 		if (len < 0)
 			syslog(LOG_ERR, "Initial read error: %s (%d)",
 						strerror(errno), errno);
@@ -909,7 +911,7 @@ static void recv_mode(int sk)
 			}
 
 			/* Check sequence */
-			sq = bt_get_le32(buf);
+			sq = get_le32(buf);
 			if (seq != sq) {
 				syslog(LOG_INFO, "seq missmatch: %d -> %d", seq, sq);
 				seq = sq;
@@ -917,7 +919,7 @@ static void recv_mode(int sk)
 			seq++;
 
 			/* Check length */
-			l = bt_get_le16(buf + 4);
+			l = get_le16(buf + 4);
 			if (len != l) {
 				syslog(LOG_INFO, "size missmatch: %d -> %d", len, l);
 				continue;
@@ -976,8 +978,8 @@ static void do_send(int sk)
 
 	seq = 0;
 	while ((num_frames == -1) || (num_frames-- > 0)) {
-		bt_put_le32(seq, buf);
-		bt_put_le16(data_size, buf + 4);
+		put_le32(seq, buf);
+		put_le16(data_size, buf + 4);
 
 		seq++;
 

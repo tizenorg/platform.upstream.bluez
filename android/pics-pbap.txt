@@ -1,5 +1,7 @@
 PBAP PICS for the PTS tool.
 
+PTS version: 5.1
+
 * - different than PTS defaults
 # - not yet implemented/supported
 
@@ -12,8 +14,7 @@ Parameter Name	Selected	Description
 -------------------------------------------------------------------------------
 TSPC_PBAP_0_1	False		Role: PBAP 1.0 (C.1)
 TSPC_PBAP_0_2	True (*)	Role: PBAP 1.1 (C.1)
-TSPC_PBAP_0_3	False		Role: Reserve
-TSPC_PBAP_0_4	False (*)	Role: PBAP 1.2 (C.1)
+TSPC_PBAP_0_3	False		Role: PBAP 1.2 (C.1)
 -------------------------------------------------------------------------------
 C.1: Mandatory to support one and only one major profile version.
 -------------------------------------------------------------------------------
@@ -116,7 +117,7 @@ Parameter Name	Selected	Description
 TSPC_PBAP_6_1	False (*)	PCE: Connect (M)
 TSPC_PBAP_6_2	False (*)	PCE: Disconnect (M)
 TSPC_PBAP_6_3	False (*)	PCE: Get (M)
-TSPC_PBAP_6_4	False (*)	PCE: Abort (M)
+TSPC_PBAP_6_4	False		PCE: Abort (O)
 TSPC_PBAP_6_5	False (*)	PCE: SetPath (C.1)
 TSPC_PBAP_6_6	False		PCE: Support for OBEX authentication initiation
 					(C.2)
@@ -195,11 +196,11 @@ TSPC_PBAP_9_10a	False		PSE: Referencing Contacts (C.3)
 TSPC_PBAP_9_12	False		PSE: Contact Image Default Format (C.1)
 TSPC_PBAP_9_12a	False		PSE: Able to request Contact Images (C.2)
 TSPC_PBAP_9_13	False		PSE: Supported Phonebook Objects
-TSPC_PBAP_9_13a	False (*)	PSE: Telecom/pb (M)
-TSPC_PBAP_9_13b	False		PSE: Telecom/ich (O)
-TSPC_PBAP_9_13c	False		PSE: Telecom/och (O)
-TSPC_PBAP_9_13d	False		PSE: Telecom/mch (O)
-TSPC_PBAP_9_13e	False (*)	PSE: Telecom/cch (O)
+TSPC_PBAP_9_13a	True 		PSE: Telecom/pb (M)
+TSPC_PBAP_9_13b	True  (*)	PSE: Telecom/ich (O)
+TSPC_PBAP_9_13c	True  (*)	PSE: Telecom/och (O)
+TSPC_PBAP_9_13d	True  (*)	PSE: Telecom/mch (O)
+TSPC_PBAP_9_13e	True		PSE: Telecom/cch (O)
 TSPC_PBAP_9_13f	False		PSE: Telecom/spd (C.2)
 TSPC_PBAP_9_13g	False		PSE: Telecom/fav (C.2)
 TSPC_PBAP_9_13h	False (*)	PSE: SIM1/Telecom/pb (O)
@@ -353,7 +354,7 @@ TSPC_PBAP_19_2	True		PSE: Initiate LMP-Authentication (M)
 TSPC_PBAP_19_3	False		PSE: Security mode 1 (C.2)
 TSPC_PBAP_19_4	False		PSE: Security mode 2 (C.1)
 TSPC_PBAP_19_5	False		PSE: Security mode 3 (C.1)
-TSPC_PBAP_19_6	False		PSE: Security mode 4 (C.1)
+TSPC_PBAP_19_6	True (*)	PSE: Security mode 4 (C.1)
 -------------------------------------------------------------------------------
 C.1: At least one of TSPC_PBAP_19_3, TSPC_PBAP_19_4, TSPC_PBAP_19_5 or
 	TSPC_PBAP_19_6 (security mode 2, 3, or 4) shall be supported.
@@ -413,7 +414,7 @@ C.3: Optional if TSPC_PBAP_10_2 is supported, otherwise excluded.
 -------------------------------------------------------------------------------
 Parameter Name	Selected	Description
 -------------------------------------------------------------------------------
-TSPC_PBAP_25_1	False (*)	PCE: GOEP v2.0 or later (M)
+TSPC_PBAP_25_1	False		PCE: GOEP v2.0 or later (M)
 TSPC_PBAP_25_2	False (*)	PCE: GOEP v2 Backwards Compatibility (M)
 TSPC_PBAP_25_3	False		PCE: OBEX over L2CAP (M)
 TSPC_PBAP_25_4	False		PCE: OBEX SRM (M)
@@ -435,12 +436,7 @@ TSPC_PBAP_26_3	False		PSE: OBEX over L2CAP (M)
 TSPC_PBAP_26_4	False		PSE: OBEX SRM (M)
 TSPC_PBAP_26_5	False (*)	PSE: Send OBEX SRMP header (C.1)
 TSPC_PBAP_26_6	False		PSE: Receive OBEX SRMP header (M)
-TSPC_ALL	False (*)	Turns on all the test cases
+TSPC_ALL	False		Turns on all the test cases
 -------------------------------------------------------------------------------
 C.1: Optional if TSPC_PBAP_26_4 (OBEX SRM) is supported, otherwise Excluded.
 -------------------------------------------------------------------------------
-
-
--------------------------------------------------------------------------------
-No special PIXIT settings required. All should be set according to Tester's
-test environment.

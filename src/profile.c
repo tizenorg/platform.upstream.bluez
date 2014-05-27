@@ -43,7 +43,7 @@
 #include "sdpd.h"
 #include "log.h"
 #include "error.h"
-#include "glib-helper.h"
+#include "uuid-helper.h"
 #include "dbus-common.h"
 #include "sdp-client.h"
 #include "sdp-xml.h"
@@ -482,6 +482,9 @@
 		<attribute id=\"0x0200\">				\
 			<uint16 value=\"%u\" name=\"psm\"/>		\
 		</attribute>						\
+		<attribute id=\"0x0317\">				\
+			<uint32 value=\"0x0000007f\"/>			\
+		</attribute>						\
 	</record>"
 
 #define SYNC_RECORD							\
@@ -619,7 +622,6 @@ struct ext_io {
 	uint8_t chan;
 
 	guint auth_id;
-	unsigned int svc_id;
 	DBusPendingCall *pending;
 };
 
@@ -708,10 +710,6 @@ static void ext_io_destroy(gpointer p)
 	if (ext_io->auth_id != 0)
 		btd_cancel_authorization(ext_io->auth_id);
 
-	if (ext_io->svc_id != 0)
-		device_remove_svc_complete_callback(ext_io->device,
-							ext_io->svc_id);
-
 	if (ext_io->pending) {
 		dbus_pending_call_cancel(ext_io->pending);
 		dbus_pending_call_unref(ext_io->pending);
@@ -754,7 +752,9 @@ static gboolean ext_io_disconnected(GIOChannel *io, GIOCondition cond,
 
 	DBG("%s disconnected from %s", ext->name, addr);
 drop:
-	btd_service_disconnecting_complete(conn->service, 0);
+	if (conn->service)
+		btd_service_disconnecting_complete(conn->service, 0);
+
 	ext->conns = g_slist_remove(ext->conns, conn);
 	ext_io_destroy(conn);
 	return FALSE;
@@ -776,7 +776,9 @@ static void new_conn_reply(DBusPendingCall *call, void *user_data)
 	conn->pending = NULL;
 
 	if (!dbus_error_is_set(&err)) {
-		btd_service_connecting_complete(conn->service, 0);
+		if (conn->service)
+			btd_service_connecting_complete(conn->service, 0);
+
 		conn->connected = true;
 		return;
 	}
@@ -784,7 +786,8 @@ static void new_conn_reply(DBusPendingCall *call, void *user_data)
 	error("%s replied with an error: %s, %s", ext->name,
 						err.name, err.message);
 
-	btd_service_connecting_complete(conn->service, -ECONNREFUSED);
+	if (conn->service)
+		btd_service_connecting_complete(conn->service, -ECONNREFUSED);
 
 	dbus_error_free(&err);
 
@@ -808,14 +811,18 @@ static void disconn_reply(DBusPendingCall *call, void *user_data)
 	conn->pending = NULL;
 
 	if (!dbus_error_is_set(&err)) {
-		btd_service_disconnecting_complete(conn->service, 0);
+		if (conn->service)
+			btd_service_disconnecting_complete(conn->service, 0);
+
 		goto disconnect;
 	}
 
 	error("%s replied with an error: %s, %s", ext->name,
 						err.name, err.message);
 
-	btd_service_disconnecting_complete(conn->service, -ECONNREFUSED);
+	if (conn->service)
+		btd_service_disconnecting_complete(conn->service,
+								-ECONNREFUSED);
 
 	dbus_error_free(&err);
 
@@ -988,9 +995,13 @@ static void ext_connect(GIOChannel *io, GError *err, gpointer user_data)
 		return;
 
 drop:
-	btd_service_connecting_complete(conn->service, err ? -err->code : -EIO);
+	if (conn->service)
+		btd_service_connecting_complete(conn->service,
+						err ? -err->code : -EIO);
+
 	if (io_err)
 		g_error_free(io_err);
+
 	ext->conns = g_slist_remove(ext->conns, conn);
 	ext_io_destroy(conn);
 }
@@ -1017,12 +1028,6 @@ static void ext_auth(DBusError *err, void *user_data)
 		goto drop;
 	}
 
-	if (conn->svc_id > 0) {
-		DBG("Connection from %s authorized but still waiting for SDP",
-									addr);
-		return;
-	}
-
 	if (!bt_io_accept(conn->io, ext_connect, conn, NULL, &gerr)) {
 		error("bt_io_accept: %s", gerr->message);
 		g_error_free(gerr);
@@ -1047,11 +1052,17 @@ static struct ext_io *create_conn(struct ext_io *server, GIOChannel *io,
 	GIOCondition cond;
 	char addr[18];
 
-	device = btd_adapter_find_device(server->adapter, dst);
+	device = btd_adapter_find_device(server->adapter, dst, BDADDR_BREDR);
 	if (device == NULL) {
 		ba2str(dst, addr);
 		error("%s device %s not found", server->ext->name, addr);
 		return NULL;
+	}
+
+	/* Do not add UUID if client role is not enabled */
+	if (!server->ext->enable_client) {
+		service = NULL;
+		goto done;
 	}
 
 	btd_device_add_uuid(device, server->ext->remote_uuid);
@@ -1063,59 +1074,21 @@ static struct ext_io *create_conn(struct ext_io *server, GIOChannel *io,
 		return NULL;
 	}
 
+done:
 	conn = g_new0(struct ext_io, 1);
 	conn->io = g_io_channel_ref(io);
 	conn->proto = server->proto;
 	conn->ext = server->ext;
 	conn->adapter = btd_adapter_ref(server->adapter);
 	conn->device = btd_device_ref(device);
-	conn->service = btd_service_ref(service);
+
+	if (service)
+		conn->service = btd_service_ref(service);
 
 	cond = G_IO_HUP | G_IO_ERR | G_IO_NVAL;
 	conn->io_id = g_io_add_watch(io, cond, ext_io_disconnected, conn);
 
 	return conn;
-}
-
-static void ext_svc_complete(struct btd_device *dev, int err, void *user_data)
-{
-	struct ext_io *conn = user_data;
-	struct ext_profile *ext = conn->ext;
-	const bdaddr_t *bdaddr;
-	GError *gerr = NULL;
-	char addr[18];
-
-	conn->svc_id = 0;
-
-	bdaddr = device_get_address(dev);
-	ba2str(bdaddr, addr);
-
-	if (err < 0) {
-		error("Service resolving failed for %s: %s (%d)",
-						addr, strerror(-err), -err);
-		goto drop;
-	}
-
-	DBG("Services resolved for %s", addr);
-
-	if (conn->auth_id > 0) {
-		DBG("Services resolved but still waiting for authorization");
-		return;
-	}
-
-	if (!bt_io_accept(conn->io, ext_connect, conn, NULL, &gerr)) {
-		error("bt_io_accept: %s", gerr->message);
-		g_error_free(gerr);
-		goto drop;
-	}
-
-	DBG("%s authorized to connect to %s", addr, ext->name);
-
-	return;
-
-drop:
-	ext->conns = g_slist_remove(ext->conns, conn);
-	ext_io_destroy(conn);
 }
 
 static void ext_confirm(GIOChannel *io, gpointer user_data)
@@ -1155,10 +1128,6 @@ static void ext_confirm(GIOChannel *io, gpointer user_data)
 	}
 
 	ext->conns = g_slist_append(ext->conns, conn);
-
-	conn->svc_id = device_wait_for_svc_complete(conn->device,
-							ext_svc_complete,
-							conn);
 
 	DBG("%s authorizing connection from %s", ext->name, addr);
 }
@@ -1590,7 +1559,9 @@ static void record_cb(sdp_list_t *recs, int err, gpointer user_data)
 	return;
 
 failed:
-	btd_service_connecting_complete(conn->service, err);
+	if (conn->service)
+		btd_service_connecting_complete(conn->service, err);
+
 	ext->conns = g_slist_remove(ext->conns, conn);
 	ext_io_destroy(conn);
 }
@@ -1605,7 +1576,7 @@ static int resolve_service(struct ext_io *conn, const bdaddr_t *src,
 	bt_string2uuid(&uuid, ext->remote_uuid);
 	sdp_uuid128_to_uuid(&uuid);
 
-	err = bt_search_service(src, dst, &uuid, record_cb, conn, NULL);
+	err = bt_search_service(src, dst, &uuid, record_cb, conn, NULL, 0);
 	if (err == 0)
 		conn->resolving = true;
 
@@ -2146,7 +2117,7 @@ static int parse_ext_opt(struct ext_profile *ext, const char *key,
 		if (type != DBUS_TYPE_STRING)
 			return -EINVAL;
 		dbus_message_iter_get_basic(value, &str);
-		g_free(ext->service);
+		free(ext->service);
 		ext->service = bt_name2string(str);
 	}
 
@@ -2156,27 +2127,27 @@ static int parse_ext_opt(struct ext_profile *ext, const char *key,
 static void set_service(struct ext_profile *ext)
 {
 	if (strcasecmp(ext->uuid, HSP_HS_UUID) == 0) {
-		ext->service = g_strdup(ext->uuid);
+		ext->service = strdup(ext->uuid);
 	} else if (strcasecmp(ext->uuid, HSP_AG_UUID) == 0) {
 		ext->service = ext->uuid;
-		ext->uuid = g_strdup(HSP_HS_UUID);
+		ext->uuid = strdup(HSP_HS_UUID);
 	} else if (strcasecmp(ext->uuid, HFP_HS_UUID) == 0) {
-		ext->service = g_strdup(ext->uuid);
+		ext->service = strdup(ext->uuid);
 	} else if (strcasecmp(ext->uuid, HFP_AG_UUID) == 0) {
 		ext->service = ext->uuid;
-		ext->uuid = g_strdup(HFP_HS_UUID);
+		ext->uuid = strdup(HFP_HS_UUID);
 	} else if (strcasecmp(ext->uuid, OBEX_SYNC_UUID) == 0 ||
 			strcasecmp(ext->uuid, OBEX_OPP_UUID) == 0 ||
 			strcasecmp(ext->uuid, OBEX_FTP_UUID) == 0) {
-		ext->service = g_strdup(ext->uuid);
+		ext->service = strdup(ext->uuid);
 	} else if (strcasecmp(ext->uuid, OBEX_PSE_UUID) == 0 ||
 			strcasecmp(ext->uuid, OBEX_PCE_UUID) ==  0) {
 		ext->service = ext->uuid;
-		ext->uuid = g_strdup(OBEX_PBAP_UUID);
+		ext->uuid = strdup(OBEX_PBAP_UUID);
 	} else if (strcasecmp(ext->uuid, OBEX_MAS_UUID) == 0 ||
 			strcasecmp(ext->uuid, OBEX_MNS_UUID) == 0) {
 		ext->service = ext->uuid;
-		ext->uuid = g_strdup(OBEX_MAP_UUID);
+		ext->uuid = strdup(OBEX_MAP_UUID);
 	}
 }
 
@@ -2238,7 +2209,7 @@ static struct ext_profile *create_ext(const char *owner, const char *path,
 	p->local_uuid = ext->service ? ext->service : ext->uuid;
 	p->remote_uuid = ext->remote_uuid;
 
-	if (ext->enable_server || ext->record || ext->get_record) {
+	if (ext->enable_server) {
 		p->adapter_probe = ext_adapter_probe;
 		p->adapter_remove = ext_adapter_remove;
 	}
@@ -2275,8 +2246,8 @@ static void remove_ext(struct ext_profile *ext)
 	g_free(ext->remote_uuid);
 	g_free(ext->name);
 	g_free(ext->owner);
-	g_free(ext->uuid);
-	g_free(ext->service);
+	free(ext->uuid);
+	free(ext->service);
 	g_free(ext->role);
 	g_free(ext->path);
 	g_free(ext->record);
@@ -2397,7 +2368,7 @@ bool btd_profile_add_custom_prop(const char *uuid, const char *type,
 
 	prop = g_new0(struct btd_profile_custom_property, 1);
 
-	prop->uuid = g_strdup(uuid);
+	prop->uuid = strdup(uuid);
 	prop->type = g_strdup(type);
 	prop->name = g_strdup(name);
 	prop->exists = exists;

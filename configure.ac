@@ -1,5 +1,5 @@
 AC_PREREQ(2.60)
-AC_INIT(bluez, 5.12)
+AC_INIT(bluez, 5.19)
 
 AM_INIT_AUTOMAKE([foreign subdir-objects color-tests silent-rules
 					tar-pax no-dist-gzip dist-xz])
@@ -62,8 +62,8 @@ if (test "${enable_threads}" = "yes"); then
 	GLIB_LIBS="$GLIB_LIBS $GTHREAD_LIBS"
 fi
 
-PKG_CHECK_MODULES(DBUS, dbus-1 >= 1.4, dummy=yes,
-				AC_MSG_ERROR(D-Bus >= 1.4 is required))
+PKG_CHECK_MODULES(DBUS, dbus-1 >= 1.6, dummy=yes,
+				AC_MSG_ERROR(D-Bus >= 1.6 is required))
 AC_SUBST(DBUS_CFLAGS)
 AC_SUBST(DBUS_LIBS)
 
@@ -251,5 +251,22 @@ AC_ARG_ENABLE(android, AC_HELP_STRING([--enable-android],
 			[enable BlueZ for Android]),
 					[enable_android=${enableval}])
 AM_CONDITIONAL(ANDROID, test "${enable_android}" = "yes")
+
+if (test "${enable_android}" = "yes"); then
+	PKG_CHECK_MODULES(SBC, sbc >= 1.2, dummy=yes,
+					AC_MSG_ERROR(SBC library >= 1.2 is required))
+	AC_SUBST(SBC_CFLAGS)
+	AC_SUBST(SBC_LIBS)
+fi
+
+if (test "${enable_android}" = "yes"); then
+	PKG_CHECK_MODULES(SPEEXDSP, speexdsp >= 1.2, dummy=yes,
+					AC_MSG_ERROR(SPEEXDSP library >= 1.2 is required))
+	AC_SUBST(SPEEXDSP_CFLAGS)
+	AC_SUBST(SPEEXDSP_LIBS)
+fi
+
+AC_DEFINE_UNQUOTED(ANDROID_STORAGEDIR, "${storagedir}/android",
+			[Directory for the Android daemon storage files])
 
 AC_OUTPUT(Makefile src/bluetoothd.8 lib/bluez.pc)

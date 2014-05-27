@@ -39,10 +39,10 @@
 #include <bluetooth/sdp_lib.h>
 
 #include <glib.h>
-#include <btio/btio.h>
 
-#include "log.h"
+#include "src/log.h"
 
+#include "btio/btio.h"
 #include "lib/uuid.h"
 #include "src/adapter.h"
 #include "src/device.h"
@@ -2467,7 +2467,8 @@ static void avdtp_confirm_cb(GIOChannel *chan, gpointer data)
 
 	DBG("AVDTP: incoming connect from %s", address);
 
-	device = btd_adapter_find_device(adapter_find(&src), &dst);
+	device = btd_adapter_find_device(adapter_find(&src), &dst,
+								BDADDR_BREDR);
 	if (!device)
 		goto drop;
 
