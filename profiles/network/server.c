@@ -355,9 +355,26 @@ static gboolean bnep_setup(GIOChannel *chan,
 							&na->setup->dst) < 0)
 		goto reply;
 
+	rsp = BNEP_SUCCESS;
+
+{
+	const gchar *adapter_path = adapter_get_path(na->adapter);
+	const char *pdev = na->setup->dev;
+	char address[24] = {0};
+	char *paddr = address;
+
+	ba2str(&na->setup->dst, paddr);
+
 	na->setup = NULL;
 
-	rsp = BNEP_SUCCESS;
+	DBG("send peerconnected signal");
+
+	g_dbus_emit_signal(btd_get_dbus_connection(), adapter_path,
+			NETWORK_SERVER_INTERFACE, "PeerConnected",
+			DBUS_TYPE_STRING, &pdev,
+			DBUS_TYPE_STRING, &paddr,
+			DBUS_TYPE_INVALID);
+}
 
 reply:
 	bnep_send_ctrl_rsp(sk, BNEP_CONTROL, BNEP_SETUP_CONN_RSP, rsp);
@@ -500,6 +517,15 @@ static void server_remove_sessions(struct network_server *ns)
 			continue;
 
 		bnep_server_delete(ns->bridge, session->dev, &session->dst);
+
+		DBG("send peerdisconnected signal");
+
+		g_dbus_emit_signal(btd_get_dbus_connection(),
+			adapter_get_path(ns->na->adapter),
+			NETWORK_SERVER_INTERFACE, "PeerDisconnected",
+			DBUS_TYPE_STRING, &session->dev,
+			DBUS_TYPE_STRING, &session->dst,
+			DBUS_TYPE_INVALID);
 	}
 
 	g_slist_free_full(ns->sessions, session_free);
@@ -632,6 +658,14 @@ static void path_unregister(void *data)
 	adapter_free(na);
 }
 
+static GDBusSignalTable server_signals[] = {
+	{ GDBUS_SIGNAL("PeerConnected",
+			GDBUS_ARGS({ "device", "s" }, { "address", "s" })) },
+	{ GDBUS_SIGNAL("PeerDisconnected",
+			GDBUS_ARGS({ "device", "s" }, { "address", "s" })) },
+	{ }
+};
+
 static const GDBusMethodTable server_methods[] = {
 	{ GDBUS_METHOD("Register",
 			GDBUS_ARGS({ "uuid", "s" }, { "bridge", "s" }), NULL,
@@ -699,10 +733,11 @@ int server_register(struct btd_adapter *adapter, uint16_t id)
 
 	if (!g_dbus_register_interface(btd_get_dbus_connection(),
 					path, NETWORK_SERVER_INTERFACE,
-					server_methods, NULL, NULL,
+					server_methods, server_signals,
+					NULL,
 					na, path_unregister)) {
 		error("D-Bus failed to register %s interface",
-						NETWORK_SERVER_INTERFACE);
+					NETWORK_SERVER_INTERFACE);
 		server_free(ns);
 		return -1;
 	}
