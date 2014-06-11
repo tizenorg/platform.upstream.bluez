@@ -1155,6 +1155,9 @@ static int input_device_connected(struct input_device *idev)
 
 	btd_service_connecting_complete(idev->service, 0);
 
+	g_dbus_emit_property_changed(btd_get_dbus_connection(), idev->path,
+				INPUT_INTERFACE, "Connected");
+
 	return 0;
 }
 
@@ -1343,6 +1346,7 @@ static void input_device_enter_reconnect_mode(struct input_device *idev)
 int input_device_connect(struct btd_service *service)
 {
 	struct input_device *idev;
+	int err;
 
 	DBG("");
 
@@ -1354,7 +1358,12 @@ int input_device_connect(struct btd_service *service)
 	if (is_connected(idev))
 		return -EALREADY;
 
-	return dev_connect(idev);
+	err = dev_connect(idev);
+	if (err < 0)
+		return err;
+
+	return 0;
+
 }
 
 int input_device_disconnect(struct btd_service *service)
@@ -1369,6 +1378,9 @@ int input_device_disconnect(struct btd_service *service)
 	err = connection_disconnect(idev, 0);
 	if (err < 0)
 		return err;
+
+	g_dbus_emit_property_changed(btd_get_dbus_connection(), idev->path,
+				INPUT_INTERFACE, "Connected");
 
 	return 0;
 }
