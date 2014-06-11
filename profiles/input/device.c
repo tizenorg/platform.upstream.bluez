@@ -1155,6 +1155,9 @@ static int input_device_connected(struct input_device *idev)
 
 	btd_service_connecting_complete(idev->service, 0);
 
+	g_dbus_emit_property_changed(btd_get_dbus_connection(), idev->path,
+				INPUT_INTERFACE, "Connected");
+
 	return 0;
 }
 
@@ -1369,6 +1372,9 @@ int input_device_disconnect(struct btd_service *service)
 	err = connection_disconnect(idev, 0);
 	if (err < 0)
 		return err;
+
+	g_dbus_emit_property_changed(btd_get_dbus_connection(), idev->path,
+				INPUT_INTERFACE, "Connected");
 
 	return 0;
 }
