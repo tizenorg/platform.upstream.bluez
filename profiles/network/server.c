@@ -84,6 +84,9 @@ struct network_server {
 static GSList *adapters = NULL;
 static gboolean security = TRUE;
 
+static gboolean server_disconnected_cb(GIOChannel *chan,
+			GIOCondition cond, gpointer user_data);
+
 static struct network_adapter *find_adapter(GSList *list,
 					struct btd_adapter *adapter)
 {
@@ -120,6 +123,20 @@ static struct network_server *find_server_by_uuid(GSList *list,
 
 		if (strcasecmp(uuid, bnep_name(ns->id)) == 0)
 			return ns;
+	}
+
+	return NULL;
+}
+
+static struct network_session *find_session(GSList *list, GIOChannel *io)
+{
+	GSList *l;
+
+	for (l = list; l; l = l->next) {
+		struct network_session *session = l->data;
+
+		if (session->io == io)
+			return session;
 	}
 
 	return NULL;
@@ -269,12 +286,58 @@ static void setup_destroy(void *user_data)
 	struct network_adapter *na = user_data;
 	struct network_session *setup = na->setup;
 
+	na->setup = NULL;
+
 	if (!setup)
 		return;
 
-	na->setup = NULL;
-
 	session_free(setup);
+}
+
+static gboolean server_disconnected_cb(GIOChannel *chan,
+			GIOCondition cond, gpointer user_data)
+{
+	struct network_server *ns = NULL;
+	struct network_session *session = NULL;
+	char address[20] = {0};
+	GError *gerr = NULL;
+	const char *paddr = address;
+	const char *name_str = NULL;
+
+	if (!user_data)
+		return FALSE;
+
+	ns = (struct network_server *) user_data;
+
+	session = find_session(ns->sessions, chan);
+
+	if (session)
+		name_str = session->dev;
+	else
+		info("Session is not exist!");
+
+	bt_io_get(chan, &gerr, BT_IO_OPT_DEST, &address,
+			BT_IO_OPT_INVALID);
+
+	DBG("send peerdisconnected signal");
+
+	g_dbus_emit_signal(btd_get_dbus_connection(),
+			adapter_get_path(ns->na->adapter),
+			NETWORK_SERVER_INTERFACE, "PeerDisconnected",
+			DBUS_TYPE_STRING, &name_str,
+			DBUS_TYPE_STRING, &paddr,
+			DBUS_TYPE_INVALID);
+
+	if (session) {
+		ns->sessions = g_slist_remove(ns->sessions, session);
+		session_free(session);
+	}
+
+	if (g_slist_length(ns->sessions) == 0 &&
+		name_str != NULL)
+		bnep_if_down_wrapper(name_str);
+
+	return FALSE;
 }
 
 static gboolean bnep_setup(GIOChannel *chan,
@@ -282,6 +345,7 @@ static gboolean bnep_setup(GIOChannel *chan,
 {
 	struct network_adapter *na = user_data;
 	struct network_server *ns;
+	struct network_session *session;
 	uint8_t packet[BNEP_MTU];
 	struct bnep_setup_conn_req *req = (void *) packet;
 	uint16_t src_role, dst_role, rsp = BNEP_CONN_NOT_ALLOWED;
@@ -365,6 +429,10 @@ static gboolean bnep_setup(GIOChannel *chan,
 
 	ba2str(&na->setup->dst, paddr);
 
+	session = g_memdup(na->setup, sizeof(struct network_session));
+
+	ns->sessions = g_slist_append(ns->sessions, session);
+
 	na->setup = NULL;
 
 	DBG("send peerconnected signal");
@@ -377,6 +445,10 @@ static gboolean bnep_setup(GIOChannel *chan,
 }
 
 reply:
+	 g_io_add_watch_full(chan, G_PRIORITY_DEFAULT,
+					G_IO_HUP | G_IO_ERR | G_IO_NVAL,
+					server_disconnected_cb, ns, NULL);
+
 	bnep_send_ctrl_rsp(sk, BNEP_CONTROL, BNEP_SETUP_CONN_RSP, rsp);
 
 	return FALSE;
@@ -517,15 +589,6 @@ static void server_remove_sessions(struct network_server *ns)
 			continue;
 
 		bnep_server_delete(ns->bridge, session->dev, &session->dst);
-
-		DBG("send peerdisconnected signal");
-
-		g_dbus_emit_signal(btd_get_dbus_connection(),
-			adapter_get_path(ns->na->adapter),
-			NETWORK_SERVER_INTERFACE, "PeerDisconnected",
-			DBUS_TYPE_STRING, &session->dev,
-			DBUS_TYPE_STRING, &session->dst,
-			DBUS_TYPE_INVALID);
 	}
 
 	g_slist_free_full(ns->sessions, session_free);

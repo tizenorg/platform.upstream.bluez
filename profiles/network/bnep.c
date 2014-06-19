@@ -668,3 +668,8 @@ uint16_t bnep_setup_decode(struct bnep_setup_conn_req *req, uint16_t *dst,
 
 	return BNEP_SUCCESS;
 }
+
+int bnep_if_down_wrapper(const char *devname)
+{
+	bnep_if_down(devname);
+}
