@@ -1,4 +1,12 @@
 Code-Review+2: wu zheng <wu.zheng@intel.com>
+Verified+1: gu chaojie <chao.jie.gu@intel.com>
+Submitted-by: wu zheng <wu.zheng@intel.com>
+Submitted-at: Wed, 11 Jun 2014 19:17:36 -0700
+Reviewed-on: https://review.tizen.org/gerrit/22748
+Project: platform/upstream/bluez
+Branch: refs/heads/tizen
+
+Code-Review+2: wu zheng <wu.zheng@intel.com>
 Verified+1: gu chaojie
 Submitted-by: wu zheng <wu.zheng@intel.com>
 Submitted-at: Wed, 11 Jun 2014 19:17:36 -0700
