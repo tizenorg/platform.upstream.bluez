@@ -1339,8 +1339,8 @@ static void avctp_control_confirm(struct avctp *session, GIOChannel *chan,
 	dst = device_get_address(dev);
 
 	session->auth_id = btd_request_authorization(src, dst,
-							AVRCP_REMOTE_UUID,
-							auth_cb, session);
+						AVRCP_REMOTE_UUID,
+						auth_cb, session, 0);
 	if (session->auth_id == 0)
 		goto drop;
 
