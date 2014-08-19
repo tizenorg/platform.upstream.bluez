@@ -34,6 +34,7 @@ Source5:        baselibs.conf
 Source7:        bluetooth.modprobe
 Source101:      obex-root-setup
 Source102:      create-symlinks
+Source103:      obex.sh
 Source1001:     bluez.manifest
 
 %define cups_lib_dir %{_prefix}/lib/cups
@@ -129,6 +130,7 @@ install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 
 install -D -m 0755 %SOURCE101 %{buildroot}%{_bindir}/obex-root-setup
 install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
+install -D -m 0755 %SOURCE103 %{buildroot}%{_bindir}/obex.sh
 install -D -m 0755 tools/btiotest $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/bluetooth-player $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/mpris-player $RPM_BUILD_ROOT/%{_bindir}/
@@ -195,6 +197,7 @@ install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 %{_datadir}/dbus-1/services/org.bluez.obex.service
 %{_sysconfdir}/obex/root-setup.d/000_create-symlinks
 %{_bindir}/obex-root-setup
+%{_bindir}/obex.sh
 
 %files test
 %manifest %{name}.manifest
