@@ -60,6 +60,14 @@ Group:          Network & Connectivity/Bluetooth
 %description -n libbluetooth
 Bluetooth protocol stack libraries.
 
+%package -n libbluetooth-plugins-service
+Summary:        Bluetooth Plugins
+License:        GPL-2.0+
+Group:          Network & Connectivity/Bluetooth
+
+%description -n libbluetooth-plugins-service
+Bluetooth protocol stack plugins.
+
 %package cups
 Summary:        CUPS Driver for Bluetooth Printers
 License:        GPL-2.0+
@@ -105,6 +113,7 @@ export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__"
             --enable-library	\
             --enable-experimental	\
             --enable-readline	\
+            --enable-service \
             --with-systemdunitdir=%{_unitdir}	\
             %{?with_libcapng}
 make %{?_smp_mflags} all V=1
@@ -145,6 +154,10 @@ install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 
 %postun -n libbluetooth -p /sbin/ldconfig
 
+%post -n libbluetooth-plugins-service -p /sbin/ldconfig
+
+%postun -n libbluetooth-plugins-service -p /sbin/ldconfig
+
 %files
 %manifest %{name}.manifest
 %defattr(-, root, root)
@@ -181,6 +194,13 @@ install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 %manifest %{name}.manifest
 %defattr(-, root, root)
 %{_libdir}/libbluetooth.so.*
+%{_libdir}/bluetooth/plugins/*.so
+%license COPYING
+
+%files -n libbluetooth-plugins-service
+%manifest %{name}.manifest
+%defattr(-, root, root)
+%{_libdir}/bluetooth/plugins/*.so
 %license COPYING
 
 %files cups
