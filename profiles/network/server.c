@@ -299,7 +299,7 @@ static gboolean server_disconnected_cb(GIOChannel *chan,
 {
 	struct network_server *ns = NULL;
 	struct network_session *session = NULL;
-	char address[20] = {0};
+	char address[24] = {0};
 	GError *gerr = NULL;
 	const char *paddr = address;
 	const char *name_str = NULL;
@@ -311,13 +311,13 @@ static gboolean server_disconnected_cb(GIOChannel *chan,
 
 	session = find_session(ns->sessions, chan);
 
-	if (session)
+	if (session) {
 		name_str = session->dev;
-	else
+		ba2str(&session->dst, paddr);
+	} else {
 		info("Session is not exist!");
-
-	bt_io_get(chan, &gerr, BT_IO_OPT_DEST, &address,
-			BT_IO_OPT_INVALID);
+		return FALSE;
+	}
 
 	DBG("send peerdisconnected signal");
 
@@ -584,11 +584,26 @@ static void server_remove_sessions(struct network_server *ns)
 
 	for (list = ns->sessions; list; list = list->next) {
 		struct network_session *session = list->data;
+		char address[24] = {0};
+		char *paddr = address;
+		const char *name_str = NULL;
 
 		if (*session->dev == '\0')
 			continue;
 
 		bnep_server_delete(ns->bridge, session->dev, &session->dst);
+
+		name_str = session->dev;
+		ba2str(&session->dst, paddr);
+
+		DBG("send peerdisconnected signal");
+
+		g_dbus_emit_signal(btd_get_dbus_connection(),
+			adapter_get_path(ns->na->adapter),
+			NETWORK_SERVER_INTERFACE, "PeerDisconnected",
+			DBUS_TYPE_STRING, &name_str,
+			DBUS_TYPE_STRING, &paddr,
+			DBUS_TYPE_INVALID);
 	}
 
 	g_slist_free_full(ns->sessions, session_free);
