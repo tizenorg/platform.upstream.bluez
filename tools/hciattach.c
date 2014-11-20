@@ -82,6 +82,7 @@ struct uart_t {
 #define AMP_DEV		0x0002
 #define ENABLE_PM	1
 #define DISABLE_PM	0
+#define MAX_OPTION_LENGTH      10
 
 static volatile sig_atomic_t __io_canceled = 0;
 
@@ -1456,6 +1457,9 @@ int main(int argc, char *argv[])
 
 	for (n = 0; optind < argc; n++, optind++) {
 		char *opt;
+
+		if (strlen(argv[optind]) > MAX_OPTION_LENGTH)
+			exit(1);
 
 		opt = argv[optind];
 

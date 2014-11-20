@@ -2385,7 +2385,8 @@ failed:
 
 static int print_advertising_devices(int dd, uint8_t filter_type)
 {
-	unsigned char buf[HCI_MAX_EVENT_SIZE], *ptr;
+	unsigned char buf[HCI_MAX_EVENT_SIZE] = {0};
+	unsigned char *ptr;
 	struct hci_filter nf, of;
 	struct sigaction sa;
 	socklen_t olen;

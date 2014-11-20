@@ -274,7 +274,7 @@ static GSList *find_service_with_state(GSList *list,
 
 static void update_technologies(GKeyFile *file, struct btd_device *dev)
 {
-	const char *list[2];
+	const char *list[2] = {NULL, NULL};
 	size_t len = 0;
 
 	if (dev->bredr)
