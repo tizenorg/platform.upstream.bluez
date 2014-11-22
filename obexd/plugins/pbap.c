@@ -756,7 +756,7 @@ static void *vobject_list_open(const char *name, int oflag, mode_t mode,
 {
 	struct pbap_session *pbap = context;
 	struct pbap_object *obj = NULL;
-	int ret;
+	int ret = 0;
 	void *request;
 
 	DBG("name %s context %p valid %d", name, context, pbap->cache.valid);
@@ -810,7 +810,7 @@ static void *vobject_vcard_open(const char *name, int oflag, mode_t mode,
 	struct pbap_session *pbap = context;
 	const char *id;
 	uint32_t handle;
-	int ret;
+	int ret = 0;
 	void *request;
 
 	DBG("name %s context %p valid %d", name, context, pbap->cache.valid);
