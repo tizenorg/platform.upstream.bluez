@@ -344,7 +344,7 @@ static gboolean bnep_setup(GIOChannel *chan,
 			GIOCondition cond, gpointer user_data)
 {
 	struct network_adapter *na = user_data;
-	struct network_server *ns;
+	struct network_server *ns = NULL;
 	struct network_session *session;
 	uint8_t packet[BNEP_MTU];
 	struct bnep_setup_conn_req *req = (void *) packet;
