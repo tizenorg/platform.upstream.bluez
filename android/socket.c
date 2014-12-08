@@ -58,6 +58,8 @@
 /* Hardcoded MAP stuff needed for MAS SMS Instance.*/
 #define DEFAULT_MAS_INSTANCE	0x00
 
+#define DEFAULT_MAP_SUPPORTED_FEATURES 0x0000001f
+
 #define MAP_MSG_TYPE_SMS_GSM	0x02
 #define MAP_MSG_TYPE_SMS_CDMA	0x04
 #define DEFAULT_MAS_MSG_TYPE	(MAP_MSG_TYPE_SMS_GSM | MAP_MSG_TYPE_SMS_CDMA)
@@ -315,6 +317,7 @@ static sdp_record_t *create_mas_record(uint8_t chan, const char *svc_name)
 	sdp_profile_desc_t profile[1];
 	uint8_t minst = DEFAULT_MAS_INSTANCE;
 	uint8_t mtype = DEFAULT_MAS_MSG_TYPE;
+	uint8_t supft = DEFAULT_MAP_SUPPORTED_FEATURES;
 	sdp_record_t *record;
 	uuid_t uuid;
 
@@ -332,6 +335,9 @@ static sdp_record_t *create_mas_record(uint8_t chan, const char *svc_name)
 	sdp_attr_add_new(record, SDP_ATTR_MAS_INSTANCE_ID, SDP_UINT8, &minst);
 	sdp_attr_add_new(record, SDP_ATTR_SUPPORTED_MESSAGE_TYPES, SDP_UINT8,
 									&mtype);
+
+	sdp_attr_add_new(record, SDP_ATTR_MAP_SUPPORTED_FEATURES, SDP_UINT32,
+									&supft);
 
 	sdp_list_free(seq, NULL);
 
