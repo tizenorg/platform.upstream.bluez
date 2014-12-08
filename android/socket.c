@@ -59,6 +59,7 @@
 #define DEFAULT_MAS_INSTANCE	0x00
 
 #define DEFAULT_MAP_SUPPORTED_FEATURES 0x0000001f
+#define DEFAULT_PBAP_SUPPORTED_FEATURES 0x00000003
 
 #define MAP_MSG_TYPE_SMS_GSM	0x02
 #define MAP_MSG_TYPE_SMS_CDMA	0x04
@@ -289,6 +290,7 @@ static sdp_record_t *create_pbap_record(uint8_t chan, const char *svc_name)
 	sdp_list_t *seq;
 	sdp_profile_desc_t profile[1];
 	uint8_t formats = 0x01;
+	uint8_t supft = DEFAULT_PBAP_SUPPORTED_FEATURES;
 	sdp_record_t *record;
 	uuid_t uuid;
 
@@ -305,6 +307,9 @@ static sdp_record_t *create_pbap_record(uint8_t chan, const char *svc_name)
 
 	sdp_attr_add_new(record, SDP_ATTR_SUPPORTED_REPOSITORIES, SDP_UINT8,
 								&formats);
+
+	sdp_attr_add_new(record, SDP_ATTR_PBAP_SUPPORTED_FEATURES, SDP_UINT32,
+								&supft);
 
 	sdp_list_free(seq, NULL);
 
