@@ -653,8 +653,7 @@ void manager_cleanup(void)
 
 	/* FIXME: Release agent? */
 
-	if (agent)
-		agent_free(agent);
+	agent_free(agent);
 
 	g_dbus_detach_object_manager(connection);
 
