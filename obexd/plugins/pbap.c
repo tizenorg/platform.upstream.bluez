@@ -426,7 +426,7 @@ static void cache_entry_done(void *user_data)
 {
 	struct pbap_session *pbap = user_data;
 	const char *id;
-	int ret;
+	int ret = 0;
 
 	DBG("");
 
