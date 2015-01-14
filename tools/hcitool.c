@@ -2444,11 +2444,11 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 			char name_array[30];
 			char *name = name_array;
 
-			memset(name, 0, sizeof(name));
+			memset(name, 0, 30);
 
 			ba2str(&info->bdaddr, addr);
 			eir_parse_name(info->data, info->length,
-							name, sizeof(name) - 1);
+							name, 29);
 
 			printf("%s %s\n", addr, name);
 		}
