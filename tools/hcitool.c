@@ -2385,8 +2385,9 @@ failed:
 
 static int print_advertising_devices(int dd, uint8_t filter_type)
 {
-	unsigned char buf[HCI_MAX_EVENT_SIZE] = {0};
-	unsigned char *ptr;
+	unsigned char buf_array[HCI_MAX_EVENT_SIZE] = {0};
+	unsigned char *buf = buf_array;
+	unsigned char *ptr = NULL;
 	struct hci_filter nf, of;
 	struct sigaction sa;
 	socklen_t olen;
@@ -2413,9 +2414,10 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 	sigaction(SIGINT, &sa, NULL);
 
 	while (1) {
-		evt_le_meta_event *meta;
-		le_advertising_info *info;
-		char addr[18];
+		evt_le_meta_event *meta = NULL;
+		le_advertising_info *info = NULL;
+		char addr_array[18];
+		char *addr = addr_array;
 
 		while ((len = read(dd, buf, sizeof(buf))) < 0) {
 			if (errno == EINTR && signal_received == SIGINT) {
@@ -2439,7 +2441,8 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 		/* Ignoring multiple reports */
 		info = (le_advertising_info *) (meta->data + 1);
 		if (check_report_filter(filter_type, info)) {
-			char name[30];
+			char name_array[30];
+			char *name = name_array;
 
 			memset(name, 0, sizeof(name));
 
