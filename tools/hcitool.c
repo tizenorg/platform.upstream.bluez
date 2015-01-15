@@ -2385,7 +2385,7 @@ failed:
 
 static int print_advertising_devices(int dd, uint8_t filter_type)
 {
-	unsigned char buf_array[HCI_MAX_EVENT_SIZE] = {0};
+	unsigned char buf_array[HCI_MAX_EVENT_SIZE+1] = {0};
 	unsigned char *buf = buf_array;
 	unsigned char *ptr = NULL;
 	struct hci_filter nf, of;
@@ -2419,7 +2419,7 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 		char addr_array[18];
 		char *addr = addr_array;
 
-		buf_array[HCI_MAX_EVENT_SIZE-1] = 0;
+		buf[HCI_MAX_EVENT_SIZE] = 0;
 
 		while ((len = read(dd, buf, HCI_MAX_EVENT_SIZE)) < 0) {
 			if (errno == EINTR && signal_received == SIGINT) {
@@ -2452,7 +2452,7 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 			eir_parse_name(info->data, info->length,
 							name, 29);
 
-			name_array[29] = '\0';
+			name[29] = '\0';
 			printf("%s %s\n", addr, name);
 		}
 	}
