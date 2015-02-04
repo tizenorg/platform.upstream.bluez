@@ -139,7 +139,6 @@ struct service_auth {
 	struct btd_device *device;
 	struct btd_adapter *adapter;
 	struct agent *agent;		/* NULL for queued auths */
-	int fd;
 };
 
 struct btd_adapter_pin_cb_iter {
@@ -4643,7 +4642,7 @@ static gboolean process_auth_queue(gpointer user_data)
 		dev_path = device_get_path(device);
 
 		if (agent_authorize_service(auth->agent, dev_path, auth->uuid,
-				agent_auth_cb, adapter, NULL, auth->fd) < 0) {
+					agent_auth_cb, adapter, NULL) < 0) {
 			auth->cb(&err, auth->user_data);
 			goto next;
 		}
@@ -4682,7 +4681,7 @@ static void svc_complete(struct btd_device *dev, int err, void *user_data)
 
 static int adapter_authorize(struct btd_adapter *adapter, const bdaddr_t *dst,
 					const char *uuid, service_auth_cb cb,
-					void *user_data, int fd)
+					void *user_data)
 {
 	struct service_auth *auth;
 	struct btd_device *device;
@@ -4706,7 +4705,6 @@ static int adapter_authorize(struct btd_adapter *adapter, const bdaddr_t *dst,
 	auth->device = device;
 	auth->adapter = adapter;
 	auth->id = ++id;
-	auth->fd = fd;
 	auth->svc_id = device_wait_for_svc_complete(device, svc_complete, auth);
 
 	g_queue_push_tail(adapter->auths, auth);
@@ -4716,7 +4714,7 @@ static int adapter_authorize(struct btd_adapter *adapter, const bdaddr_t *dst,
 
 guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
 					const char *uuid, service_auth_cb cb,
-					void *user_data, int fd)
+					void *user_data)
 {
 	struct btd_adapter *adapter;
 	GSList *l;
@@ -4726,8 +4724,7 @@ guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
 		if (!adapter)
 			return 0;
 
-		return adapter_authorize(adapter, dst, uuid, cb,
-							user_data, fd);
+		return adapter_authorize(adapter, dst, uuid, cb, user_data);
 	}
 
 	for (l = adapters; l != NULL; l = g_slist_next(l)) {
@@ -4735,8 +4732,7 @@ guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
 
 		adapter = l->data;
 
-		id = adapter_authorize(adapter, dst, uuid, cb,
-							user_data, fd);
+		id = adapter_authorize(adapter, dst, uuid, cb, user_data);
 		if (id != 0)
 			return id;
 	}
