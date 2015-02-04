@@ -266,7 +266,7 @@ static void confirm_event_cb(GIOChannel *chan, gpointer user_data)
 	server->confirm = g_io_channel_ref(chan);
 
 	ret = btd_request_authorization(&src, &dst, HID_UUID,
-				auth_callback, server, 0);
+					auth_callback, server);
 	if (ret != 0)
 		return;
 
