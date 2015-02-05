@@ -295,11 +295,13 @@ static DBusMessage *authorize_service(DBusConnection *conn,
 {
 	const char *device, *uuid;
 	char *str;
+	int fd;
 
 	rl_printf("Authorize service\n");
 
 	dbus_message_get_args(msg, NULL, DBUS_TYPE_OBJECT_PATH, &device,
-				DBUS_TYPE_STRING, &uuid, DBUS_TYPE_INVALID);
+				DBUS_TYPE_STRING, &uuid,
+				DBUS_TYPE_UNIX_FD, &fd, DBUS_TYPE_INVALID);
 
 	str = g_strdup_printf("Authorize service %s (yes/no): ", uuid);
 	agent_prompt(str);
@@ -344,7 +346,8 @@ static const GDBusMethodTable methods[] = {
 			GDBUS_ARGS({ "device", "o" }),
 			NULL, request_authorization) },
 	{ GDBUS_ASYNC_METHOD("AuthorizeService",
-			GDBUS_ARGS({ "device", "o" }, { "uuid", "s" }),
+			GDBUS_ARGS({ "device", "o" }, { "uuid", "s" },
+			{"fd", "h"}),
 			NULL,  authorize_service) },
 	{ GDBUS_METHOD("Cancel", NULL, NULL, cancel_request) },
 	{ }
