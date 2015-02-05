@@ -1253,7 +1253,7 @@ static void connect_confirm_cb(GIOChannel *io, gpointer data)
 	ba2str(&dst, dstaddr);
 
 	ret = btd_request_authorization(&src, &dst, SAP_UUID, connect_auth_cb,
-							server, 0);
+								server);
 	if (ret == 0) {
 		error("Authorization failure");
 		sap_server_remove_conn(server);

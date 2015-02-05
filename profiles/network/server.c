@@ -537,7 +537,7 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 	na->setup->io = g_io_channel_ref(chan);
 
 	ret = btd_request_authorization(&src, &dst, BNEP_SVC_UUID,
-					auth_cb, na, 0);
+					auth_cb, na);
 	if (ret == 0) {
 		error("Refusing connect from %s", address);
 		setup_destroy(na);
