@@ -45,7 +45,9 @@
 #include "sync.h"
 #include "map.h"
 #include "obexd/src/manager.h"
-
+#ifdef __TIZEN_PATCH__
+#include "mns-tizen.h"
+#endif
 #define CLIENT_INTERFACE	"org.bluez.obex.Client1"
 #define ERROR_INTERFACE		"org.bluez.obex.Error"
 #define CLIENT_PATH		"/org/bluez/obex"
@@ -63,11 +65,21 @@ static void shutdown_session(struct obc_session *session)
 	obc_session_unref(session);
 }
 
+#ifdef __TIZEN_PATCH__
+void release_session(struct obc_session *session)
+{
+	DBG("+");
+	sessions = g_slist_remove(sessions, session);
+	shutdown_session(session);
+	DBG("-");
+}
+#else
 static void release_session(struct obc_session *session)
 {
 	sessions = g_slist_remove(sessions, session);
 	shutdown_session(session);
 }
+#endif
 
 static void unregister_session(void *data)
 {
@@ -153,11 +165,13 @@ static int parse_device_dict(DBusMessageIter *iter,
 static struct obc_session *find_session(const char *path)
 {
 	GSList *l;
-
+#ifdef __TIZEN_PATCH__
+	if(!path)
+		return NULL;
+#endif
 	for (l = sessions; l; l = l->next) {
 		struct obc_session *session = l->data;
-
-		if (g_str_equal(obc_session_get_path(session), path) == TRUE)
+		if (g_strcmp0(obc_session_get_path(session), path) == 0)
 			return session;
 	}
 
@@ -264,6 +278,9 @@ static struct obc_module {
 	{ "pbap", pbap_init, pbap_exit },
 	{ "sync", sync_init, sync_exit },
 	{ "map", map_init, map_exit },
+#ifdef __TIZEN_PATCH__
+	{ "mns", mns_init, mns_exit },
+#endif
 	{ }
 };
 

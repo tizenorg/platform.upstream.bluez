@@ -27,19 +27,22 @@
 
 #include <stdlib.h>
 #include <stdbool.h>
+#include <sys/ioctl.h>
 
 #include <glib.h>
 
 #include "lib/bluetooth.h"
+#include "lib/hci.h"
+#include "lib/hci_lib.h"
 #include "lib/mgmt.h"
 
 #include "monitor/bt.h"
 #include "emulator/bthost.h"
+#include "emulator/hciemu.h"
 
 #include "src/shared/util.h"
 #include "src/shared/tester.h"
 #include "src/shared/mgmt.h"
-#include "src/shared/hciemu.h"
 
 struct test_data {
 	tester_data_func_t test_setup;
@@ -109,6 +112,7 @@ static void read_info_callback(uint8_t status, uint16_t length,
 	char addr[18];
 	uint16_t manufacturer;
 	uint32_t supported_settings, current_settings;
+	struct bthost *bthost;
 
 	tester_print("Read Info callback");
 	tester_print("  Status: 0x%02x", status);
@@ -164,7 +168,8 @@ static void read_info_callback(uint8_t status, uint16_t length,
 		return;
 	}
 
-	tester_pre_setup_complete();
+	bthost = hciemu_client_get_host(data->hciemu);
+	bthost_notify_ready(bthost, tester_pre_setup_complete);
 }
 
 static void index_added_callback(uint16_t index, uint16_t length,
@@ -303,7 +308,7 @@ static void test_condition_complete(struct test_data *data)
 		user->hciemu_type = HCIEMU_TYPE_BREDRLE; \
 		user->test_setup = setup; \
 		user->test_data = data; \
-		user->expected_version = 0x06; \
+		user->expected_version = 0x08; \
 		user->expected_manufacturer = 0x003f; \
 		user->expected_supported_settings = 0x00003fff; \
 		user->initial_settings = 0x00000080; \
@@ -341,9 +346,9 @@ static void test_condition_complete(struct test_data *data)
 		user->hciemu_type = HCIEMU_TYPE_LE; \
 		user->test_setup = setup; \
 		user->test_data = data; \
-		user->expected_version = 0x06; \
+		user->expected_version = 0x08; \
 		user->expected_manufacturer = 0x003f; \
-		user->expected_supported_settings = 0x00003611; \
+		user->expected_supported_settings = 0x00003e1b; \
 		user->initial_settings = 0x00000200; \
 		user->unmet_conditions = 0; \
 		tester_add_full(name, data, \
@@ -379,6 +384,7 @@ struct generic_data {
 	uint32_t expect_settings_unset;
 	uint16_t expect_alt_ev;
 	const void *expect_alt_ev_param;
+	bool (*verify_alt_ev_func)(const void *param, uint16_t length);
 	uint16_t expect_alt_ev_len;
 	uint16_t expect_hci_command;
 	const void *expect_hci_param;
@@ -393,8 +399,13 @@ struct generic_data {
 	uint8_t io_cap;
 	uint8_t client_io_cap;
 	uint8_t client_auth_req;
-	bool reject_ssp;
-	bool client_reject_ssp;
+	bool reject_confirm;
+	bool client_reject_confirm;
+	bool just_works;
+	bool client_enable_le;
+	bool client_enable_sc;
+	bool expect_sc_key;
+	bool force_power_off;
 };
 
 static const char dummy_data[] = { 0x00 };
@@ -721,6 +732,20 @@ static const struct generic_data set_connectable_off_success_test_3 = {
 	.expect_hci_len = sizeof(set_connectable_off_scan_enable_param),
 };
 
+static const struct generic_data set_connectable_off_success_test_4 = {
+	.setup_settings = settings_powered_discoverable,
+	.send_opcode = MGMT_OP_SET_CONNECTABLE,
+	.send_param = set_connectable_off_param,
+	.send_len = sizeof(set_connectable_off_param),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_param = set_connectable_off_settings_2,
+	.expect_len = sizeof(set_connectable_off_settings_2),
+	.expect_settings_unset = MGMT_SETTING_CONNECTABLE,
+	.expect_hci_command = BT_HCI_CMD_WRITE_SCAN_ENABLE,
+	.expect_hci_param = set_connectable_scan_enable_param,
+	.expect_hci_len = sizeof(set_connectable_scan_enable_param),
+};
+
 static const char set_connectable_off_le_settings_1[] = { 0x00, 0x02, 0x00, 0x00 };
 static const char set_connectable_off_le_settings_2[] = { 0x01, 0x06, 0x00, 0x00 };
 
@@ -827,45 +852,45 @@ static const struct generic_data set_fast_conn_on_not_supported_test_1 = {
 	.expect_status = MGMT_STATUS_NOT_SUPPORTED,
 };
 
-static const char set_pairable_on_param[] = { 0x01 };
-static const char set_pairable_invalid_param[] = { 0x02 };
-static const char set_pairable_garbage_param[] = { 0x01, 0x00 };
-static const char set_pairable_settings_param[] = { 0x90, 0x00, 0x00, 0x00 };
+static const char set_bondable_on_param[] = { 0x01 };
+static const char set_bondable_invalid_param[] = { 0x02 };
+static const char set_bondable_garbage_param[] = { 0x01, 0x00 };
+static const char set_bondable_settings_param[] = { 0x90, 0x00, 0x00, 0x00 };
 
-static const struct generic_data set_pairable_on_success_test = {
-	.send_opcode = MGMT_OP_SET_PAIRABLE,
-	.send_param = set_pairable_on_param,
-	.send_len = sizeof(set_pairable_on_param),
+static const struct generic_data set_bondable_on_success_test = {
+	.send_opcode = MGMT_OP_SET_BONDABLE,
+	.send_param = set_bondable_on_param,
+	.send_len = sizeof(set_bondable_on_param),
 	.expect_status = MGMT_STATUS_SUCCESS,
-	.expect_param = set_pairable_settings_param,
-	.expect_len = sizeof(set_pairable_settings_param),
-	.expect_settings_set = MGMT_SETTING_PAIRABLE,
+	.expect_param = set_bondable_settings_param,
+	.expect_len = sizeof(set_bondable_settings_param),
+	.expect_settings_set = MGMT_SETTING_BONDABLE,
 };
 
-static const struct generic_data set_pairable_on_invalid_param_test_1 = {
-	.send_opcode = MGMT_OP_SET_PAIRABLE,
+static const struct generic_data set_bondable_on_invalid_param_test_1 = {
+	.send_opcode = MGMT_OP_SET_BONDABLE,
 	.expect_status = MGMT_STATUS_INVALID_PARAMS,
 };
 
-static const struct generic_data set_pairable_on_invalid_param_test_2 = {
-	.send_opcode = MGMT_OP_SET_PAIRABLE,
-	.send_param = set_pairable_invalid_param,
-	.send_len = sizeof(set_pairable_invalid_param),
+static const struct generic_data set_bondable_on_invalid_param_test_2 = {
+	.send_opcode = MGMT_OP_SET_BONDABLE,
+	.send_param = set_bondable_invalid_param,
+	.send_len = sizeof(set_bondable_invalid_param),
 	.expect_status = MGMT_STATUS_INVALID_PARAMS,
 };
 
-static const struct generic_data set_pairable_on_invalid_param_test_3 = {
-	.send_opcode = MGMT_OP_SET_PAIRABLE,
-	.send_param = set_pairable_garbage_param,
-	.send_len = sizeof(set_pairable_garbage_param),
+static const struct generic_data set_bondable_on_invalid_param_test_3 = {
+	.send_opcode = MGMT_OP_SET_BONDABLE,
+	.send_param = set_bondable_garbage_param,
+	.send_len = sizeof(set_bondable_garbage_param),
 	.expect_status = MGMT_STATUS_INVALID_PARAMS,
 };
 
-static const struct generic_data set_pairable_on_invalid_index_test = {
+static const struct generic_data set_bondable_on_invalid_index_test = {
 	.send_index_none = true,
-	.send_opcode = MGMT_OP_SET_PAIRABLE,
-	.send_param = set_pairable_on_param,
-	.send_len = sizeof(set_pairable_on_param),
+	.send_opcode = MGMT_OP_SET_BONDABLE,
+	.send_param = set_bondable_on_param,
+	.send_len = sizeof(set_bondable_on_param),
 	.expect_status = MGMT_STATUS_INVALID_INDEX,
 };
 
@@ -1417,7 +1442,7 @@ static const char set_le_invalid_param[] = { 0x02 };
 static const char set_le_garbage_param[] = { 0x01, 0x00 };
 static const char set_le_settings_param_1[] = { 0x80, 0x02, 0x00, 0x00 };
 static const char set_le_settings_param_2[] = { 0x81, 0x02, 0x00, 0x00 };
-static const char set_le_on_write_le_host_param[] = { 0x01, 0x01 };
+static const char set_le_on_write_le_host_param[] = { 0x01, 0x00 };
 
 static const struct generic_data set_le_on_success_test_1 = {
 	.send_opcode = MGMT_OP_SET_LE,
@@ -1663,6 +1688,8 @@ static const struct generic_data start_discovery_not_powered_test_1 = {
 	.send_param = start_discovery_bredr_param,
 	.send_len = sizeof(start_discovery_bredr_param),
 	.expect_status = MGMT_STATUS_NOT_POWERED,
+	.expect_param = start_discovery_bredr_param,
+	.expect_len = sizeof(start_discovery_bredr_param),
 };
 
 static const struct generic_data start_discovery_invalid_param_test_1 = {
@@ -1671,6 +1698,8 @@ static const struct generic_data start_discovery_invalid_param_test_1 = {
 	.send_param = start_discovery_invalid_param,
 	.send_len = sizeof(start_discovery_invalid_param),
 	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+	.expect_param = start_discovery_invalid_param,
+	.expect_len = sizeof(start_discovery_invalid_param),
 };
 
 static const struct generic_data start_discovery_not_supported_test_1 = {
@@ -1679,6 +1708,8 @@ static const struct generic_data start_discovery_not_supported_test_1 = {
 	.send_param = start_discovery_le_param,
 	.send_len = sizeof(start_discovery_le_param),
 	.expect_status = MGMT_STATUS_REJECTED,
+	.expect_param = start_discovery_le_param,
+	.expect_len = sizeof(start_discovery_le_param),
 };
 
 static const struct generic_data start_discovery_valid_param_test_1 = {
@@ -1711,6 +1742,17 @@ static const struct generic_data start_discovery_valid_param_test_2 = {
 	.expect_alt_ev = MGMT_EV_DISCOVERING,
 	.expect_alt_ev_param = start_discovery_le_evt,
 	.expect_alt_ev_len = sizeof(start_discovery_le_evt),
+};
+
+static const struct generic_data start_discovery_valid_param_power_off_1 = {
+	.setup_settings = settings_powered_le,
+	.send_opcode = MGMT_OP_START_DISCOVERY,
+	.send_param = start_discovery_bredrle_param,
+	.send_len = sizeof(start_discovery_bredrle_param),
+	.expect_status = MGMT_STATUS_NOT_POWERED,
+	.force_power_off = true,
+	.expect_param = start_discovery_bredrle_param,
+	.expect_len = sizeof(start_discovery_bredrle_param),
 };
 
 static const char stop_discovery_bredrle_param[] = { 0x07 };
@@ -1778,6 +1820,83 @@ static const struct generic_data stop_discovery_invalid_param_test_1 = {
 	.expect_status = MGMT_STATUS_INVALID_PARAMS,
 	.expect_param = stop_discovery_bredrle_invalid_param,
 	.expect_len = sizeof(stop_discovery_bredrle_invalid_param),
+};
+
+static const char start_service_discovery_invalid_param[] = { 0x00, 0x00, 0x00, 0x00 };
+static const char start_service_discovery_invalid_resp[] = { 0x00 };
+static const char start_service_discovery_bredr_param[] = { 0x01, 0x00, 0x00, 0x00};
+static const char start_service_discovery_bredr_resp[] = { 0x01 };
+static const char start_service_discovery_le_param[] = { 0x06, 0x00, 0x01, 0x00,
+			0xfa, 0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00,
+			0x80, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00 };
+static const char start_service_discovery_le_resp[] = { 0x06 };
+static const char start_service_discovery_bredrle_param[] = { 0x07, 0x00, 0x01, 0x00,
+			0xfa, 0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00,
+			0x80, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00 };
+static const char start_service_discovery_bredrle_resp[] = { 0x07 };
+static const char start_service_discovery_valid_hci[] = { 0x01, 0x01 };
+static const char start_service_discovery_evt[] = { 0x07, 0x01 };
+static const char start_service_discovery_le_evt[] = { 0x06, 0x01 };
+
+static const struct generic_data start_service_discovery_not_powered_test_1 = {
+	.send_opcode = MGMT_OP_START_SERVICE_DISCOVERY,
+	.send_param = start_service_discovery_bredr_param,
+	.send_len = sizeof(start_service_discovery_bredr_param),
+	.expect_status = MGMT_STATUS_NOT_POWERED,
+	.expect_param = start_service_discovery_bredr_resp,
+	.expect_len = sizeof(start_service_discovery_bredr_resp),
+};
+
+static const struct generic_data start_service_discovery_invalid_param_test_1 = {
+	.setup_settings = settings_powered,
+	.send_opcode = MGMT_OP_START_SERVICE_DISCOVERY,
+	.send_param = start_service_discovery_invalid_param,
+	.send_len = sizeof(start_service_discovery_invalid_param),
+	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+	.expect_param = start_service_discovery_invalid_resp,
+	.expect_len = sizeof(start_service_discovery_invalid_resp),
+};
+
+static const struct generic_data start_service_discovery_not_supported_test_1 = {
+	.setup_settings = settings_powered,
+	.send_opcode = MGMT_OP_START_SERVICE_DISCOVERY,
+	.send_param = start_service_discovery_le_param,
+	.send_len = sizeof(start_service_discovery_le_param),
+	.expect_status = MGMT_STATUS_REJECTED,
+	.expect_param = start_service_discovery_le_resp,
+	.expect_len = sizeof(start_service_discovery_le_resp),
+};
+
+static const struct generic_data start_service_discovery_valid_param_test_1 = {
+	.setup_settings = settings_powered_le,
+	.send_opcode = MGMT_OP_START_SERVICE_DISCOVERY,
+	.send_param = start_service_discovery_bredrle_param,
+	.send_len = sizeof(start_service_discovery_bredrle_param),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_param = start_service_discovery_bredrle_resp,
+	.expect_len = sizeof(start_service_discovery_bredrle_resp),
+	.expect_hci_command = BT_HCI_CMD_LE_SET_SCAN_ENABLE,
+	.expect_hci_param = start_service_discovery_valid_hci,
+	.expect_hci_len = sizeof(start_service_discovery_valid_hci),
+	.expect_alt_ev = MGMT_EV_DISCOVERING,
+	.expect_alt_ev_param = start_service_discovery_evt,
+	.expect_alt_ev_len = sizeof(start_service_discovery_evt),
+};
+
+static const struct generic_data start_service_discovery_valid_param_test_2 = {
+	.setup_settings = settings_powered,
+	.send_opcode = MGMT_OP_START_SERVICE_DISCOVERY,
+	.send_param = start_service_discovery_le_param,
+	.send_len = sizeof(start_service_discovery_le_param),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_param = start_service_discovery_le_resp,
+	.expect_len = sizeof(start_service_discovery_le_resp),
+	.expect_hci_command = BT_HCI_CMD_LE_SET_SCAN_ENABLE,
+	.expect_hci_param = start_service_discovery_valid_hci,
+	.expect_hci_len = sizeof(start_service_discovery_valid_hci),
+	.expect_alt_ev = MGMT_EV_DISCOVERING,
+	.expect_alt_ev_param = start_service_discovery_le_evt,
+	.expect_alt_ev_len = sizeof(start_service_discovery_le_evt),
 };
 
 static const char set_dev_class_valid_param[] = { 0x01, 0x0c };
@@ -2212,6 +2331,23 @@ static const struct generic_data load_ltks_invalid_params_test_3 = {
 	.expect_status = MGMT_STATUS_INVALID_PARAMS,
 };
 
+static const char load_ltks_invalid_param_4[22] = { 0x1d, 0x07 };
+static const struct generic_data load_ltks_invalid_params_test_4 = {
+	.send_opcode = MGMT_OP_LOAD_LONG_TERM_KEYS,
+	.send_param = load_ltks_invalid_param_4,
+	.send_len = sizeof(load_ltks_invalid_param_4),
+	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+};
+
+static const char set_io_cap_invalid_param_1[] = { 0xff };
+
+static const struct generic_data set_io_cap_invalid_param_test_1 = {
+	.send_opcode = MGMT_OP_SET_IO_CAPABILITY,
+	.send_param = set_io_cap_invalid_param_1,
+	.send_len = sizeof(set_io_cap_invalid_param_1),
+	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+};
+
 static const char pair_device_param[] = {
 			0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x00 };
 static const char pair_device_rsp[] = {
@@ -2220,6 +2356,10 @@ static const char pair_device_invalid_param_1[] = {
 			0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0xff, 0x00 };
 static const char pair_device_invalid_param_rsp_1[] = {
 			0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0xff };
+static const char pair_device_invalid_param_2[] = {
+			0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x05 };
+static const char pair_device_invalid_param_rsp_2[] = {
+			0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00 };
 
 static const struct generic_data pair_device_not_powered_test_1 = {
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
@@ -2239,6 +2379,15 @@ static const struct generic_data pair_device_invalid_param_test_1 = {
 	.expect_len = sizeof(pair_device_invalid_param_rsp_1),
 };
 
+static const struct generic_data pair_device_invalid_param_test_2 = {
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_param = pair_device_invalid_param_2,
+	.send_len = sizeof(pair_device_invalid_param_2),
+	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+	.expect_param = pair_device_invalid_param_rsp_2,
+	.expect_len = sizeof(pair_device_invalid_param_rsp_2),
+};
+
 static const void *pair_device_send_param_func(uint16_t *len)
 {
 	struct test_data *data = tester_get_data();
@@ -2246,7 +2395,10 @@ static const void *pair_device_send_param_func(uint16_t *len)
 	static uint8_t param[8];
 
 	memcpy(param, hciemu_get_client_bdaddr(data->hciemu), 6);
-	param[6] = 0x00; /* Address type */
+	if (data->hciemu_type == HCIEMU_TYPE_LE)
+		param[6] = 0x01; /* Address type */
+	else
+		param[6] = 0x00; /* Address type */
 	param[7] = test->io_cap;
 
 	*len = sizeof(param);
@@ -2260,20 +2412,23 @@ static const void *pair_device_expect_param_func(uint16_t *len)
 	static uint8_t param[7];
 
 	memcpy(param, hciemu_get_client_bdaddr(data->hciemu), 6);
-	param[6] = 0x00; /* Address type */
+	if (data->hciemu_type == HCIEMU_TYPE_LE)
+		param[6] = 0x01; /* Address type */
+	else
+		param[6] = 0x00; /* Address type */
 
 	*len = sizeof(param);
 
 	return param;
 }
 
-static uint16_t settings_powered_pairable[] = { MGMT_OP_SET_PAIRABLE,
+static uint16_t settings_powered_bondable[] = { MGMT_OP_SET_BONDABLE,
 						MGMT_OP_SET_POWERED, 0 };
 static uint8_t auth_req_param[] = { 0x2a, 0x00 };
 static uint8_t pair_device_pin[] = { 0x30, 0x30, 0x30, 0x30 }; /* "0000" */
 
 static const struct generic_data pair_device_success_test_1 = {
-	.setup_settings = settings_powered_pairable,
+	.setup_settings = settings_powered_bondable,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
 	.expect_status = MGMT_STATUS_SUCCESS,
@@ -2289,13 +2444,13 @@ static const struct generic_data pair_device_success_test_1 = {
 	.client_pin_len = sizeof(pair_device_pin),
 };
 
-static uint16_t settings_powered_pairable_linksec[] = { MGMT_OP_SET_PAIRABLE,
+static uint16_t settings_powered_bondable_linksec[] = { MGMT_OP_SET_BONDABLE,
 							MGMT_OP_SET_POWERED,
 							MGMT_OP_SET_LINK_SECURITY,
 							0 };
 
 static const struct generic_data pair_device_success_test_2 = {
-	.setup_settings = settings_powered_pairable_linksec,
+	.setup_settings = settings_powered_bondable_linksec,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
 	.expect_status = MGMT_STATUS_SUCCESS,
@@ -2309,6 +2464,29 @@ static const struct generic_data pair_device_success_test_2 = {
 	.pin_len = sizeof(pair_device_pin),
 	.client_pin = pair_device_pin,
 	.client_pin_len = sizeof(pair_device_pin),
+};
+
+static const struct generic_data pair_device_legacy_nonbondable_1 = {
+	.setup_settings = settings_powered,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev = MGMT_EV_NEW_LINK_KEY,
+	.expect_alt_ev_len = 26,
+	.pin = pair_device_pin,
+	.pin_len = sizeof(pair_device_pin),
+	.client_pin = pair_device_pin,
+	.client_pin_len = sizeof(pair_device_pin),
+};
+
+static const struct generic_data pair_device_power_off_test_1 = {
+	.setup_settings = settings_powered_bondable,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.force_power_off = true,
+	.expect_status = MGMT_STATUS_NOT_POWERED,
+	.expect_func = pair_device_expect_param_func,
 };
 
 static const void *client_bdaddr_param_func(uint8_t *len)
@@ -2324,7 +2502,7 @@ static const void *client_bdaddr_param_func(uint8_t *len)
 }
 
 static const struct generic_data pair_device_reject_test_1 = {
-	.setup_settings = settings_powered_pairable,
+	.setup_settings = settings_powered_bondable,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
 	.expect_status = MGMT_STATUS_AUTH_FAILED,
@@ -2339,7 +2517,7 @@ static const struct generic_data pair_device_reject_test_1 = {
 };
 
 static const struct generic_data pair_device_reject_test_2 = {
-	.setup_settings = settings_powered_pairable,
+	.setup_settings = settings_powered_bondable,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
 	.expect_status = MGMT_STATUS_AUTH_FAILED,
@@ -2354,7 +2532,7 @@ static const struct generic_data pair_device_reject_test_2 = {
 };
 
 static const struct generic_data pair_device_reject_test_3 = {
-	.setup_settings = settings_powered_pairable_linksec,
+	.setup_settings = settings_powered_bondable_linksec,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
 	.expect_status = MGMT_STATUS_AUTH_FAILED,
@@ -2367,7 +2545,7 @@ static const struct generic_data pair_device_reject_test_3 = {
 };
 
 static const struct generic_data pair_device_reject_test_4 = {
-	.setup_settings = settings_powered_pairable_linksec,
+	.setup_settings = settings_powered_bondable_linksec,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
 	.expect_status = MGMT_STATUS_AUTH_FAILED,
@@ -2376,13 +2554,13 @@ static const struct generic_data pair_device_reject_test_4 = {
 	.pin_len = sizeof(pair_device_pin),
 };
 
-static uint16_t settings_powered_pairable_ssp[] = {	MGMT_OP_SET_PAIRABLE,
+static uint16_t settings_powered_bondable_ssp[] = {	MGMT_OP_SET_BONDABLE,
 							MGMT_OP_SET_SSP,
 							MGMT_OP_SET_POWERED,
 							0 };
 
 static const struct generic_data pair_device_ssp_test_1 = {
-	.setup_settings = settings_powered_pairable_ssp,
+	.setup_settings = settings_powered_bondable_ssp,
 	.client_enable_ssp = true,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
@@ -2396,8 +2574,58 @@ static const struct generic_data pair_device_ssp_test_1 = {
 	.client_io_cap = 0x03, /* NoInputNoOutput */
 };
 
+static const void *client_io_cap_param_func(uint8_t *len)
+{
+	struct test_data *data = tester_get_data();
+	const struct generic_data *test = data->test_data;
+	static uint8_t param[9];
+
+	memcpy(param, hciemu_get_client_bdaddr(data->hciemu), 6);
+	memcpy(&param[6], test->expect_hci_param, 3);
+
+	*len = sizeof(param);
+
+	return param;
+}
+
+const uint8_t no_bonding_io_cap[] = { 0x03, 0x00, 0x00 };
 static const struct generic_data pair_device_ssp_test_2 = {
-	.setup_settings = settings_powered_pairable_ssp,
+	.setup_settings = settings_powered_ssp,
+	.client_enable_ssp = true,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev = MGMT_EV_NEW_LINK_KEY,
+	.expect_alt_ev_len = 26,
+	.expect_hci_command = BT_HCI_CMD_IO_CAPABILITY_REQUEST_REPLY,
+	.expect_hci_func = client_io_cap_param_func,
+	.expect_hci_param = no_bonding_io_cap,
+	.expect_hci_len = sizeof(no_bonding_io_cap),
+	.io_cap = 0x03, /* NoInputNoOutput */
+	.client_io_cap = 0x03, /* NoInputNoOutput */
+};
+
+const uint8_t bonding_io_cap[] = { 0x03, 0x00, 0x02 };
+static const struct generic_data pair_device_ssp_test_3 = {
+	.setup_settings = settings_powered_bondable_ssp,
+	.client_enable_ssp = true,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev = MGMT_EV_NEW_LINK_KEY,
+	.expect_alt_ev_len = 26,
+	.expect_hci_command = BT_HCI_CMD_IO_CAPABILITY_REQUEST_REPLY,
+	.expect_hci_func = client_io_cap_param_func,
+	.expect_hci_param = bonding_io_cap,
+	.expect_hci_len = sizeof(bonding_io_cap),
+	.io_cap = 0x03, /* NoInputNoOutput */
+	.client_io_cap = 0x03, /* NoInputNoOutput */
+};
+
+static const struct generic_data pair_device_ssp_test_4 = {
+	.setup_settings = settings_powered_bondable_ssp,
 	.client_enable_ssp = true,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
@@ -2411,8 +2639,44 @@ static const struct generic_data pair_device_ssp_test_2 = {
 	.client_io_cap = 0x01, /* DisplayYesNo */
 };
 
+const uint8_t mitm_no_bonding_io_cap[] = { 0x01, 0x00, 0x01 };
+static const struct generic_data pair_device_ssp_test_5 = {
+	.setup_settings = settings_powered_ssp,
+	.client_enable_ssp = true,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev = MGMT_EV_NEW_LINK_KEY,
+	.expect_alt_ev_len = 26,
+	.expect_hci_command = BT_HCI_CMD_IO_CAPABILITY_REQUEST_REPLY,
+	.expect_hci_func = client_io_cap_param_func,
+	.expect_hci_param = mitm_no_bonding_io_cap,
+	.expect_hci_len = sizeof(mitm_no_bonding_io_cap),
+	.io_cap = 0x01, /* DisplayYesNo */
+	.client_io_cap = 0x01, /* DisplayYesNo */
+};
+
+const uint8_t mitm_bonding_io_cap[] = { 0x01, 0x00, 0x03 };
+static const struct generic_data pair_device_ssp_test_6 = {
+	.setup_settings = settings_powered_bondable_ssp,
+	.client_enable_ssp = true,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev = MGMT_EV_NEW_LINK_KEY,
+	.expect_alt_ev_len = 26,
+	.expect_hci_command = BT_HCI_CMD_IO_CAPABILITY_REQUEST_REPLY,
+	.expect_hci_func = client_io_cap_param_func,
+	.expect_hci_param = mitm_bonding_io_cap,
+	.expect_hci_len = sizeof(mitm_bonding_io_cap),
+	.io_cap = 0x01, /* DisplayYesNo */
+	.client_io_cap = 0x01, /* DisplayYesNo */
+};
+
 static const struct generic_data pair_device_ssp_reject_1 = {
-	.setup_settings = settings_powered_pairable_ssp,
+	.setup_settings = settings_powered_bondable_ssp,
 	.client_enable_ssp = true,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
@@ -2425,11 +2689,11 @@ static const struct generic_data pair_device_ssp_reject_1 = {
 	.io_cap = 0x01, /* DisplayYesNo */
 	.client_io_cap = 0x01, /* DisplayYesNo */
 	.client_auth_req = 0x01, /* No Bonding - MITM */
-	.reject_ssp = true,
+	.reject_confirm = true,
 };
 
 static const struct generic_data pair_device_ssp_reject_2 = {
-	.setup_settings = settings_powered_pairable_ssp,
+	.setup_settings = settings_powered_bondable_ssp,
 	.client_enable_ssp = true,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
@@ -2441,29 +2705,199 @@ static const struct generic_data pair_device_ssp_reject_2 = {
 	.expect_hci_func = client_bdaddr_param_func,
 	.io_cap = 0x01, /* DisplayYesNo */
 	.client_io_cap = 0x01, /* DisplayYesNo */
-	.client_reject_ssp = true,
+	.client_reject_confirm = true,
 };
 
-static const struct generic_data pair_device_ssp_nonpairable_1 = {
+static const struct generic_data pair_device_ssp_nonbondable_1 = {
 	.setup_settings = settings_powered_ssp,
 	.client_enable_ssp = true,
 	.send_opcode = MGMT_OP_PAIR_DEVICE,
 	.send_func = pair_device_send_param_func,
-	.expect_status = MGMT_STATUS_AUTH_FAILED,
+	.expect_status = MGMT_STATUS_SUCCESS,
 	.expect_func = pair_device_expect_param_func,
-	.expect_alt_ev = MGMT_EV_AUTH_FAILED,
-	.expect_alt_ev_len = 8,
+	.expect_alt_ev = MGMT_EV_NEW_LINK_KEY,
+	.expect_alt_ev_len = 26,
+	.expect_hci_command = BT_HCI_CMD_USER_CONFIRM_REQUEST_REPLY,
+	.expect_hci_func = client_bdaddr_param_func,
 	.io_cap = 0x01, /* DisplayYesNo */
 	.client_io_cap = 0x01, /* DisplayYesNo */
 };
 
-static uint16_t settings_powered_connectable_pairable[] = {
-						MGMT_OP_SET_PAIRABLE,
+static const struct generic_data pair_device_le_success_test_1 = {
+	.setup_settings = settings_powered_bondable,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.just_works = true,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+};
+
+static bool ltk_is_authenticated(const struct mgmt_ltk_info *ltk)
+{
+	switch (ltk->type) {
+	case 0x01:
+	case 0x03:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool ltk_is_sc(const struct mgmt_ltk_info *ltk)
+{
+	switch (ltk->type) {
+	case 0x02:
+	case 0x03:
+	case 0x04:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool verify_ltk(const void *param, uint16_t length)
+{
+	struct test_data *data = tester_get_data();
+	const struct generic_data *test = data->test_data;
+	const struct mgmt_ev_new_long_term_key *ev = param;
+
+	if (length != sizeof(struct mgmt_ev_new_long_term_key)) {
+		tester_warn("Invalid new ltk length %u != %zu", length,
+				sizeof(struct mgmt_ev_new_long_term_key));
+		return false;
+	}
+
+	if (test->just_works && ltk_is_authenticated(&ev->key)) {
+		tester_warn("Authenticated key for just-works");
+		return false;
+	}
+
+	if (!test->just_works && !ltk_is_authenticated(&ev->key)) {
+		tester_warn("Unauthenticated key for MITM");
+		return false;
+	}
+
+	if (test->expect_sc_key && !ltk_is_sc(&ev->key)) {
+		tester_warn("Non-LE SC key for SC pairing");
+		return false;
+	}
+
+	if (!test->expect_sc_key && ltk_is_sc(&ev->key)) {
+		tester_warn("SC key for Non-SC pairing");
+		return false;
+	}
+
+	return true;
+}
+
+static const struct generic_data pair_device_le_success_test_2 = {
+	.setup_settings = settings_powered_bondable,
+	.io_cap = 0x02, /* KeyboardOnly */
+	.client_io_cap = 0x04, /* KeyboardDisplay */
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+};
+
+static uint16_t settings_powered_sc_bondable_le_ssp[] = {
+						MGMT_OP_SET_BONDABLE,
+						MGMT_OP_SET_LE,
+						MGMT_OP_SET_SSP,
+						MGMT_OP_SET_SECURE_CONN,
+						MGMT_OP_SET_POWERED,
+						0 };
+
+static const struct generic_data pair_device_smp_bredr_test_1 = {
+	.setup_settings = settings_powered_sc_bondable_le_ssp,
+	.client_enable_ssp = true,
+	.client_enable_le = true,
+	.client_enable_sc = true,
+	.expect_sc_key = true,
+	.just_works = true,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+	.expect_hci_command = BT_HCI_CMD_USER_CONFIRM_REQUEST_REPLY,
+	.expect_hci_func = client_bdaddr_param_func,
+	.io_cap = 0x03, /* NoInputNoOutput */
+	.client_io_cap = 0x03, /* NoInputNoOutput */
+};
+
+static const struct generic_data pair_device_le_reject_test_1 = {
+	.setup_settings = settings_powered_bondable,
+	.io_cap = 0x02, /* KeyboardOnly */
+	.client_io_cap = 0x04, /* KeyboardDisplay */
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_AUTH_FAILED,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev =  MGMT_EV_AUTH_FAILED,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_auth_failed),
+	.reject_confirm = true,
+};
+
+static uint16_t settings_powered_sc_bondable[] = { MGMT_OP_SET_BONDABLE,
+						MGMT_OP_SET_SECURE_CONN,
+						MGMT_OP_SET_POWERED, 0 };
+
+static const struct generic_data pair_device_le_sc_legacy_test_1 = {
+	.setup_settings = settings_powered_sc_bondable,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.just_works = true,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+};
+
+static const struct generic_data pair_device_le_sc_success_test_1 = {
+	.setup_settings = settings_powered_sc_bondable,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.just_works = true,
+	.client_enable_sc = true,
+	.expect_sc_key = true,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+};
+
+static const struct generic_data pair_device_le_sc_success_test_2 = {
+	.setup_settings = settings_powered_sc_bondable,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.client_enable_sc = true,
+	.expect_sc_key = true,
+	.io_cap = 0x02, /* KeyboardOnly */
+	.client_io_cap = 0x02, /* KeyboardOnly */
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+};
+
+static uint16_t settings_powered_connectable_bondable[] = {
+						MGMT_OP_SET_BONDABLE,
 						MGMT_OP_SET_CONNECTABLE,
 						MGMT_OP_SET_POWERED, 0 };
 
 static const struct generic_data pairing_acceptor_legacy_1 = {
-	.setup_settings = settings_powered_connectable_pairable,
+	.setup_settings = settings_powered_connectable_bondable,
 	.pin = pair_device_pin,
 	.pin_len = sizeof(pair_device_pin),
 	.client_pin = pair_device_pin,
@@ -2473,7 +2907,7 @@ static const struct generic_data pairing_acceptor_legacy_1 = {
 };
 
 static const struct generic_data pairing_acceptor_legacy_2 = {
-	.setup_settings = settings_powered_connectable_pairable,
+	.setup_settings = settings_powered_connectable_bondable,
 	.expect_pin = true,
 	.client_pin = pair_device_pin,
 	.client_pin_len = sizeof(pair_device_pin),
@@ -2481,14 +2915,24 @@ static const struct generic_data pairing_acceptor_legacy_2 = {
 	.expect_alt_ev_len = 8,
 };
 
-static uint16_t settings_powered_connectable_pairable_linksec[] = {
-						MGMT_OP_SET_PAIRABLE,
+static const struct generic_data pairing_acceptor_legacy_3 = {
+	.setup_settings = settings_powered_connectable,
+	.client_pin = pair_device_pin,
+	.client_pin_len = sizeof(pair_device_pin),
+	.expect_alt_ev = MGMT_EV_AUTH_FAILED,
+	.expect_alt_ev_len = 8,
+	.expect_hci_command = BT_HCI_CMD_PIN_CODE_REQUEST_NEG_REPLY,
+	.expect_hci_func = client_bdaddr_param_func,
+};
+
+static uint16_t settings_powered_connectable_bondable_linksec[] = {
+						MGMT_OP_SET_BONDABLE,
 						MGMT_OP_SET_CONNECTABLE,
 						MGMT_OP_SET_LINK_SECURITY,
 						MGMT_OP_SET_POWERED, 0 };
 
 static const struct generic_data pairing_acceptor_linksec_1 = {
-	.setup_settings = settings_powered_connectable_pairable_linksec,
+	.setup_settings = settings_powered_connectable_bondable_linksec,
 	.pin = pair_device_pin,
 	.pin_len = sizeof(pair_device_pin),
 	.client_pin = pair_device_pin,
@@ -2498,7 +2942,7 @@ static const struct generic_data pairing_acceptor_linksec_1 = {
 };
 
 static const struct generic_data pairing_acceptor_linksec_2 = {
-	.setup_settings = settings_powered_connectable_pairable_linksec,
+	.setup_settings = settings_powered_connectable_bondable_linksec,
 	.expect_pin = true,
 	.client_pin = pair_device_pin,
 	.client_pin_len = sizeof(pair_device_pin),
@@ -2506,14 +2950,14 @@ static const struct generic_data pairing_acceptor_linksec_2 = {
 	.expect_alt_ev_len = 8,
 };
 
-static uint16_t settings_powered_connectable_pairable_ssp[] = {
-						MGMT_OP_SET_PAIRABLE,
+static uint16_t settings_powered_connectable_bondable_ssp[] = {
+						MGMT_OP_SET_BONDABLE,
 						MGMT_OP_SET_CONNECTABLE,
 						MGMT_OP_SET_SSP,
 						MGMT_OP_SET_POWERED, 0 };
 
 static const struct generic_data pairing_acceptor_ssp_1 = {
-	.setup_settings = settings_powered_connectable_pairable_ssp,
+	.setup_settings = settings_powered_connectable_bondable_ssp,
 	.client_enable_ssp = true,
 	.expect_alt_ev = MGMT_EV_NEW_LINK_KEY,
 	.expect_alt_ev_len = 26,
@@ -2521,10 +2965,11 @@ static const struct generic_data pairing_acceptor_ssp_1 = {
 	.expect_hci_func = client_bdaddr_param_func,
 	.io_cap = 0x03, /* NoInputNoOutput */
 	.client_io_cap = 0x03, /* NoInputNoOutput */
+	.just_works = true,
 };
 
 static const struct generic_data pairing_acceptor_ssp_2 = {
-	.setup_settings = settings_powered_connectable_pairable_ssp,
+	.setup_settings = settings_powered_connectable_bondable_ssp,
 	.client_enable_ssp = true,
 	.expect_alt_ev = MGMT_EV_NEW_LINK_KEY,
 	.expect_alt_ev_len = 26,
@@ -2532,6 +2977,103 @@ static const struct generic_data pairing_acceptor_ssp_2 = {
 	.expect_hci_func = client_bdaddr_param_func,
 	.io_cap = 0x01, /* DisplayYesNo */
 	.client_io_cap = 0x01, /* DisplayYesNo */
+};
+
+static const struct generic_data pairing_acceptor_ssp_3 = {
+	.setup_settings = settings_powered_connectable_bondable_ssp,
+	.client_enable_ssp = true,
+	.expect_alt_ev = MGMT_EV_NEW_LINK_KEY,
+	.expect_alt_ev_len = 26,
+	.expect_hci_command = BT_HCI_CMD_USER_CONFIRM_REQUEST_REPLY,
+	.expect_hci_func = client_bdaddr_param_func,
+	.io_cap = 0x01, /* DisplayYesNo */
+	.client_io_cap = 0x01, /* DisplayYesNo */
+	.just_works = true,
+};
+
+static const void *client_io_cap_reject_param_func(uint8_t *len)
+{
+	struct test_data *data = tester_get_data();
+	static uint8_t param[7];
+
+	memcpy(param, hciemu_get_client_bdaddr(data->hciemu), 6);
+	param[6] = 0x18; /* Pairing Not Allowed */
+
+	*len = sizeof(param);
+
+	return param;
+}
+
+static uint16_t settings_powered_connectable_ssp[] = {
+						MGMT_OP_SET_CONNECTABLE,
+						MGMT_OP_SET_SSP,
+						MGMT_OP_SET_POWERED, 0 };
+
+static const struct generic_data pairing_acceptor_ssp_4 = {
+	.setup_settings = settings_powered_connectable_ssp,
+	.client_enable_ssp = true,
+	.expect_alt_ev = MGMT_EV_AUTH_FAILED,
+	.expect_alt_ev_len = 8,
+	.expect_hci_command = BT_HCI_CMD_IO_CAPABILITY_REQUEST_NEG_REPLY,
+	.expect_hci_func = client_io_cap_reject_param_func,
+	.io_cap = 0x01, /* DisplayYesNo */
+	.client_io_cap = 0x01, /* DisplayYesNo */
+	.client_auth_req = 0x02, /* Dedicated Bonding - No MITM */
+};
+
+static uint16_t settings_powered_bondable_connectable_advertising[] = {
+					MGMT_OP_SET_BONDABLE,
+					MGMT_OP_SET_CONNECTABLE,
+					MGMT_OP_SET_ADVERTISING,
+					MGMT_OP_SET_POWERED, 0 };
+
+static const struct generic_data pairing_acceptor_le_1 = {
+	.setup_settings = settings_powered_bondable_connectable_advertising,
+	.io_cap = 0x03, /* NoInputNoOutput */
+	.client_io_cap = 0x03, /* NoInputNoOutput */
+	.just_works = true,
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+};
+
+static const struct generic_data pairing_acceptor_le_2 = {
+	.setup_settings = settings_powered_bondable_connectable_advertising,
+	.io_cap = 0x04, /* KeyboardDisplay */
+	.client_io_cap = 0x04, /* KeyboardDisplay */
+	.client_auth_req = 0x05, /* Bonding - MITM */
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+};
+
+static const struct generic_data pairing_acceptor_le_3 = {
+	.setup_settings = settings_powered_bondable_connectable_advertising,
+	.io_cap = 0x04, /* KeyboardDisplay */
+	.client_io_cap = 0x04, /* KeyboardDisplay */
+	.expect_alt_ev =  MGMT_EV_AUTH_FAILED,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_auth_failed),
+	.reject_confirm = true,
+};
+
+static const struct generic_data pairing_acceptor_le_4 = {
+	.setup_settings = settings_powered_bondable_connectable_advertising,
+	.io_cap = 0x02, /* KeyboardOnly */
+	.client_io_cap = 0x04, /* KeyboardDisplay */
+	.client_auth_req = 0x05, /* Bonding - MITM */
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+};
+
+static const struct generic_data pairing_acceptor_le_5 = {
+	.setup_settings = settings_powered_bondable_connectable_advertising,
+	.io_cap = 0x02, /* KeyboardOnly */
+	.client_io_cap = 0x04, /* KeyboardDisplay */
+	.client_auth_req = 0x05, /* Bonding - MITM */
+	.reject_confirm = true,
+	.expect_alt_ev =  MGMT_EV_AUTH_FAILED,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_auth_failed),
 };
 
 static const char unpair_device_param[] = {
@@ -2737,6 +3279,339 @@ static const struct generic_data set_privacy_nval_param_test = {
 	.expect_status = MGMT_STATUS_INVALID_PARAMS,
 };
 
+static const void *get_conn_info_send_param_func(uint16_t *len)
+{
+	struct test_data *data = tester_get_data();
+	static uint8_t param[7];
+
+	memcpy(param, hciemu_get_client_bdaddr(data->hciemu), 6);
+	param[6] = 0x00; /* Address type */
+
+	*len = sizeof(param);
+
+	return param;
+}
+
+static const void *get_conn_info_expect_param_func(uint16_t *len)
+{
+	struct test_data *data = tester_get_data();
+	static uint8_t param[10];
+
+	memcpy(param, hciemu_get_client_bdaddr(data->hciemu), 6);
+	param[6] = 0x00; /* Address type */
+	param[7] = 0xff; /* RSSI (= -1) */
+	param[8] = 0xff; /* TX power (= -1) */
+	param[9] = 0x04; /* max TX power */
+
+	*len = sizeof(param);
+
+	return param;
+}
+
+static const void *get_conn_info_error_expect_param_func(uint16_t *len)
+{
+	struct test_data *data = tester_get_data();
+	static uint8_t param[10];
+
+	/* All unset parameters shall be 0 in case of error */
+	memset(param, 0, sizeof(param));
+
+	memcpy(param, hciemu_get_client_bdaddr(data->hciemu), 6);
+	param[6] = 0x00; /* Address type */
+
+	*len = sizeof(param);
+
+	return param;
+}
+
+static const struct generic_data get_conn_info_succes1_test = {
+	.setup_settings = settings_powered_connectable_bondable_ssp,
+	.send_opcode = MGMT_OP_GET_CONN_INFO,
+	.send_func = get_conn_info_send_param_func,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = get_conn_info_expect_param_func,
+};
+
+static const struct generic_data get_conn_info_ncon_test = {
+	.setup_settings = settings_powered_connectable_bondable_ssp,
+	.send_opcode = MGMT_OP_GET_CONN_INFO,
+	.send_func = get_conn_info_send_param_func,
+	.expect_status = MGMT_STATUS_NOT_CONNECTED,
+	.expect_func = get_conn_info_error_expect_param_func,
+};
+
+static const void *get_conn_info_expect_param_power_off_func(uint16_t *len)
+{
+	struct test_data *data = tester_get_data();
+	static uint8_t param[10];
+
+	memcpy(param, hciemu_get_client_bdaddr(data->hciemu), 6);
+	param[6] = 0x00; /* Address type */
+	param[7] = 127; /* RSSI */
+	param[8] = 127; /* TX power */
+	param[9] = 127; /* max TX power */
+
+	*len = sizeof(param);
+
+	return param;
+}
+
+static const struct generic_data get_conn_info_power_off_test = {
+	.setup_settings = settings_powered_connectable_bondable_ssp,
+	.send_opcode = MGMT_OP_GET_CONN_INFO,
+	.send_func = get_conn_info_send_param_func,
+	.force_power_off = true,
+	.expect_status = MGMT_STATUS_NOT_POWERED,
+	.expect_func = get_conn_info_expect_param_power_off_func,
+};
+
+static const uint8_t load_conn_param_nval_1[16] = { 0x12, 0x11 };
+static const struct generic_data load_conn_params_fail_1 = {
+	.send_opcode = MGMT_OP_LOAD_CONN_PARAM,
+	.send_param = load_conn_param_nval_1,
+	.send_len = sizeof(load_conn_param_nval_1),
+	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+};
+
+static const uint8_t add_device_nval_1[] = {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0x00,
+					0x00,
+};
+static const uint8_t add_device_rsp[] =  {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0x00,
+};
+static const struct generic_data add_device_fail_1 = {
+	.send_opcode = MGMT_OP_ADD_DEVICE,
+	.send_param = add_device_nval_1,
+	.send_len = sizeof(add_device_nval_1),
+	.expect_param = add_device_rsp,
+	.expect_len = sizeof(add_device_rsp),
+	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+};
+
+static const uint8_t add_device_nval_2[] = {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0x00,
+					0x02,
+};
+static const struct generic_data add_device_fail_2 = {
+	.send_opcode = MGMT_OP_ADD_DEVICE,
+	.send_param = add_device_nval_2,
+	.send_len = sizeof(add_device_nval_2),
+	.expect_param = add_device_rsp,
+	.expect_len = sizeof(add_device_rsp),
+	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+};
+
+static const uint8_t add_device_nval_3[] = {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0x00,
+					0xff,
+};
+static const struct generic_data add_device_fail_3 = {
+	.send_opcode = MGMT_OP_ADD_DEVICE,
+	.send_param = add_device_nval_3,
+	.send_len = sizeof(add_device_nval_3),
+	.expect_param = add_device_rsp,
+	.expect_len = sizeof(add_device_rsp),
+	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+};
+
+static const uint8_t add_device_success_param_1[] = {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0x00,
+					0x01,
+};
+static const struct generic_data add_device_success_1 = {
+	.send_opcode = MGMT_OP_ADD_DEVICE,
+	.send_param = add_device_success_param_1,
+	.send_len = sizeof(add_device_success_param_1),
+	.expect_param = add_device_rsp,
+	.expect_len = sizeof(add_device_rsp),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_alt_ev = MGMT_EV_DEVICE_ADDED,
+	.expect_alt_ev_param = add_device_success_param_1,
+	.expect_alt_ev_len = sizeof(add_device_success_param_1),
+};
+
+static const uint8_t add_device_success_param_2[] = {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0x01,
+					0x00,
+};
+static const uint8_t add_device_rsp_le[] =  {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0x01,
+};
+static const struct generic_data add_device_success_2 = {
+	.send_opcode = MGMT_OP_ADD_DEVICE,
+	.send_param = add_device_success_param_2,
+	.send_len = sizeof(add_device_success_param_2),
+	.expect_param = add_device_rsp_le,
+	.expect_len = sizeof(add_device_rsp_le),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_alt_ev = MGMT_EV_DEVICE_ADDED,
+	.expect_alt_ev_param = add_device_success_param_2,
+	.expect_alt_ev_len = sizeof(add_device_success_param_2),
+};
+
+static const uint8_t add_device_success_param_3[] = {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0x01,
+					0x02,
+};
+static const struct generic_data add_device_success_3 = {
+	.send_opcode = MGMT_OP_ADD_DEVICE,
+	.send_param = add_device_success_param_3,
+	.send_len = sizeof(add_device_success_param_3),
+	.expect_param = add_device_rsp_le,
+	.expect_len = sizeof(add_device_rsp_le),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_alt_ev = MGMT_EV_DEVICE_ADDED,
+	.expect_alt_ev_param = add_device_success_param_3,
+	.expect_alt_ev_len = sizeof(add_device_success_param_3),
+};
+
+static const struct generic_data add_device_success_4 = {
+	.setup_settings = settings_powered,
+	.send_opcode = MGMT_OP_ADD_DEVICE,
+	.send_param = add_device_success_param_1,
+	.send_len = sizeof(add_device_success_param_1),
+	.expect_param = add_device_rsp,
+	.expect_len = sizeof(add_device_rsp),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_alt_ev = MGMT_EV_DEVICE_ADDED,
+	.expect_alt_ev_param = add_device_success_param_1,
+	.expect_alt_ev_len = sizeof(add_device_success_param_1),
+	.expect_hci_command = BT_HCI_CMD_WRITE_SCAN_ENABLE,
+	.expect_hci_param = set_connectable_scan_enable_param,
+	.expect_hci_len = sizeof(set_connectable_scan_enable_param),
+};
+
+static const uint8_t le_scan_enable[] = { 0x01, 0x01 };
+static const struct generic_data add_device_success_5 = {
+	.setup_settings = settings_powered_le,
+	.send_opcode = MGMT_OP_ADD_DEVICE,
+	.send_param = add_device_success_param_2,
+	.send_len = sizeof(add_device_success_param_2),
+	.expect_param = add_device_rsp_le,
+	.expect_len = sizeof(add_device_rsp_le),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_alt_ev = MGMT_EV_DEVICE_ADDED,
+	.expect_alt_ev_param = add_device_success_param_2,
+	.expect_alt_ev_len = sizeof(add_device_success_param_2),
+	.expect_hci_command = BT_HCI_CMD_LE_SET_SCAN_ENABLE,
+	.expect_hci_param = le_scan_enable,
+	.expect_hci_len = sizeof(le_scan_enable),
+};
+
+static const uint8_t remove_device_nval_1[] = {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0xff,
+};
+static const struct generic_data remove_device_fail_1 = {
+	.send_opcode = MGMT_OP_REMOVE_DEVICE,
+	.send_param = remove_device_nval_1,
+	.send_len = sizeof(remove_device_nval_1),
+	.expect_param = remove_device_nval_1,
+	.expect_len = sizeof(remove_device_nval_1),
+	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+};
+
+static const uint8_t remove_device_param_1[] = {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0x00,
+};
+static const struct generic_data remove_device_fail_2 = {
+	.send_opcode = MGMT_OP_REMOVE_DEVICE,
+	.send_param = remove_device_param_1,
+	.send_len = sizeof(remove_device_param_1),
+	.expect_param = remove_device_param_1,
+	.expect_len = sizeof(remove_device_param_1),
+	.expect_status = MGMT_STATUS_INVALID_PARAMS,
+};
+
+static const struct generic_data remove_device_success_1 = {
+	.send_opcode = MGMT_OP_REMOVE_DEVICE,
+	.send_param = remove_device_param_1,
+	.send_len = sizeof(remove_device_param_1),
+	.expect_param = remove_device_param_1,
+	.expect_len = sizeof(remove_device_param_1),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_alt_ev = MGMT_EV_DEVICE_REMOVED,
+	.expect_alt_ev_param = remove_device_param_1,
+	.expect_alt_ev_len = sizeof(remove_device_param_1),
+};
+
+static const struct generic_data remove_device_success_2 = {
+	.send_opcode = MGMT_OP_REMOVE_DEVICE,
+	.send_param = remove_device_param_1,
+	.send_len = sizeof(remove_device_param_1),
+	.expect_param = remove_device_param_1,
+	.expect_len = sizeof(remove_device_param_1),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_alt_ev = MGMT_EV_DEVICE_REMOVED,
+	.expect_alt_ev_param = remove_device_param_1,
+	.expect_alt_ev_len = sizeof(remove_device_param_1),
+	.expect_hci_command = BT_HCI_CMD_WRITE_SCAN_ENABLE,
+	.expect_hci_param = set_connectable_off_scan_enable_param,
+	.expect_hci_len = sizeof(set_connectable_off_scan_enable_param),
+};
+
+static const struct generic_data remove_device_success_3 = {
+	.setup_settings = settings_powered,
+	.send_opcode = MGMT_OP_REMOVE_DEVICE,
+	.send_param = remove_device_param_1,
+	.send_len = sizeof(remove_device_param_1),
+	.expect_param = remove_device_param_1,
+	.expect_len = sizeof(remove_device_param_1),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_alt_ev = MGMT_EV_DEVICE_REMOVED,
+	.expect_alt_ev_param = remove_device_param_1,
+	.expect_alt_ev_len = sizeof(remove_device_param_1),
+	.expect_hci_command = BT_HCI_CMD_WRITE_SCAN_ENABLE,
+	.expect_hci_param = set_connectable_off_scan_enable_param,
+	.expect_hci_len = sizeof(set_connectable_off_scan_enable_param),
+};
+
+static const uint8_t remove_device_param_2[] =  {
+					0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+					0x01,
+};
+static const uint8_t set_le_scan_off[] = { 0x00, 0x00 };
+static const struct generic_data remove_device_success_4 = {
+	.setup_settings = settings_powered,
+	.send_opcode = MGMT_OP_REMOVE_DEVICE,
+	.send_param = remove_device_param_2,
+	.send_len = sizeof(remove_device_param_2),
+	.expect_param = remove_device_param_2,
+	.expect_len = sizeof(remove_device_param_2),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_alt_ev = MGMT_EV_DEVICE_REMOVED,
+	.expect_alt_ev_param = remove_device_param_2,
+	.expect_alt_ev_len = sizeof(remove_device_param_2),
+	.expect_hci_command = BT_HCI_CMD_LE_SET_SCAN_ENABLE,
+	.expect_hci_param = set_le_scan_off,
+	.expect_hci_len = sizeof(set_le_scan_off),
+};
+
+static const struct generic_data remove_device_success_5 = {
+	.send_opcode = MGMT_OP_REMOVE_DEVICE,
+	.send_param = remove_device_param_2,
+	.send_len = sizeof(remove_device_param_2),
+	.expect_param = remove_device_param_2,
+	.expect_len = sizeof(remove_device_param_2),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_alt_ev = MGMT_EV_DEVICE_REMOVED,
+	.expect_alt_ev_param = remove_device_param_2,
+	.expect_alt_ev_len = sizeof(remove_device_param_2),
+	.expect_hci_command = BT_HCI_CMD_LE_SET_SCAN_ENABLE,
+	.expect_hci_param = set_le_scan_off,
+	.expect_hci_len = sizeof(set_le_scan_off),
+};
+
 static void client_cmd_complete(uint16_t opcode, uint8_t status,
 					const void *param, uint8_t len,
 					void *user_data)
@@ -2777,12 +3652,12 @@ static void setup_bthost(void)
 	bthost = hciemu_client_get_host(data->hciemu);
 	bthost_set_cmd_complete_cb(bthost, client_cmd_complete, data);
 	if (data->hciemu_type == HCIEMU_TYPE_LE)
-		bthost_set_adv_enable(bthost, 0x01);
+		bthost_set_adv_enable(bthost, 0x01, 0x00);
 	else
 		bthost_write_scan_enable(bthost, 0x03);
 }
 
-static void setup_ssp_acceptor(const void *test_data)
+static void setup_pairing_acceptor(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
 	const struct generic_data *test = data->test_data;
@@ -2827,6 +3702,30 @@ static void setup_class(const void *test_data)
 					setup_powered_callback, NULL, NULL);
 }
 
+static void discovering_event(uint16_t index, uint16_t length,
+					const void *param, void *user_data)
+{
+	struct test_data *data = tester_get_data();
+	unsigned int id = PTR_TO_UINT(user_data);
+	const struct mgmt_ev_discovering *ev = param;
+
+	mgmt_unregister(data->mgmt, id);
+
+	if (length != sizeof(*ev)) {
+		tester_warn("Incorrect discovering event length");
+		tester_setup_failed();
+		return;
+	}
+
+	if (!ev->discovering) {
+		tester_warn("Unexpected discovery stopped event");
+		tester_setup_failed();
+		return;
+	}
+
+	tester_setup_complete();
+}
+
 static void setup_discovery_callback(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -2836,7 +3735,6 @@ static void setup_discovery_callback(uint8_t status, uint16_t length,
 	}
 
 	tester_print("Discovery started");
-	tester_setup_complete();
 }
 
 static void setup_start_discovery(const void *test_data)
@@ -2845,6 +3743,10 @@ static void setup_start_discovery(const void *test_data)
 	const struct generic_data *test = data->test_data;
 	const void *send_param = test->setup_send_param;
 	uint16_t send_len = test->setup_send_len;
+	unsigned int id = 0;
+
+	id = mgmt_register(data->mgmt, MGMT_EV_DISCOVERING, data->mgmt_index,
+			   discovering_event, UINT_TO_PTR(id), NULL);
 
 	mgmt_send(data->mgmt, test->setup_send_opcode, data->mgmt_index,
 				send_len, send_param, setup_discovery_callback,
@@ -3035,6 +3937,31 @@ static void setup_uuid_mix(const void *test_data)
 					setup_powered_callback, NULL, NULL);
 }
 
+static void setup_add_device(const void *test_data)
+{
+	struct test_data *data = tester_get_data();
+	unsigned char param[] = { 0x01 };
+	const unsigned char *add_param;
+	size_t add_param_len;
+
+	tester_print("Powering on controller (with added device))");
+
+	if (data->hciemu_type == HCIEMU_TYPE_LE) {
+		add_param = add_device_success_param_2;
+		add_param_len = sizeof(add_device_success_param_2);
+	} else {
+		add_param = add_device_success_param_1;
+		add_param_len = sizeof(add_device_success_param_1);
+	}
+
+	mgmt_send(data->mgmt, MGMT_OP_ADD_DEVICE, data->mgmt_index,
+			add_param_len, add_param, NULL, NULL, NULL);
+
+	mgmt_send(data->mgmt, MGMT_OP_SET_POWERED, data->mgmt_index,
+					sizeof(param), param,
+					setup_powered_callback, NULL, NULL);
+}
+
 static void setup_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -3090,16 +4017,51 @@ static void user_confirm_request_callback(uint16_t index, uint16_t length,
 	struct mgmt_cp_user_confirm_reply cp;
 	uint16_t opcode;
 
+	if (test->just_works) {
+		tester_warn("User Confirmation received for just-works case");
+		tester_test_failed();
+		return;
+	}
+
 	memset(&cp, 0, sizeof(cp));
 	memcpy(&cp.addr, &ev->addr, sizeof(cp.addr));
 
-	if (test->reject_ssp)
+	if (test->reject_confirm)
 		opcode = MGMT_OP_USER_CONFIRM_NEG_REPLY;
 	else
 		opcode = MGMT_OP_USER_CONFIRM_REPLY;
 
 	mgmt_reply(data->mgmt, opcode, data->mgmt_index, sizeof(cp), &cp,
 							NULL, NULL, NULL);
+}
+
+static void user_passkey_request_callback(uint16_t index, uint16_t length,
+							const void *param,
+							void *user_data)
+{
+	const struct mgmt_ev_user_passkey_request *ev = param;
+	struct test_data *data = user_data;
+	const struct generic_data *test = data->test_data;
+	struct mgmt_cp_user_passkey_reply cp;
+
+	if (test->just_works) {
+		tester_warn("User Passkey Request for just-works case");
+		tester_test_failed();
+		return;
+	}
+
+	memset(&cp, 0, sizeof(cp));
+	memcpy(&cp.addr, &ev->addr, sizeof(cp.addr));
+
+	if (test->reject_confirm) {
+		mgmt_reply(data->mgmt, MGMT_OP_USER_PASSKEY_NEG_REPLY,
+				data->mgmt_index, sizeof(cp.addr), &cp.addr,
+				NULL, NULL, NULL);
+		return;
+	}
+
+	mgmt_reply(data->mgmt, MGMT_OP_USER_PASSKEY_REPLY, data->mgmt_index,
+					sizeof(cp), &cp, NULL, NULL, NULL);
 }
 
 static void test_setup(const void *test_data)
@@ -3123,6 +4085,10 @@ static void test_setup(const void *test_data)
 			data->mgmt_index, user_confirm_request_callback,
 			data, NULL);
 
+	mgmt_register(data->mgmt, MGMT_EV_USER_PASSKEY_REQUEST,
+			data->mgmt_index, user_passkey_request_callback,
+			data, NULL);
+
 	if (test->client_pin)
 		bthost_set_pin_code(bthost, test->client_pin,
 							test->client_pin_len);
@@ -3132,9 +4098,17 @@ static void test_setup(const void *test_data)
 
 	if (test->client_auth_req)
 		bthost_set_auth_req(bthost, test->client_auth_req);
+	else if (!test->just_works)
+		bthost_set_auth_req(bthost, 0x01);
 
-	if (test->client_reject_ssp)
+	if (test->client_reject_confirm)
 		bthost_set_reject_user_confirm(bthost, true);
+
+	if (test->client_enable_le)
+		bthost_write_le_host_supported(bthost, 0x01);
+
+	if (test->client_enable_sc)
+		bthost_set_sc_support(bthost, 0x01);
 
 proceed:
 	if (!test || !test->setup_settings) {
@@ -3229,31 +4203,49 @@ done:
 	test_condition_complete(data);
 }
 
+static bool verify_alt_ev(const void *param, uint16_t length)
+{
+	struct test_data *data = tester_get_data();
+	const struct generic_data *test = data->test_data;
+
+	if (length != test->expect_alt_ev_len) {
+		tester_warn("Invalid length %u != %u", length,
+						test->expect_alt_ev_len);
+		return false;
+	}
+
+	if (test->expect_alt_ev_param &&
+			memcmp(test->expect_alt_ev_param, param, length)) {
+		tester_warn("Event parameters do not match");
+		return false;
+	}
+
+	return true;
+}
+
 static void command_generic_event_alt(uint16_t index, uint16_t length,
 							const void *param,
 							void *user_data)
 {
 	struct test_data *data = tester_get_data();
 	const struct generic_data *test = data->test_data;
+	bool (*verify)(const void *param, uint16_t length);
 
-	if (length != test->expect_alt_ev_len) {
-		tester_warn("Invalid length %s event",
+	tester_print("New %s event received", mgmt_evstr(test->expect_alt_ev));
+
+	mgmt_unregister(data->mgmt_alt, data->mgmt_alt_ev_id);
+
+	if (test->verify_alt_ev_func)
+		verify = test->verify_alt_ev_func;
+	else
+		verify = verify_alt_ev;
+
+	if (!verify(param, length)) {
+		tester_warn("Incorrect %s event parameters",
 					mgmt_evstr(test->expect_alt_ev));
 		tester_test_failed();
 		return;
 	}
-
-	tester_print("New %s event received", mgmt_evstr(test->expect_alt_ev));
-
-	if (test->expect_alt_ev_param &&
-			memcmp(param, test->expect_alt_ev_param,
-						test->expect_alt_ev_len) != 0)
-		return;
-
-	tester_print("Unregistering %s notification",
-					mgmt_evstr(test->expect_alt_ev));
-
-	mgmt_unregister(data->mgmt_alt, data->mgmt_alt_ev_id);
 
 	test_condition_complete(data);
 }
@@ -3322,6 +4314,24 @@ static void command_hci_callback(uint16_t opcode, const void *param,
 	test_condition_complete(data);
 }
 
+static bool power_off(uint16_t index)
+{
+	int sk, err;
+
+	sk = hci_open_dev(index);
+	if (sk < 0)
+		return false;
+
+	err = ioctl(sk, HCIDEVDOWN, index);
+
+	hci_close_dev(sk);
+
+	if (err < 0)
+		return false;
+
+	return true;
+}
+
 static void test_command_generic(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
@@ -3367,8 +4377,17 @@ static void test_command_generic(const void *test_data)
 	if (test->send_func)
 		send_param = test->send_func(&send_len);
 
-	mgmt_send(data->mgmt, test->send_opcode, index, send_len, send_param,
+	if (test->force_power_off) {
+		mgmt_send_nowait(data->mgmt, test->send_opcode, index,
+					send_len, send_param,
 					command_generic_callback, NULL, NULL);
+		power_off(data->mgmt_index);
+	} else {
+		mgmt_send(data->mgmt, test->send_opcode, index, send_len,
+					send_param, command_generic_callback,
+					NULL, NULL);
+	}
+
 	test_add_condition(data);
 }
 
@@ -3419,6 +4438,66 @@ static void test_pairing_acceptor(const void *test_data)
 	else
 		addr_type = BDADDR_LE_PUBLIC;
 
+	bthost_hci_connect(bthost, master_bdaddr, addr_type);
+}
+
+static void connected_event(uint16_t index, uint16_t length, const void *param,
+							void *user_data)
+{
+	struct test_data *data = tester_get_data();
+	const struct generic_data *test = data->test_data;
+	const void *send_param = test->send_param;
+	uint16_t send_len = test->send_len;
+
+	tester_print("Sending command 0x%04x", test->send_opcode);
+
+	if (test->send_func)
+		send_param = test->send_func(&send_len);
+
+	if (test->force_power_off) {
+		mgmt_send_nowait(data->mgmt, test->send_opcode, index,
+					send_len, send_param,
+					command_generic_callback, NULL, NULL);
+		power_off(data->mgmt_index);
+	} else {
+		mgmt_send(data->mgmt, test->send_opcode, index, send_len,
+					send_param, command_generic_callback,
+					NULL, NULL);
+	}
+
+	test_add_condition(data);
+
+	/* Complete MGMT_EV_DEVICE_CONNECTED *after* adding new one */
+	test_condition_complete(data);
+}
+
+static void test_command_generic_connect(const void *test_data)
+{
+	struct test_data *data = tester_get_data();
+	unsigned int id;
+	const uint8_t *master_bdaddr;
+	uint8_t addr_type;
+	struct bthost *bthost;
+
+	tester_print("Registering %s notification",
+					mgmt_evstr(MGMT_EV_DEVICE_CONNECTED));
+	id = mgmt_register(data->mgmt_alt, MGMT_EV_DEVICE_CONNECTED,
+				data->mgmt_index, connected_event,
+				NULL, NULL);
+	data->mgmt_alt_ev_id = id;
+	test_add_condition(data);
+
+	master_bdaddr = hciemu_get_master_bdaddr(data->hciemu);
+	if (!master_bdaddr) {
+		tester_warn("No master bdaddr");
+		tester_test_failed();
+		return;
+	}
+
+	addr_type = data->hciemu_type == HCIEMU_TYPE_BREDRLE ? BDADDR_BREDR :
+							BDADDR_LE_PUBLIC;
+
+	bthost = hciemu_client_get_host(data->hciemu);
 	bthost_hci_connect(bthost, master_bdaddr, addr_type);
 }
 
@@ -3535,6 +4614,9 @@ int main(int argc, char *argv[])
 	test_bredrle("Set connectable off - Success 3",
 				&set_connectable_off_success_test_3,
 				NULL, test_command_generic);
+	test_bredrle("Set connectable off - Success 4",
+				&set_connectable_off_success_test_4,
+				setup_add_device, test_command_generic);
 
 	test_le("Set connectable off (LE) - Success 1",
 				&set_connectable_off_le_test_1,
@@ -3556,20 +4638,20 @@ int main(int argc, char *argv[])
 				&set_fast_conn_on_not_supported_test_1,
 				NULL, test_command_generic);
 
-	test_bredrle("Set pairable on - Success",
-				&set_pairable_on_success_test,
+	test_bredrle("Set bondable on - Success",
+				&set_bondable_on_success_test,
 				NULL, test_command_generic);
-	test_bredrle("Set pairable on - Invalid parameters 1",
-				&set_pairable_on_invalid_param_test_1,
+	test_bredrle("Set bondable on - Invalid parameters 1",
+				&set_bondable_on_invalid_param_test_1,
 				NULL, test_command_generic);
-	test_bredrle("Set pairable on - Invalid parameters 2",
-				&set_pairable_on_invalid_param_test_2,
+	test_bredrle("Set bondable on - Invalid parameters 2",
+				&set_bondable_on_invalid_param_test_2,
 				NULL, test_command_generic);
-	test_bredrle("Set pairable on - Invalid parameters 3",
-				&set_pairable_on_invalid_param_test_3,
+	test_bredrle("Set bondable on - Invalid parameters 3",
+				&set_bondable_on_invalid_param_test_3,
 				NULL, test_command_generic);
-	test_bredrle("Set pairable on - Invalid index",
-				&set_pairable_on_invalid_index_test,
+	test_bredrle("Set bondable on - Invalid index",
+				&set_bondable_on_invalid_index_test,
 				NULL, test_command_generic);
 
 	test_bredrle("Set discoverable on - Invalid parameters 1",
@@ -3808,6 +4890,9 @@ int main(int argc, char *argv[])
 	test_le("Start Discovery - Success 2",
 				&start_discovery_valid_param_test_2,
 				NULL, test_command_generic);
+	test_bredrle("Start Discovery - Power Off 1",
+				&start_discovery_valid_param_power_off_1,
+				NULL, test_command_generic);
 
 	test_bredrle("Stop Discovery - Success 1",
 				&stop_discovery_success_test_1,
@@ -3821,6 +4906,22 @@ int main(int argc, char *argv[])
 	test_bredrle("Stop Discovery - Invalid parameters 1",
 				&stop_discovery_invalid_param_test_1,
 				setup_start_discovery, test_command_generic);
+
+	test_bredrle("Start Service Discovery - Not powered 1",
+				&start_service_discovery_not_powered_test_1,
+				NULL, test_command_generic);
+	test_bredrle("Start Service Discovery - Invalid parameters 1",
+				&start_service_discovery_invalid_param_test_1,
+				NULL, test_command_generic);
+	test_bredrle("Start Service Discovery - Not supported 1",
+				&start_service_discovery_not_supported_test_1,
+				NULL, test_command_generic);
+	test_bredrle("Start Service Discovery - Success 1",
+				&start_service_discovery_valid_param_test_1,
+				NULL, test_command_generic);
+	test_le("Start Service Discovery - Success 2",
+				&start_service_discovery_valid_param_test_2,
+				NULL, test_command_generic);
 
 	test_bredrle("Set Device Class - Success 1",
 				&set_dev_class_valid_param_test_1,
@@ -3891,15 +4992,31 @@ int main(int argc, char *argv[])
 	test_bredrle("Load Long Term Keys - Invalid Parameters 3",
 				&load_ltks_invalid_params_test_3,
 				NULL, test_command_generic);
+	test_bredrle("Load Long Term Keys - Invalid Parameters 4",
+				&load_ltks_invalid_params_test_4,
+				NULL, test_command_generic);
+
+	test_bredrle("Set IO Capability - Invalid Params 1",
+				&set_io_cap_invalid_param_test_1,
+				NULL, test_command_generic);
 
 	test_bredrle("Pair Device - Not Powered 1",
 				&pair_device_not_powered_test_1,
 				NULL, test_command_generic);
+	test_bredrle("Pair Device - Power off 1",
+				&pair_device_power_off_test_1,
+				NULL, test_command_generic);
 	test_bredrle("Pair Device - Invalid Parameters 1",
 				&pair_device_invalid_param_test_1,
 				NULL, test_command_generic);
+	test_bredrle("Pair Device - Invalid Parameters 2",
+				&pair_device_invalid_param_test_2,
+				NULL, test_command_generic);
 	test_bredrle("Pair Device - Legacy Success 1",
 				&pair_device_success_test_1,
+				NULL, test_command_generic);
+	test_bredrle("Pair Device - Legacy Non-bondable 1",
+				&pair_device_legacy_nonbondable_1,
 				NULL, test_command_generic);
 	test_bredrle("Pair Device - Sec Mode 3 Success 1",
 				&pair_device_success_test_2,
@@ -3919,8 +5036,20 @@ int main(int argc, char *argv[])
 	test_bredrle("Pair Device - SSP Just-Works Success 1",
 				&pair_device_ssp_test_1,
 				NULL, test_command_generic);
-	test_bredrle("Pair Device - SSP Confirm Success 1",
+	test_bredrle("Pair Device - SSP Just-Works Success 2",
 				&pair_device_ssp_test_2,
+				NULL, test_command_generic);
+	test_bredrle("Pair Device - SSP Just-Works Success 3",
+				&pair_device_ssp_test_3,
+				NULL, test_command_generic);
+	test_bredrle("Pair Device - SSP Confirm Success 1",
+				&pair_device_ssp_test_4,
+				NULL, test_command_generic);
+	test_bredrle("Pair Device - SSP Confirm Success 2",
+				&pair_device_ssp_test_5,
+				NULL, test_command_generic);
+	test_bredrle("Pair Device - SSP Confirm Success 3",
+				&pair_device_ssp_test_6,
 				NULL, test_command_generic);
 	test_bredrle("Pair Device - SSP Confirm Reject 1",
 				&pair_device_ssp_reject_1,
@@ -3928,8 +5057,29 @@ int main(int argc, char *argv[])
 	test_bredrle("Pair Device - SSP Confirm Reject 2",
 				&pair_device_ssp_reject_2,
 				NULL, test_command_generic);
-	test_bredrle("Pair Device - SSP Non-pairable 1",
-				&pair_device_ssp_nonpairable_1,
+	test_bredrle("Pair Device - SSP Non-bondable 1",
+				&pair_device_ssp_nonbondable_1,
+				NULL, test_command_generic);
+	test_bredrle("Pair Device - SMP over BR/EDR Just-Works Success 1",
+				&pair_device_smp_bredr_test_1,
+				NULL, test_command_generic);
+	test_le("Pair Device - LE Success 1",
+				&pair_device_le_success_test_1,
+				NULL, test_command_generic);
+	test_le("Pair Device - LE Success 2",
+				&pair_device_le_success_test_2,
+				NULL, test_command_generic);
+	test_le("Pair Device - LE Reject 1",
+				&pair_device_le_reject_test_1,
+				NULL, test_command_generic);
+	test_le("Pair Device - LE SC Legacy 1",
+				&pair_device_le_sc_legacy_test_1,
+				NULL, test_command_generic);
+	test_le("Pair Device - LE SC Success 1",
+				&pair_device_le_sc_success_test_1,
+				NULL, test_command_generic);
+	test_le("Pair Device - LE SC Success 2",
+				&pair_device_le_sc_success_test_2,
 				NULL, test_command_generic);
 
 	test_bredrle("Pairing Acceptor - Legacy 1",
@@ -3938,6 +5088,9 @@ int main(int argc, char *argv[])
 	test_bredrle("Pairing Acceptor - Legacy 2",
 				&pairing_acceptor_legacy_2, NULL,
 				test_pairing_acceptor);
+	test_bredrle("Pairing Acceptor - Legacy 3",
+				&pairing_acceptor_legacy_3, NULL,
+				test_pairing_acceptor);
 	test_bredrle("Pairing Acceptor - Link Sec 1",
 				&pairing_acceptor_linksec_1, NULL,
 				test_pairing_acceptor);
@@ -3945,10 +5098,31 @@ int main(int argc, char *argv[])
 				&pairing_acceptor_linksec_2, NULL,
 				test_pairing_acceptor);
 	test_bredrle("Pairing Acceptor - SSP 1",
-				&pairing_acceptor_ssp_1, setup_ssp_acceptor,
+				&pairing_acceptor_ssp_1, setup_pairing_acceptor,
 				test_pairing_acceptor);
 	test_bredrle("Pairing Acceptor - SSP 2",
-				&pairing_acceptor_ssp_2, setup_ssp_acceptor,
+				&pairing_acceptor_ssp_2, setup_pairing_acceptor,
+				test_pairing_acceptor);
+	test_bredrle("Pairing Acceptor - SSP 3",
+				&pairing_acceptor_ssp_3, setup_pairing_acceptor,
+				test_pairing_acceptor);
+	test_bredrle("Pairing Acceptor - SSP 4",
+				&pairing_acceptor_ssp_4, setup_pairing_acceptor,
+				test_pairing_acceptor);
+	test_le("Pairing Acceptor - LE 1",
+				&pairing_acceptor_le_1, setup_pairing_acceptor,
+				test_pairing_acceptor);
+	test_le("Pairing Acceptor - LE 2",
+				&pairing_acceptor_le_2, setup_pairing_acceptor,
+				test_pairing_acceptor);
+	test_le("Pairing Acceptor - LE 3",
+				&pairing_acceptor_le_3, setup_pairing_acceptor,
+				test_pairing_acceptor);
+	test_le("Pairing Acceptor - LE 4",
+				&pairing_acceptor_le_4, setup_pairing_acceptor,
+				test_pairing_acceptor);
+	test_le("Pairing Acceptor - LE 5",
+				&pairing_acceptor_le_5, setup_pairing_acceptor,
 				test_pairing_acceptor);
 
 	test_bredrle("Unpair Device - Not Powered 1",
@@ -4012,6 +5186,67 @@ int main(int argc, char *argv[])
 	test_bredrle("Set Privacy - Invalid Parameters",
 				&set_privacy_nval_param_test,
 				NULL, test_command_generic);
+
+	test_bredrle("Get Conn Info - Success",
+				&get_conn_info_succes1_test, NULL,
+				test_command_generic_connect);
+	test_bredrle("Get Conn Info - Not Connected",
+				&get_conn_info_ncon_test, NULL,
+				test_command_generic);
+	test_bredrle("Get Conn Info - Power off",
+				&get_conn_info_power_off_test, NULL,
+				test_command_generic_connect);
+
+	test_bredrle("Load Connection Parameters - Invalid Params 1",
+				&load_conn_params_fail_1,
+				NULL, test_command_generic);
+
+	test_bredrle("Add Device - Invalid Params 1",
+				&add_device_fail_1,
+				NULL, test_command_generic);
+	test_bredrle("Add Device - Invalid Params 2",
+				&add_device_fail_2,
+				NULL, test_command_generic);
+	test_bredrle("Add Device - Invalid Params 3",
+				&add_device_fail_3,
+				NULL, test_command_generic);
+	test_bredrle("Add Device - Success 1",
+				&add_device_success_1,
+				NULL, test_command_generic);
+	test_bredrle("Add Device - Success 2",
+				&add_device_success_2,
+				NULL, test_command_generic);
+	test_bredrle("Add Device - Success 3",
+				&add_device_success_3,
+				NULL, test_command_generic);
+	test_bredrle("Add Device - Success 4",
+				&add_device_success_4,
+				NULL, test_command_generic);
+	test_bredrle("Add Device - Success 5",
+				&add_device_success_5,
+				NULL, test_command_generic);
+
+	test_bredrle("Remove Device - Invalid Params 1",
+				&remove_device_fail_1,
+				NULL, test_command_generic);
+	test_bredrle("Remove Device - Invalid Params 2",
+				&remove_device_fail_2,
+				NULL, test_command_generic);
+	test_bredrle("Remove Device - Success 1",
+				&remove_device_success_1,
+				setup_add_device, test_command_generic);
+	test_bredrle("Remove Device - Success 2",
+				&remove_device_success_2,
+				setup_add_device, test_command_generic);
+	test_bredrle("Remove Device - Success 3",
+				&remove_device_success_3,
+				setup_add_device, test_command_generic);
+	test_le("Remove Device - Success 4",
+				&remove_device_success_4,
+				setup_add_device, test_command_generic);
+	test_le("Remove Device - Success 5",
+				&remove_device_success_5,
+				setup_add_device, test_command_generic);
 
 	return tester_run();
 }

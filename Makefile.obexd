@@ -7,6 +7,15 @@ dbussessionbusdir = @DBUS_SESSIONBUSDIR@
 dbussessionbus_DATA = obexd/src/org.bluez.obex.service
 endif
 
+# Start of __TIZEN_PATCH__
+
+# Even though systemd is not used,
+# obexd should be launched using dbus auto activation.
+dbussessionbusdir = @DBUS_SESSIONBUSDIR@
+dbussessionbus_DATA = obexd/src/org.bluez.obex.service
+
+# End of __TIZEN_PATCH__
+
 EXTRA_DIST += obexd/src/obex.service.in obexd/src/org.bluez.obex.service
 
 obex_plugindir = $(libdir)/obex/plugins
@@ -50,6 +59,7 @@ obexd_builtin_sources += obexd/plugins/mas.c obexd/src/map_ap.h \
 
 obexd_builtin_modules += mns
 obexd_builtin_sources += obexd/client/mns.c obexd/src/map_ap.h \
+				obexd/client/mns-tizen.c \
 				obexd/client/map-event.h
 
 libexec_PROGRAMS += obexd/src/obexd

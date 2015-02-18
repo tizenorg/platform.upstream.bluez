@@ -2,14 +2,24 @@
 builtin_modules += hostname
 builtin_sources += plugins/hostname.c
 
+if TIZEN_UNUSED_PLUGIN
 builtin_modules += wiimote
 builtin_sources += plugins/wiimote.c
+endif
 
+if AUTOPAIR
 builtin_modules += autopair
 builtin_sources += plugins/autopair.c
+endif
 
 builtin_modules += policy
 builtin_sources += plugins/policy.c
+
+#ifdef __TIZEN_PATCH__
+builtin_modules += dbusoob
+builtin_sources += plugins/dbusoob.c \
+			src/oob.h src/oob.c
+#endif
 
 if MAINTAINER_MODE
 builtin_modules += gatt_example
@@ -17,6 +27,7 @@ builtin_sources += plugins/gatt-example.c
 endif
 
 if EXPERIMENTAL
+if TIZEN_UNUSED_PLUGIN
 builtin_modules += neard
 builtin_sources += plugins/neard.c
 
@@ -28,6 +39,7 @@ builtin_sources += profiles/sap/main.c profiles/sap/manager.h \
 
 noinst_LIBRARIES += profiles/sap/libsap.a
 profiles_sap_libsap_a_SOURCES = profiles/sap/sap.h profiles/sap/sap-u8500.c
+endif
 endif
 
 builtin_modules += a2dp
@@ -52,30 +64,39 @@ builtin_sources += profiles/network/manager.c \
 			profiles/network/connection.h \
 			profiles/network/connection.c
 
+if WEARABLE
+builtin_modules +=
+builtin_sources +=
+else
+if TIZEN_HID_PLUGIN
 builtin_modules += input
 builtin_sources += profiles/input/manager.c \
 			profiles/input/server.h profiles/input/server.c \
 			profiles/input/device.h profiles/input/device.c \
-			profiles/input/uhid_copy.h profiles/input/hidp_defs.h
+			profiles/input/hidp_defs.h
 
+if TIZEN_UNUSED_PLUGIN
 builtin_modules += hog
 builtin_sources += profiles/input/hog.c profiles/input/uhid_copy.h \
 			profiles/input/suspend.h profiles/input/suspend-dummy.c
+endif
+endif
+endif
 
 if EXPERIMENTAL
+if TIZEN_UNUSED_PLUGIN
 builtin_modules += health
-builtin_sources += profiles/health/mcap_lib.h profiles/health/mcap_internal.h \
-			profiles/health/mcap.h profiles/health/mcap.c \
-			profiles/health/mcap_sync.c \
+builtin_sources += profiles/health/mcap.h profiles/health/mcap.c \
 			profiles/health/hdp_main.c profiles/health/hdp_types.h \
 			profiles/health/hdp_manager.h \
 			profiles/health/hdp_manager.c \
 			profiles/health/hdp.h profiles/health/hdp.c \
 			profiles/health/hdp_util.h profiles/health/hdp_util.c
 endif
+endif
 
-builtin_modules += gatt
-builtin_sources += profiles/gatt/gas.c
+builtin_modules += gap
+builtin_sources += profiles/gap/gas.c
 
 builtin_modules += scanparam
 builtin_sources += profiles/scanparam/scan.c
@@ -84,6 +105,7 @@ builtin_modules += deviceinfo
 builtin_sources += profiles/deviceinfo/deviceinfo.c
 
 if EXPERIMENTAL
+if TIZEN_UNUSED_PLUGIN
 builtin_modules += alert
 builtin_sources += profiles/alert/server.c
 
@@ -111,6 +133,7 @@ builtin_sources += profiles/heartrate/heartrate.c
 builtin_modules += cyclingspeed
 builtin_sources += profiles/cyclingspeed/cyclingspeed.c
 endif
+endif
 
 if SIXAXIS
 plugin_LTLIBRARIES += plugins/sixaxis.la
@@ -118,12 +141,4 @@ plugins_sixaxis_la_SOURCES = plugins/sixaxis.c
 plugins_sixaxis_la_LDFLAGS = $(AM_LDFLAGS) -module -avoid-version \
 						-no-undefined @UDEV_LIBS@
 plugins_sixaxis_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden @UDEV_CFLAGS@
-endif
-
-if SERVICE
-plugin_LTLIBRARIES += plugins/service.la
-plugins_service_la_SOURCES = plugins/service.c
-plugins_service_la_LDFLAGS = $(AM_LDFLAGS) -module -avoid-version \
-								-no-undefined
-plugins_service_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden
 endif

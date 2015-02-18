@@ -279,6 +279,13 @@ int messages_get_message(void *session, const char *handle,
 
 typedef void (*messages_push_message_cb)(void *session, int err, guint64 handle,
 							void *user_data);
+int messages_push_message(void *session, const char *folder,
+					uint8_t transparent, uint8_t retry,
+					uint8_t charset,
+					messages_push_message_cb callback,
+					void *user_data);
+int messages_push_message_data(void *session, const char *bmsg,
+					void *user_data);
 #else
 #define MESSAGES_ATTACHMENT	(1 << 0)
 #define MESSAGES_UTF8		(1 << 1)

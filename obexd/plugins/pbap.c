@@ -65,6 +65,10 @@
 #define PHONEBOOKSIZE_TAG	0X08
 #define NEWMISSEDCALLS_TAG	0X09
 
+#ifdef __TIZEN_PATCH__
+#define PBAP_MAXLISTCOUNT_MAX_VALUE 65535
+#endif /* __TIZEN_PATCH__ */
+
 struct cache {
 	gboolean valid;
 	uint32_t index;
@@ -195,8 +199,11 @@ static void phonebook_size_result(const char *buffer, size_t bufsize,
 
 	pbap->obj->apparam = g_obex_apparam_set_uint16(NULL, PHONEBOOKSIZE_TAG,
 								phonebooksize);
-
+#ifndef __TIZEN_PATCH__
 	if (missed > 0)	{
+#else
+	if (pbap->params->required_missedcall_call_header == TRUE) {
+#endif /* __TIZEN_PATCH__ */
 		DBG("missed %d", missed);
 
 		pbap->obj->apparam = g_obex_apparam_set_uint16(
@@ -232,8 +239,11 @@ static void query_result(const char *buffer, size_t bufsize, int vcards,
 	else
 		pbap->obj->buffer = g_string_append_len(pbap->obj->buffer,
 							buffer,	bufsize);
-
+#ifndef __TIZEN_PATCH__
 	if (missed > 0)	{
+#else
+	if (pbap->params->required_missedcall_call_header == TRUE) {
+#endif /* _TIZEN_PATCH__ */
 		DBG("missed %d", missed);
 
 		pbap->obj->firstpacket = TRUE;
@@ -374,9 +384,27 @@ static int generate_response(void *user_data)
 							pbap->obj->apparam,
 							PHONEBOOKSIZE_TAG,
 							size);
+#ifdef __TIZEN_PATCH__
+		if (pbap->params->required_missedcall_call_header == TRUE) {
+				//DBG("missed %d", missed);
+				pbap->obj->apparam = g_obex_apparam_set_uint16(
+									pbap->obj->apparam,
+									NEWMISSEDCALLS_TAG,
+									pbap->params->new_missed_calls);
+			}
+#endif /* __TIZEN_PATCH__ */
 
 		return 0;
 	}
+#ifdef __TIZEN_PATCH__
+	if (pbap->params->required_missedcall_call_header == TRUE) {
+		pbap->obj->firstpacket = TRUE;
+		pbap->obj->apparam = g_obex_apparam_set_uint16(
+							pbap->obj->apparam,
+							NEWMISSEDCALLS_TAG,
+							pbap->params->new_missed_calls);
+	}
+#endif /* __TIZEN_PATCH__ */
 
 	/*
 	 * Don't free the sorted list content: this list contains
@@ -407,12 +435,18 @@ static int generate_response(void *user_data)
 	return 0;
 }
 
+#ifndef __TIZEN_PATCH__
 static void cache_ready_notify(void *user_data)
+#else
+static void cache_ready_notify(void *user_data, unsigned int new_missed_call)
+#endif /* __TIZEN_PATCH__ */
 {
 	struct pbap_session *pbap = user_data;
 
 	DBG("");
-
+#ifdef __TIZEN_PATCH__
+	pbap->params->new_missed_calls = new_missed_call;
+#endif /* __TIZEN_PATCH__ */
 	phonebook_req_finalize(pbap->obj->request);
 	pbap->obj->request = NULL;
 
@@ -426,7 +460,7 @@ static void cache_entry_done(void *user_data)
 {
 	struct pbap_session *pbap = user_data;
 	const char *id;
-	int ret = 0;
+	int ret;
 
 	DBG("");
 
@@ -464,6 +498,9 @@ static struct apparam_field *parse_aparam(const uint8_t *buffer, uint32_t hlen)
 {
 	GObexApparam *apparam;
 	struct apparam_field *param;
+#ifdef __TIZEN_PATCH__
+	gboolean bmaxlistCount = FALSE;
+#endif /* __TIZEN_PATCH__ */
 
 	apparam = g_obex_apparam_decode(buffer, hlen);
 	if (apparam == NULL)
@@ -471,16 +508,36 @@ static struct apparam_field *parse_aparam(const uint8_t *buffer, uint32_t hlen)
 
 	param = g_new0(struct apparam_field, 1);
 
+	/*
+	 * As per spec when client doesn't include MAXLISTCOUNT_TAG then it
+	 * should be assume as Maximum value in vcardlisting 65535
+	 */
+	param->maxlistcount = UINT16_MAX;
+
 	g_obex_apparam_get_uint8(apparam, ORDER_TAG, &param->order);
 	g_obex_apparam_get_uint8(apparam, SEARCHATTRIB_TAG,
 						&param->searchattrib);
 	g_obex_apparam_get_uint8(apparam, FORMAT_TAG, &param->format);
+#ifdef __TIZEN_PATCH__
+	bmaxlistCount = g_obex_apparam_get_uint16(apparam, MAXLISTCOUNT_TAG,
+						&param->maxlistcount);
+#else
 	g_obex_apparam_get_uint16(apparam, MAXLISTCOUNT_TAG,
 						&param->maxlistcount);
+#endif /* __TIZEN_PATCH__ */
 	g_obex_apparam_get_uint16(apparam, LISTSTARTOFFSET_TAG,
 						&param->liststartoffset);
 	g_obex_apparam_get_uint64(apparam, FILTER_TAG, &param->filter);
 	param->searchval = g_obex_apparam_get_string(apparam, SEARCHVALUE_TAG);
+
+#ifdef __TIZEN_PATCH__
+	if(bmaxlistCount == FALSE) {
+		param->maxlistcount = PBAP_MAXLISTCOUNT_MAX_VALUE;
+	}
+	else {
+		/* Keep the MaxlistCount value as send in request from client */
+	}
+#endif /* __TIZEN_PATCH__ */
 
 	DBG("o %x sa %x sv %s fil %" G_GINT64_MODIFIER "x for %x max %x off %x",
 			param->order, param->searchattrib, param->searchval,
@@ -503,9 +560,14 @@ static void *pbap_connect(struct obex_session *os, int *err)
 	pbap->find_handle = PHONEBOOK_INVALID_HANDLE;
 
 #ifdef __TIZEN_PATCH__
-	*err = phonebook_connect(&pbap->backend_data);
-	if (*err < 0)
-                goto failed;
+	int error;
+
+	error = phonebook_connect(&pbap->backend_data);
+	if (error < 0) {
+		if (err)
+			*err = error;
+		goto failed;
+	}
 #endif
 
 	if (err)
@@ -700,6 +762,13 @@ static void *vobject_pull_open(const char *name, int oflag, mode_t mode,
 		ret = -EBADR;
 		goto fail;
 	}
+#ifdef __TIZEN_PATCH__
+	if (strcmp(name, "/telecom/mch.vcf") == 0)
+	                pbap->params->required_missedcall_call_header = TRUE;
+
+	DBG("[%s] - required_missedcall_call_header [%d] ",
+	                name,pbap->params->required_missedcall_call_header);
+#endif /* __TIZEN_PATCH__ */
 
 	if (pbap->params->maxlistcount == 0)
 		cb = phonebook_size_result;
@@ -756,7 +825,7 @@ static void *vobject_list_open(const char *name, int oflag, mode_t mode,
 {
 	struct pbap_session *pbap = context;
 	struct pbap_object *obj = NULL;
-	int ret = 0;
+	int ret;
 	void *request;
 
 	DBG("name %s context %p valid %d", name, context, pbap->cache.valid);
@@ -770,6 +839,14 @@ static void *vobject_list_open(const char *name, int oflag, mode_t mode,
 		ret = -EBADR;
 		goto fail;
 	}
+
+#ifdef __TIZEN_PATCH__
+	if (strcmp(name, "/telecom/mch") == 0)
+		pbap->params->required_missedcall_call_header = TRUE;
+
+	DBG("[%s] - required_missedcall_call_header [%d] ",
+			name,pbap->params->required_missedcall_call_header);
+#endif /* __TIZEN_PATCH__ */
 
 	/* PullvCardListing always get the contacts from the cache */
 
@@ -810,7 +887,11 @@ static void *vobject_vcard_open(const char *name, int oflag, mode_t mode,
 	struct pbap_session *pbap = context;
 	const char *id;
 	uint32_t handle;
+#ifdef __TIZEN_PATCH__
 	int ret = 0;
+#else
+	int ret;
+#endif
 	void *request;
 
 	DBG("name %s context %p valid %d", name, context, pbap->cache.valid);
@@ -827,8 +908,14 @@ static void *vobject_vcard_open(const char *name, int oflag, mode_t mode,
 
 	if (pbap->cache.valid == FALSE) {
 		pbap->find_handle = handle;
+#ifdef __TIZEN_PATCH__
+		request = phonebook_create_cache(pbap->folder,
+			(phonebook_entry_cb)cache_entry_notify,
+			(phonebook_cache_ready_cb)cache_entry_done, pbap, &ret);
+#else
 		request = phonebook_create_cache(pbap->folder,
 			cache_entry_notify, cache_entry_done, pbap, &ret);
+#endif
 #ifdef __TIZEN_PATCH__
 		phonebook_set_cache_notification(pbap->backend_data,
 						cache_clear_notify, pbap);
@@ -841,6 +928,8 @@ static void *vobject_vcard_open(const char *name, int oflag, mode_t mode,
 		ret = -ENOENT;
 		goto fail;
 	}
+	DBG("pbap session: Folder[%s] Filter[%llu] Format[%d] ret[%d]",
+		pbap->folder, pbap->params->filter, pbap->params->format, ret);
 
 	request = phonebook_get_entry(pbap->folder, id, pbap->params,
 						query_result, pbap, &ret);
@@ -852,12 +941,14 @@ done:
 	if (err)
 		*err = 0;
 
+	DBG("-");
 	return vobject_create(pbap, request);
 
 fail:
 	if (err)
 		*err = ret;
 
+	DBG("-");
 	return NULL;
 }
 
@@ -924,11 +1015,17 @@ static ssize_t vobject_list_get_next_header(void *object, void *buf, size_t mtu,
 		return -EAGAIN;
 
 	*hi = G_OBEX_HDR_APPARAM;
-
+#ifndef __TIZEN_PATCH__
 	if (pbap->params->maxlistcount == 0)
 		return g_obex_apparam_encode(obj->apparam, buf, mtu);
 
 	return 0;
+#else
+	if (obj->apparam != NULL)
+		return g_obex_apparam_encode(obj->apparam, buf, mtu);
+	else
+		return 0;
+#endif /* __TIZEN_PATCH__ */
 }
 
 static ssize_t vobject_list_read(void *object, void *buf, size_t count)

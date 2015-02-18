@@ -42,7 +42,7 @@
 
 #include "src/shared/tester.h"
 #include "src/shared/mgmt.h"
-#include "src/shared/hciemu.h"
+#include "emulator/hciemu.h"
 
 #include "hal-msg.h"
 #include "ipc-common.h"
@@ -81,7 +81,7 @@ struct regmod_msg {
 #define CONNECT_TIMEOUT (5 * 1000)
 #define SERVICE_NAME "bluetoothd"
 
-static char exec_dir[PATH_MAX + 1];
+static char exec_dir[PATH_MAX];
 
 static int cmd_sk = -1;
 static int notif_sk = -1;
@@ -218,7 +218,7 @@ static void test_post_teardown(const void *data)
 
 static void bluetoothd_start(int hci_index)
 {
-	char prg_name[PATH_MAX + 1];
+	char prg_name[PATH_MAX];
 	char index[8];
 	char *prg_argv[4];
 
@@ -275,11 +275,12 @@ static void emulator(int pipe, int hci_index)
 
 	close(pipe);
 	close(fd);
-	bluetoothd_start(hci_index);
+	return bluetoothd_start(hci_index);
 
 failed:
 	close(pipe);
-	close(fd);
+	if (fd >= 0)
+		close(fd);
 }
 
 static int accept_connection(int sk)
@@ -426,6 +427,8 @@ static bool setup_module(int service_id)
 			},
 		.cmd = {
 			.service_id = service_id,
+			.mode = HAL_MODE_DEFAULT,
+			.max_clients = 1,
 			},
 	};
 
@@ -600,7 +603,7 @@ struct vardata {
 				_servicelist);				\
 	} while (0)
 
-struct regmod_msg register_bt_msg = {
+static struct regmod_msg register_bt_msg = {
 	.header = {
 		.service_id = HAL_SERVICE_ID_CORE,
 		.opcode = HAL_OP_REGISTER_MODULE,
@@ -611,7 +614,7 @@ struct regmod_msg register_bt_msg = {
 		},
 };
 
-struct regmod_msg register_bt_malformed_size_msg = {
+static struct regmod_msg register_bt_malformed_size_msg = {
 	.header = {
 		.service_id = HAL_SERVICE_ID_CORE,
 		.opcode = HAL_OP_REGISTER_MODULE,
@@ -644,13 +647,13 @@ static struct malformed_data3_struct malformed_data3_msg = {
 	. redundant_data = 666,
 };
 
-struct ipc_hdr enable_unknown_service_hdr = {
+static struct ipc_hdr enable_unknown_service_hdr = {
 	.service_id = HAL_SERVICE_ID_MAX + 1,
 	.opcode = HAL_OP_REGISTER_MODULE,
 	.len = 0,
 };
 
-struct ipc_hdr enable_bt_service_hdr = {
+static struct ipc_hdr enable_bt_service_hdr = {
 	.service_id = HAL_SERVICE_ID_BLUETOOTH,
 	.opcode = HAL_OP_ENABLE,
 	.len = 0,
@@ -670,8 +673,7 @@ struct bt_set_adapter_prop_data {
 static struct bt_set_adapter_prop_data bt_set_adapter_prop_data_overs = {
 	.hdr.service_id = HAL_SERVICE_ID_BLUETOOTH,
 	.hdr.opcode = HAL_OP_SET_ADAPTER_PROP,
-	.hdr.len = sizeof(struct hal_cmd_set_adapter_prop) +
-						sizeof(set_name),
+	.hdr.len = sizeof(struct hal_cmd_set_adapter_prop) + sizeof(set_name),
 
 	.prop.type = HAL_PROP_ADAPTER_NAME,
 	/* declare wrong descriptor length */
@@ -683,8 +685,7 @@ static struct bt_set_adapter_prop_data bt_set_adapter_prop_data_overs = {
 static struct bt_set_adapter_prop_data bt_set_adapter_prop_data_unders = {
 	.hdr.service_id = HAL_SERVICE_ID_BLUETOOTH,
 	.hdr.opcode = HAL_OP_SET_ADAPTER_PROP,
-	.hdr.len = sizeof(struct hal_cmd_set_adapter_prop) +
-						sizeof(set_name),
+	.hdr.len = sizeof(struct hal_cmd_set_adapter_prop) + sizeof(set_name),
 
 	.prop.type = HAL_PROP_ADAPTER_NAME,
 	/* declare wrong descriptor length */
@@ -706,7 +707,7 @@ static struct bt_set_remote_prop_data bt_set_remote_prop_data_overs = {
 	.hdr.service_id = HAL_SERVICE_ID_BLUETOOTH,
 	.hdr.opcode = HAL_OP_SET_REMOTE_DEVICE_PROP,
 	.hdr.len = sizeof(struct hal_cmd_set_remote_device_prop) +
-						sizeof(set_name),
+							sizeof(set_name),
 
 	.prop.bdaddr = {},
 	.prop.type = HAL_PROP_DEVICE_NAME,
@@ -833,6 +834,34 @@ static struct hidhost_send_data_data hidhost_send_data_unders = {
 	.buf = send_data_data,
 };
 
+#define hfp_number "#1234567890"
+
+struct hfp_dial_data {
+	struct ipc_hdr hdr;
+	struct hal_cmd_hf_client_dial data;
+
+	uint8_t buf[IPC_MTU - sizeof(struct ipc_hdr) -
+				sizeof(struct hal_cmd_hf_client_dial)];
+} __attribute__((packed));
+
+static struct hfp_dial_data hfp_dial_overs = {
+	.hdr.service_id = HAL_SERVICE_ID_HANDSFREE_CLIENT,
+	.hdr.opcode = HAL_OP_HF_CLIENT_DIAL,
+	.hdr.len = sizeof(struct hal_cmd_hf_client_dial) + sizeof(hfp_number),
+
+	.data.number_len = sizeof(hfp_number) + 1,
+	.buf = hfp_number,
+};
+
+static struct hfp_dial_data hfp_dial_unders = {
+	.hdr.service_id = HAL_SERVICE_ID_HANDSFREE_CLIENT,
+	.hdr.opcode = HAL_OP_HF_CLIENT_DIAL,
+	.hdr.len = sizeof(struct hal_cmd_hf_client_dial) + sizeof(hfp_number),
+
+	.data.number_len = sizeof(hfp_number) - 1,
+	.buf = hfp_number,
+};
+
 int main(int argc, char *argv[])
 {
 	snprintf(exec_dir, sizeof(exec_dir), "%s", dirname(argv[0]));
@@ -888,8 +917,30 @@ int main(int argc, char *argv[])
 	test_opcode_valid("PAN", HAL_SERVICE_ID_PAN, 0x05, 0,
 			HAL_SERVICE_ID_BLUETOOTH, HAL_SERVICE_ID_PAN);
 
+	test_opcode_valid("HANDSFREE", HAL_SERVICE_ID_HANDSFREE, 0x10, 0,
+						HAL_SERVICE_ID_BLUETOOTH,
+						HAL_SERVICE_ID_HANDSFREE);
+
 	test_opcode_valid("A2DP", HAL_SERVICE_ID_A2DP, 0x03, 0,
 			HAL_SERVICE_ID_BLUETOOTH, HAL_SERVICE_ID_A2DP);
+
+	test_opcode_valid("HEALTH", HAL_SERVICE_ID_HEALTH, 0x06, 0,
+						HAL_SERVICE_ID_BLUETOOTH,
+						HAL_SERVICE_ID_HEALTH);
+
+	test_opcode_valid("AVRCP", HAL_SERVICE_ID_AVRCP, 0x0b, 0,
+				HAL_SERVICE_ID_BLUETOOTH, HAL_SERVICE_ID_AVRCP);
+
+	test_opcode_valid("GATT", HAL_SERVICE_ID_GATT, 0x24, 0,
+				HAL_SERVICE_ID_BLUETOOTH, HAL_SERVICE_ID_GATT);
+
+	test_opcode_valid("HF_CLIENT", HAL_SERVICE_ID_HANDSFREE_CLIENT, 0x10, 0,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+
+	test_opcode_valid("MAP_CLIENT", HAL_SERVICE_ID_MAP_CLIENT, 0x01, 0,
+						HAL_SERVICE_ID_BLUETOOTH,
+						HAL_SERVICE_ID_MAP_CLIENT);
 
 	/* check for valid data size */
 	test_datasize_valid("CORE Register+", HAL_SERVICE_ID_CORE,
@@ -1256,6 +1307,206 @@ int main(int argc, char *argv[])
 			HAL_OP_A2DP_DISCONNECT,
 			sizeof(struct hal_cmd_a2dp_disconnect), -1,
 			HAL_SERVICE_ID_BLUETOOTH, HAL_SERVICE_ID_A2DP);
+
+	/* Check for valid data size for Handsfree Client */
+	test_datasize_valid("HF_CLIENT Connect+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_CONNECT,
+			sizeof(struct hal_cmd_hf_client_connect), 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Connect-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_CONNECT,
+			sizeof(struct hal_cmd_hf_client_connect), -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Disconnect+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_DISCONNECT,
+			sizeof(struct hal_cmd_hf_client_disconnect), 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Disconnect-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_DISCONNECT,
+			sizeof(struct hal_cmd_hf_client_disconnect), -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Connect Audio+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_CONNECT_AUDIO,
+			sizeof(struct hal_cmd_hf_client_connect_audio), 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Connect Audio-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_CONNECT_AUDIO,
+			sizeof(struct hal_cmd_hf_client_connect_audio), -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Disconnect Audio+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_DISCONNECT_AUDIO,
+			sizeof(struct hal_cmd_hf_client_disconnect_audio), 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Disconnect Audio-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_DISCONNECT_AUDIO,
+			sizeof(struct hal_cmd_hf_client_disconnect_audio), -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Start VR+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_START_VR,
+			0, 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Start VR-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_START_VR,
+			0, -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Stop VR+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_STOP_VR,
+			0, 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Stop VR-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_STOP_VR,
+			0, -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Vol Contr.+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_VOLUME_CONTROL,
+			sizeof(struct hal_cmd_hf_client_volume_control), 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Vol Contr.-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_VOLUME_CONTROL,
+			sizeof(struct hal_cmd_hf_client_volume_control), -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_generic("Data size HF_CLIENT Dial Vardata+",
+			ipc_send_tc, setup, teardown,
+			&hfp_dial_overs,
+			(sizeof(struct ipc_hdr) +
+				sizeof(struct hal_cmd_hf_client_dial) +
+				sizeof(hfp_number)),
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_generic("Data size HF_CLIENT Dial Vardata-",
+			ipc_send_tc, setup, teardown,
+			&hfp_dial_unders,
+			(sizeof(struct ipc_hdr) +
+				sizeof(struct hal_cmd_hf_client_dial) +
+				sizeof(hfp_number)),
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Dial Memory+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_DIAL_MEMORY,
+			sizeof(struct hal_cmd_hf_client_dial_memory), 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Dial Memory-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_DIAL_MEMORY,
+			sizeof(struct hal_cmd_hf_client_dial_memory), -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Call Action+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_CALL_ACTION,
+			sizeof(struct hal_cmd_hf_client_call_action), 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Call Action-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_CALL_ACTION,
+			sizeof(struct hal_cmd_hf_client_call_action), -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Query Current Calls+",
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_OP_HF_CLIENT_QUERY_CURRENT_CALLS,
+			0, 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Query Current Calls-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_QUERY_CURRENT_CALLS,
+			0, -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Query Operator Name+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_QUERY_OPERATOR_NAME,
+			0, 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Query Operator Name-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_QUERY_OPERATOR_NAME,
+			0, -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Retrieve Subscrb. Info+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_RETRIEVE_SUBSCR_INFO,
+			0, 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Retrieve Subscrb. Info-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_RETRIEVE_SUBSCR_INFO,
+			0, -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Send DTMF+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_SEND_DTMF,
+			sizeof(struct hal_cmd_hf_client_send_dtmf), 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Send DTMF-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_SEND_DTMF,
+			sizeof(struct hal_cmd_hf_client_send_dtmf), -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Get Last Voice Tag+",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_GET_LAST_VOICE_TAG_NUM,
+			0, 1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+	test_datasize_valid("HF_CLIENT Get Last Voice Tag-",
+			HAL_SERVICE_ID_HANDSFREE_CLIENT,
+			HAL_OP_HF_CLIENT_GET_LAST_VOICE_TAG_NUM,
+			0, -1,
+			HAL_SERVICE_ID_BLUETOOTH,
+			HAL_SERVICE_ID_HANDSFREE_CLIENT);
+
+	/* check for valid data size for MAP CLIENT */
+	test_datasize_valid("MAP CLIENT Get instances+",
+				HAL_SERVICE_ID_MAP_CLIENT,
+				HAL_OP_MAP_CLIENT_GET_INSTANCES,
+				sizeof(struct hal_cmd_map_client_get_instances),
+				1, HAL_SERVICE_ID_BLUETOOTH,
+				HAL_SERVICE_ID_MAP_CLIENT);
+	test_datasize_valid("MAP CLIENT Get instances-",
+				HAL_SERVICE_ID_MAP_CLIENT,
+				HAL_OP_MAP_CLIENT_GET_INSTANCES,
+				sizeof(struct hal_cmd_map_client_get_instances),
+				-1, HAL_SERVICE_ID_BLUETOOTH,
+				HAL_SERVICE_ID_MAP_CLIENT);
 
 	return tester_run();
 }

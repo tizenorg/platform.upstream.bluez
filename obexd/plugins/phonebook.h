@@ -37,6 +37,8 @@
 #define PB_CALLS_INCOMING_FOLDER "/telecom/ich"
 #define PB_CALLS_MISSED_FOLDER "/telecom/mch"
 #define PB_CALLS_OUTGOING_FOLDER "/telecom/och"
+#define PB_CALLS_SPEEDDIAL_FOLDER "/telecom/spd"
+#define PB_CALLS_FAVORITE_FOLDER "/telecom/fav"
 #define PB_LUID_FOLDER "/telecom/pb/luid"
 
 #define PB_CONTACTS "/telecom/pb.vcf"
@@ -44,6 +46,8 @@
 #define PB_CALLS_INCOMING "/telecom/ich.vcf"
 #define PB_CALLS_MISSED "/telecom/mch.vcf"
 #define PB_CALLS_OUTGOING "/telecom/och.vcf"
+#define PB_CALLS_SPEEDDIAL "/telecom/spd.vcf"
+#define PB_CALLS_FAVORITE "/telecom/fav.vcf"
 #define PB_DEVINFO "/telecom/devinfo.txt"
 #define PB_INFO_LOG "/telecom/pb/info.log"
 #define PB_CC_LOG "/telecom/pb/luid/cc.log"
@@ -62,6 +66,10 @@ struct apparam_field {
 	uint8_t order;
 	uint8_t searchattrib;
 	char *searchval;
+#ifdef __TIZEN_PATCH__
+	gboolean required_missedcall_call_header;
+	uint16_t new_missed_calls;
+#endif /* __TIZEN_PATCH__ */
 };
 
 /*
@@ -89,7 +97,11 @@ typedef void (*phonebook_cache_clear_cb) (void *user_data);
  * After notify all entries to PBAP core, the backend
  * needs to notify that the operation has finished.
  */
+#ifndef __TIZEN_PATCH__
 typedef void (*phonebook_cache_ready_cb) (void *user_data);
+#else
+typedef void (*phonebook_cache_ready_cb) (void *user_data, unsigned int new_missed_calls);
+#endif /* __TIZEN_PATCH__ */
 
 
 int phonebook_init(void);

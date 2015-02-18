@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "hal-utils.h"
 #include "hal-log.h"
 #include "hal.h"
 #include "hal-msg.h"
@@ -33,7 +34,7 @@ static bool interface_ready(void)
 	return cbs != NULL;
 }
 
-static void handle_remote_features(void *buf, uint16_t len)
+static void handle_remote_features(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_avrcp_remote_features *ev = buf;
 
@@ -42,19 +43,19 @@ static void handle_remote_features(void *buf, uint16_t len)
 								ev->features);
 }
 
-static void handle_get_play_status(void *buf, uint16_t len)
+static void handle_get_play_status(void *buf, uint16_t len, int fd)
 {
 	if (cbs->get_play_status_cb)
 		cbs->get_play_status_cb();
 }
 
-static void handle_list_player_attrs(void *buf, uint16_t len)
+static void handle_list_player_attrs(void *buf, uint16_t len, int fd)
 {
 	if (cbs->list_player_app_attr_cb)
 		cbs->list_player_app_attr_cb();
 }
 
-static void handle_list_player_values(void *buf, uint16_t len)
+static void handle_list_player_values(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_avrcp_list_player_values *ev = buf;
 
@@ -62,7 +63,7 @@ static void handle_list_player_values(void *buf, uint16_t len)
 		cbs->list_player_app_values_cb(ev->attr);
 }
 
-static void handle_get_player_values(void *buf, uint16_t len)
+static void handle_get_player_values(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_avrcp_get_player_values *ev = buf;
 	btrc_player_attr_t attrs[4];
@@ -78,7 +79,7 @@ static void handle_get_player_values(void *buf, uint16_t len)
 	cbs->get_player_app_value_cb(ev->number, attrs);
 }
 
-static void handle_get_player_attrs_text(void *buf, uint16_t len)
+static void handle_get_player_attrs_text(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_avrcp_get_player_attrs_text *ev = buf;
 	btrc_player_attr_t attrs[4];
@@ -94,7 +95,7 @@ static void handle_get_player_attrs_text(void *buf, uint16_t len)
 	cbs->get_player_app_attrs_text_cb(ev->number, attrs);
 }
 
-static void handle_get_player_values_text(void *buf, uint16_t len)
+static void handle_get_player_values_text(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_avrcp_get_player_values_text *ev = buf;
 
@@ -103,7 +104,7 @@ static void handle_get_player_values_text(void *buf, uint16_t len)
 								ev->values);
 }
 
-static void handle_set_player_value(void *buf, uint16_t len)
+static void handle_set_player_value(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_avrcp_set_player_values *ev = buf;
 	struct hal_avrcp_player_attr_value *attrs;
@@ -125,7 +126,7 @@ static void handle_set_player_value(void *buf, uint16_t len)
 	cbs->set_player_app_value_cb(&values);
 }
 
-static void handle_get_element_attrs(void *buf, uint16_t len)
+static void handle_get_element_attrs(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_avrcp_get_element_attrs *ev = buf;
 	btrc_media_attr_t attrs[BTRC_MAX_APP_SETTINGS];
@@ -141,7 +142,7 @@ static void handle_get_element_attrs(void *buf, uint16_t len)
 	cbs->get_element_attr_cb(ev->number, attrs);
 }
 
-static void handle_register_notification(void *buf, uint16_t len)
+static void handle_register_notification(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_avrcp_register_notification *ev = buf;
 
@@ -149,7 +150,7 @@ static void handle_register_notification(void *buf, uint16_t len)
 		cbs->register_notification_cb(ev->event, ev->param);
 }
 
-static void handle_volume_changed(void *buf, uint16_t len)
+static void handle_volume_changed(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_avrcp_volume_changed *ev = buf;
 
@@ -157,7 +158,7 @@ static void handle_volume_changed(void *buf, uint16_t len)
 		cbs->volume_change_cb(ev->volume, ev->type);
 }
 
-static void handle_passthrough_cmd(void *buf, uint16_t len)
+static void handle_passthrough_cmd(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_avrcp_passthrough_cmd *ev = buf;
 
@@ -223,9 +224,10 @@ static bt_status_t init(btrc_callbacks_t *callbacks)
 
 	cmd.service_id = HAL_SERVICE_ID_AVRCP;
 	cmd.mode = HAL_MODE_DEFAULT;
+	cmd.max_clients = 1;
 
 	ret = hal_ipc_cmd(HAL_SERVICE_ID_CORE, HAL_OP_REGISTER_MODULE,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 
 	if (ret != BT_STATUS_SUCCESS) {
 		cbs = NULL;
@@ -250,7 +252,7 @@ static bt_status_t get_play_status_rsp(btrc_play_status_t status,
 	cmd.position = song_pos;
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP, HAL_OP_AVRCP_GET_PLAY_STATUS,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t list_player_app_attr_rsp(int num_attr,
@@ -277,7 +279,7 @@ static bt_status_t list_player_app_attr_rsp(int num_attr,
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_LIST_PLAYER_ATTRS,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t list_player_app_value_rsp(int num_val, uint8_t *p_vals)
@@ -304,7 +306,7 @@ static bt_status_t list_player_app_value_rsp(int num_val, uint8_t *p_vals)
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_LIST_PLAYER_VALUES,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t get_player_app_value_rsp(btrc_player_settings_t *p_vals)
@@ -338,7 +340,7 @@ static bt_status_t get_player_app_value_rsp(btrc_player_settings_t *p_vals)
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_GET_PLAYER_ATTRS,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static int write_text(uint8_t *ptr, uint8_t id, uint8_t *text, size_t *len)
@@ -405,7 +407,7 @@ static bt_status_t get_player_app_attr_text_rsp(int num_attr,
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_GET_PLAYER_ATTRS_TEXT,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t get_player_app_value_text_rsp(int num_val,
@@ -430,7 +432,7 @@ static bt_status_t get_player_app_value_text_rsp(int num_val,
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_GET_PLAYER_VALUES_TEXT,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static uint8_t write_element_attr_text(uint8_t *ptr, uint8_t num_attr,
@@ -471,7 +473,7 @@ static bt_status_t get_element_attr_rsp(uint8_t num_attr,
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_GET_ELEMENT_ATTRS_TEXT,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t set_player_app_value_rsp(btrc_status_t rsp_status)
@@ -487,7 +489,7 @@ static bt_status_t set_player_app_value_rsp(btrc_status_t rsp_status)
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_SET_PLAYER_ATTRS_VALUE,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t play_status_changed_rsp(btrc_notification_type_t type,
@@ -506,7 +508,7 @@ static bt_status_t play_status_changed_rsp(btrc_notification_type_t type,
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_REGISTER_NOTIFICATION,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t track_change_rsp(btrc_notification_type_t type,
@@ -525,7 +527,7 @@ static bt_status_t track_change_rsp(btrc_notification_type_t type,
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_REGISTER_NOTIFICATION,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t track_reached_end_rsp(btrc_notification_type_t type)
@@ -538,7 +540,7 @@ static bt_status_t track_reached_end_rsp(btrc_notification_type_t type)
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_REGISTER_NOTIFICATION,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t track_reached_start_rsp(btrc_notification_type_t type)
@@ -551,7 +553,7 @@ static bt_status_t track_reached_start_rsp(btrc_notification_type_t type)
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_REGISTER_NOTIFICATION,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t play_pos_changed_rsp(btrc_notification_type_t type,
@@ -570,7 +572,7 @@ static bt_status_t play_pos_changed_rsp(btrc_notification_type_t type,
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_REGISTER_NOTIFICATION,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t settings_changed_rsp(btrc_notification_type_t type,
@@ -600,7 +602,7 @@ static bt_status_t settings_changed_rsp(btrc_notification_type_t type,
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP,
 					HAL_OP_AVRCP_REGISTER_NOTIFICATION,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static bt_status_t register_notification_rsp(btrc_event_id_t event_id,
@@ -642,10 +644,10 @@ static bt_status_t set_volume(uint8_t volume)
 	cmd.value = volume;
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_AVRCP, HAL_OP_AVRCP_SET_VOLUME,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
-static void cleanup()
+static void cleanup(void)
 {
 	struct hal_cmd_unregister_module cmd;
 
@@ -654,14 +656,14 @@ static void cleanup()
 	if (!interface_ready())
 		return;
 
-	cbs = NULL;
-
 	cmd.service_id = HAL_SERVICE_ID_AVRCP;
 
 	hal_ipc_cmd(HAL_SERVICE_ID_CORE, HAL_OP_UNREGISTER_MODULE,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 
 	hal_ipc_unregister(HAL_SERVICE_ID_AVRCP);
+
+	cbs = NULL;
 }
 
 static btrc_interface_t iface = {
@@ -680,7 +682,7 @@ static btrc_interface_t iface = {
 	.cleanup = cleanup
 };
 
-btrc_interface_t *bt_get_avrcp_interface()
+btrc_interface_t *bt_get_avrcp_interface(void)
 {
 	return &iface;
 }

@@ -40,3 +40,12 @@ void attrib_free_sdp(struct btd_adapter *adapter, uint32_t sdp_handle);
 GAttrib *attrib_from_device(struct btd_device *device);
 guint attrib_channel_attach(GAttrib *attrib);
 gboolean attrib_channel_detach(GAttrib *attrib, guint id);
+#ifdef __TIZEN_PATCH__
+struct attribute *attribute_find(struct btd_adapter *adapter, bt_uuid_t *uuid);
+void attrib_send_noty_ind(struct btd_device *device, GAttrib *attrib,
+				uint16_t handle, uint16_t desc_handle,
+				uint8_t *value, size_t vlen);
+uint16_t send_sc_indication(uint16_t handle, uint16_t end_handle, size_t vlen,
+                        uint8_t *pdu, size_t len);
+
+#endif

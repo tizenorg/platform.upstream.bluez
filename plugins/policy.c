@@ -42,7 +42,11 @@
 #include "src/profile.h"
 #include "src/hcid.h"
 
+#ifdef __TIZEN_PATCH__
+#define CONTROL_CONNECT_TIMEOUT 4
+#else
 #define CONTROL_CONNECT_TIMEOUT 2
+#endif
 #define SOURCE_RETRY_TIMEOUT 2
 #define SINK_RETRY_TIMEOUT SOURCE_RETRY_TIMEOUT
 #define SOURCE_RETRIES 1
@@ -87,7 +91,7 @@ static void policy_connect(struct policy_data *data,
 {
 	struct btd_profile *profile = btd_service_get_profile(service);
 
-	DBG("%s profile %s", btd_device_get_path(data->dev), profile->name);
+	DBG("%s profile %s", device_get_path(data->dev), profile->name);
 
 	btd_service_connect(service);
 }
@@ -97,7 +101,7 @@ static void policy_disconnect(struct policy_data *data,
 {
 	struct btd_profile *profile = btd_service_get_profile(service);
 
-	DBG("%s profile %s", btd_device_get_path(data->dev), profile->name);
+	DBG("%s profile %s", device_get_path(data->dev), profile->name);
 
 	btd_service_disconnect(service);
 }
@@ -249,7 +253,15 @@ static void sink_cb(struct btd_service *service, btd_service_state_t old_state,
 		 * immediatelly otherwise set timer
 		 */
 		if (old_state == BTD_SERVICE_STATE_CONNECTING)
+#ifdef __TIZEN_PATCH__
+			/* Set timer as most of the devices initiate
+			 * avrcp connection immediately; irrespective of local
+			 * or remote initiated a2dp connection
+			 */
+			policy_set_ct_timer(data);
+#else
 			policy_connect(data, controller);
+#endif
 		else if (btd_service_get_state(controller) !=
 						BTD_SERVICE_STATE_CONNECTED)
 			policy_set_ct_timer(data);
@@ -633,7 +645,7 @@ static void disconnect_cb(struct btd_device *dev, uint8_t reason)
 		return;
 
 	DBG("Device %s identified for auto-reconnection",
-						btd_device_get_path(dev));
+							device_get_path(dev));
 
 	reconnect->timer = g_timeout_add_seconds(reconnect->timeout,
 							reconnect_timeout,

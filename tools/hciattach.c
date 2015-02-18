@@ -27,6 +27,9 @@
 #include <config.h>
 #endif
 
+#ifndef __TIZEN_PATCH__
+#define _GNU_SOURCE
+#endif
 #include <stdio.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -37,8 +40,8 @@
 #include <syslog.h>
 #include <termios.h>
 #include <time.h>
+#include <poll.h>
 #include <sys/time.h>
-#include <sys/poll.h>
 #include <sys/param.h>
 #include <sys/ioctl.h>
 
@@ -345,7 +348,7 @@ static int intel(int fd, struct uart_t *u, struct termios *ti)
 
 static int bcm43xx(int fd, struct uart_t *u, struct termios *ti)
 {
-	return bcm43xx_init(fd, u->speed, ti, u->bdaddr);
+	return bcm43xx_init(fd, u->init_speed, u->speed, ti, u->bdaddr);
 }
 
 static int read_check(int fd, void *buf, int count)
@@ -1099,7 +1102,6 @@ static int bcm2035(int fd, struct uart_t *u, struct termios *ti)
 struct uart_t uart[] = {
 	{ "any",        0x0000, 0x0000, HCI_UART_H4,   115200, 115200,
 				FLOW_CTL, DISABLE_PM, NULL, NULL     },
-
 	{ "ericsson",   0x0000, 0x0000, HCI_UART_H4,   57600,  115200,
 				FLOW_CTL, DISABLE_PM, NULL, ericsson },
 
@@ -1244,6 +1246,47 @@ static struct uart_t * get_by_type(char *type)
 	return NULL;
 }
 
+#ifdef __BROADCOM_PATCH__
+static int enable_hci(char *dev, struct uart_t *u)
+{
+	int fd, i;
+	unsigned long flags = 0;
+
+	fd = open(dev, O_RDWR | O_NOCTTY);
+	if (fd < 0) {
+		fprintf(stderr, "Can't open serial port");
+		return -1;
+	}
+
+	tcflush(fd, TCIOFLUSH);
+
+	/* Set TTY to N_HCI line discipline */
+	i = N_HCI;
+	if (ioctl(fd, TIOCSETD, &i) < 0) {
+		fprintf(stderr, "Can't set line discipline");
+		close(fd);
+		return -1;
+	}
+
+	if (flags && ioctl(fd, HCIUARTSETFLAGS, flags) < 0) {
+		fprintf(stderr, "Can't set UART flags");
+		close(fd);
+		return -1;
+	}
+
+	tcflush(fd, TCIOFLUSH);
+
+	if (ioctl(fd, HCIUARTSETPROTO, u->proto) < 0) {
+		fprintf(stderr, "Can't set device");
+		close(fd);
+		return -1;
+	}
+
+	return fd;
+}
+
+#else	/* __BROADCOM_PATCH__ */
+
 /* Initialize UART driver */
 static int init_uart(char *dev, struct uart_t *u, int send_break, int raw)
 {
@@ -1342,11 +1385,15 @@ static int init_uart(char *dev, struct uart_t *u, int send_break, int raw)
 		return -1;
 	}
 
+#if 0
 	if (u->post && u->post(fd, u, &ti) < 0)
 		return -1;
+#endif
 
 	return fd;
 }
+
+#endif	/* __BROADCOM_PATCH__ */
 
 static void usage(void)
 {
@@ -1355,9 +1402,16 @@ static void usage(void)
 
 /* __TIZEN_PATCH__ */
 #ifdef __TI_PATCH__
-	printf("\thciattach [-n] [-p] [-b] [-g device_param] [-r] [-f] [-t timeout] [-s initial_speed] <tty> <type | id> [speed] [flow|noflow] [bdaddr]\n");
+/* This commented code was present before bluez 5.25 upgrade
+ * printf("\thciattach [-n] [-p] [-b] [-g device_param] [-r] [-f] [-t timeout] [-s initial_speed] <tty> <type | id> [speed] [flow|noflow] [bdaddr]\n");*/
+	printf("\thciattach [-n] [-p] [-b] [-g device_param] [-r] [-f]"
+			" [-t timeout] [-s initial_speed]"
+			" <tty> <type | id> [speed] [flow|noflow]"
+			" [sleep|nosleep] [bdaddr]\n");
 #else
-	printf("\thciattach [-n] [-p] [-b] [-r] [-t timeout] [-s initial_speed] <tty> <type | id> [speed] [flow|noflow] [bdaddr]\n");
+	printf("\thciattach [-n] [-p] [-b] [-r] [-t timeout] [-s initial_speed]"
+			" <tty> <type | id> [speed] [flow|noflow]"
+			" [sleep|nosleep] [bdaddr]\n");
 #endif
 	printf("\thciattach -l\n");
 }
@@ -1365,10 +1419,16 @@ static void usage(void)
 int main(int argc, char *argv[])
 {
 	struct uart_t *u = NULL;
+#ifndef __BROADCOM_PATCH__
 	int detach, printpid, raw, opt, i, n, ld, err;
+#else
+	int detach, printpid, opt, i, n, ld, err;
+#endif
 	int to = 10;
 	int init_speed = 0;
+#ifndef __BROADCOM_PATCH__
 	int send_break = 0;
+#endif
 	pid_t pid;
 	struct sigaction sa;
 	struct pollfd p;
@@ -1386,7 +1446,9 @@ int main(int argc, char *argv[])
 #endif
 	detach = 1;
 	printpid = 0;
+#ifndef __BROADCOM_PATCH__
 	raw = 0;
+#endif
 #ifdef __TI_PATCH__
 	while ((opt=getopt(argc, argv, "bnprft:g:s:l")) != EOF) {
 #else
@@ -1394,7 +1456,9 @@ int main(int argc, char *argv[])
 #endif
 		switch(opt) {
 		case 'b':
+#ifndef __BROADCOM_PATCH__
 			send_break = 1;
+#endif
 			break;
 
 		case 'n':
@@ -1435,7 +1499,9 @@ int main(int argc, char *argv[])
 			exit(0);
 
 		case 'r':
+#ifndef __BROADCOM_PATCH__
 			raw = 1;
+#endif
 			break;
 
 		default:
@@ -1464,7 +1530,7 @@ int main(int argc, char *argv[])
 			dev[0] = 0;
 			if (!strchr(opt, '/'))
 				strcpy(dev, "/dev/");
-			strncat(dev, opt, PATH_MAX);
+			strcat(dev, opt);
 			break;
 
 		case 1:
@@ -1528,6 +1594,10 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+#ifdef __TIZEN_PATCH__
+//	__hci_attach_log_init();
+#endif
+
 	/* If user specified a initial speed, use that instead of
 	   the hardware's default */
 	if (init_speed)
@@ -1547,8 +1617,11 @@ int main(int argc, char *argv[])
 	/* 10 seconds should be enough for initialization */
 	alarm(to);
 	bcsp_max_retries = to;
-
+#ifdef __BROADCOM_PATCH__
+	n = enable_hci(dev, u);
+#else
 	n = init_uart(dev, u, send_break, raw);
+#endif
 	if (n < 0) {
 		perror("Can't initialize device");
 		exit(1);

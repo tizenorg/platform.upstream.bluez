@@ -38,7 +38,7 @@
 #include <syslog.h>
 #include <signal.h>
 #include <sys/time.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 
@@ -69,8 +69,16 @@ enum {
 	LSENDRECV,
 	CSENDRECV,
 	INFOREQ,
+#ifdef __TIZEN_PATCH__
+	CONFIGREQ,
+#endif
 	PAIRING,
 };
+
+#ifdef __TIZEN_PATCH__
+#define L2CAP_DEFAULT_RETRANS_TO	2000	/* 2 seconds */
+#define L2CAP_DEFAULT_MONITOR_TO	12000	/* 12 seconds */
+#endif
 
 static unsigned char *buf;
 
@@ -95,6 +103,9 @@ static long buffer_size = 2048;
 static bdaddr_t bdaddr;
 static unsigned short psm = 0;
 static unsigned short cid = 0;
+#ifdef __TIZEN_PATCH__
+static uint16_t dcid = 0x0000;
+#endif
 
 /* Default number of frames to send (-1 = infinite) */
 static int num_frames = -1;
@@ -271,7 +282,7 @@ static int getopts(int sk, struct l2cap_options *opts, bool connected)
 
 	memset(opts, 0, sizeof(*opts));
 
-	if (bdaddr_type == BDADDR_BREDR || cid) {
+	if (bdaddr_type == BDADDR_BREDR) {
 		optlen = sizeof(*opts);
 		return getsockopt(sk, SOL_L2CAP, L2CAP_OPTIONS, opts, &optlen);
 	}
@@ -287,7 +298,7 @@ static int getopts(int sk, struct l2cap_options *opts, bool connected)
 
 static int setopts(int sk, struct l2cap_options *opts)
 {
-	if (bdaddr_type == BDADDR_BREDR || cid)
+	if (bdaddr_type == BDADDR_BREDR)
 		return setsockopt(sk, SOL_L2CAP, L2CAP_OPTIONS, opts,
 								sizeof(*opts));
 
@@ -768,8 +779,6 @@ static void do_listen(void (*handler)(int sk))
 		exit(0);
 	}
 
-	return;
-
 error:
 	close(sk);
 	exit(1);
@@ -1089,6 +1098,146 @@ static void multi_connect_mode(int argc, char *argv[])
 	}
 }
 
+#ifdef __TIZEN_PATCH__
+static void l2cap_add_conf_opt(void **ptr, uint8_t type, uint8_t len, unsigned long val)
+{
+	l2cap_conf_opt *opt = *ptr;
+
+	printf("type 0x%2.2x len %u val 0x%lx \n", type, len, val);
+	opt->type = htobs(type);
+	opt->len  = htobs(len);
+
+	switch (opt->len) {
+	case 1:
+		*((uint8_t *) opt->val)	= val;
+		break;
+	case 2:
+		bt_put_le16(val, opt->val);
+		break;
+	case 4:
+		bt_put_le32(val, opt->val);
+		break;
+	default:
+		memcpy(opt->val, (void *) val, len);
+		break;
+	}
+
+	*ptr += L2CAP_CONF_OPT_SIZE + len;
+}
+
+static int l2cap_build_conf_req(void *data)
+{
+	l2cap_conf_req *req = data;
+	l2cap_conf_rfc rfc;
+	void *ptr = req->data;
+
+	req->dcid = htobs(dcid);
+	req->flags = htobs(0x0000);
+
+	switch (rfcmode) {
+	case L2CAP_MODE_BASIC:
+		rfc.mode			= htobs(L2CAP_MODE_BASIC);
+		rfc.txwin_size		= htobs(0);
+		rfc.max_transmit	= htobs(0);
+		rfc.retrans_timeout = htobs(0);
+		rfc.monitor_timeout = htobs(0);
+		rfc.max_pdu_size	= htobs(0);
+
+		l2cap_add_conf_opt(&ptr, L2CAP_CONF_RFC, sizeof(rfc),
+				   (unsigned long) &rfc);
+
+		break;
+
+	case L2CAP_MODE_ERTM:
+		rfc.mode			= htobs(L2CAP_MODE_ERTM);
+		rfc.txwin_size		= htobs(txwin_size);
+		rfc.max_transmit	= htobs(max_transmit);
+		rfc.retrans_timeout = htobs(L2CAP_DEFAULT_RETRANS_TO);
+		rfc.monitor_timeout = htobs(L2CAP_DEFAULT_MONITOR_TO);
+		rfc.max_pdu_size	= htobs(imtu);
+
+		/* TODO: Enable FCS, FOC options if required */
+		l2cap_add_conf_opt(&ptr, L2CAP_CONF_RFC, sizeof(rfc),
+				   (unsigned long) &rfc);
+		break;
+
+	case L2CAP_MODE_STREAMING:
+		rfc.mode			= htobs(L2CAP_MODE_STREAMING);
+		rfc.txwin_size		= htobs(txwin_size);
+		rfc.max_transmit	= htobs(max_transmit);
+		rfc.retrans_timeout = htobs(L2CAP_DEFAULT_RETRANS_TO);
+		rfc.monitor_timeout = htobs(L2CAP_DEFAULT_MONITOR_TO);
+		rfc.max_pdu_size	= htobs(imtu);
+
+		/* TODO: Enable FCS, FOC options if required */
+		l2cap_add_conf_opt(&ptr, L2CAP_CONF_RFC, sizeof(rfc),
+				   (unsigned long) &rfc);
+
+		break;
+	default:
+		return L2CAP_CONF_REQ_SIZE;
+	}
+	return ptr - data;
+}
+
+static void config_request(char *svr)
+{
+	unsigned char buf[48];
+	l2cap_cmd_hdr *cmd = (l2cap_cmd_hdr *) buf;
+	uint8_t *req_buf = (uint8_t *) (buf + L2CAP_CMD_HDR_SIZE);
+#ifndef __TIZEN_PATCH__
+	uint16_t mtu;
+	uint32_t channels, mask = 0x0000;
+#endif
+	struct sockaddr_l2 addr;
+#ifndef __TIZEN_PATCH__
+	int sk, err;
+#else
+	int sk;
+#endif
+	int data_len = 0;
+
+	sk = socket(PF_BLUETOOTH, SOCK_RAW, BTPROTO_L2CAP);
+	if (sk < 0) {
+		perror("Can't create socket");
+		return;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	addr.l2_family = AF_BLUETOOTH;
+	bacpy(&addr.l2_bdaddr, &bdaddr);
+	addr.l2_bdaddr_type = bdaddr_type;
+
+	if (bind(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+		perror("Can't bind socket");
+		goto failed;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+	addr.l2_family = AF_BLUETOOTH;
+	str2ba(svr, &addr.l2_bdaddr);
+	addr.l2_bdaddr_type = bdaddr_type;
+
+	if (connect(sk, (struct sockaddr *) &addr, sizeof(addr)) < 0 ) {
+		perror("Can't connect socket");
+		goto failed;
+	}
+
+	memset(buf, 0, sizeof(buf));
+	cmd->code  = L2CAP_CONF_REQ;
+	cmd->ident = 141;
+	data_len = l2cap_build_conf_req(req_buf);
+	cmd->len = htobs(data_len);
+
+	if (send(sk, buf, L2CAP_CMD_HDR_SIZE + data_len, 0) < 0) {
+		perror("Can't send info request");
+		goto failed;
+	}
+failed:
+	close(sk);
+}
+#endif
+
 static void info_request(char *svr)
 {
 	unsigned char buf[48];
@@ -1300,7 +1449,12 @@ static void usage(void)
 		"\t-c connect, disconnect, connect, ...\n"
 		"\t-m multiple connects\n"
 		"\t-p trigger dedicated bonding\n"
+#ifdef __TIZEN_PATCH__
+		"\t-z information request\n"
+		"\t-o configuration request\n");
+#else
 		"\t-z information request\n");
+#endif
 
 	printf("Options:\n"
 		"\t[-b bytes] [-i device] [-P psm] [-J cid]\n"
@@ -1327,7 +1481,12 @@ static void usage(void)
 		"\t[-S] secure connection\n"
 		"\t[-M] become master\n"
 		"\t[-T] enable timestamps\n"
+#ifdef __TIZEN_PATCH__
+		"\t[-V type] address type (help for list, default = bredr)\n"
+		"\t[-e DCID] destination CID\n");
+#else
 		"\t[-V type] address type (help for list, default = bredr)\n");
+#endif
 }
 
 int main(int argc, char *argv[])
@@ -1337,8 +1496,13 @@ int main(int argc, char *argv[])
 
 	bacpy(&bdaddr, BDADDR_ANY);
 
+#ifdef __TIZEN_PATCH__
+	while ((opt = getopt(argc, argv, "rdscouwmntqxyzpb:a:"
+		"i:P:I:O:J:B:N:L:W:C:D:X:F:Q:Z:Y:H:K:V:e:RUGAESMT")) != EOF) {
+#else
 	while ((opt = getopt(argc, argv, "rdscuwmntqxyzpb:a:"
 		"i:P:I:O:J:B:N:L:W:C:D:X:F:Q:Z:Y:H:K:V:RUGAESMT")) != EOF) {
+#endif
 		switch (opt) {
 		case 'r':
 			mode = RECV;
@@ -1366,6 +1530,13 @@ int main(int argc, char *argv[])
 			mode = RECONNECT;
 			need_addr = 1;
 			break;
+
+#ifdef __TIZEN_PATCH__
+		case 'o':
+			mode = CONFIGREQ;
+			need_addr = 1;
+			break;
+#endif
 
 		case 'n':
 			mode = CONNECT;
@@ -1543,7 +1714,12 @@ int main(int argc, char *argv[])
 			}
 
 			break;
-
+#ifdef __TIZEN_PATCH__
+		case 'e':
+			dcid = atoi(optarg);
+			printf("dcid %d", dcid);
+			break;
+#endif
 		default:
 			usage();
 			exit(1);
@@ -1644,6 +1820,12 @@ int main(int argc, char *argv[])
 		case INFOREQ:
 			info_request(argv[optind]);
 			exit(0);
+
+#ifdef __TIZEN_PATCH__
+		case CONFIGREQ:
+			config_request(argv[optind]);
+			exit(0);
+#endif
 
 		case PAIRING:
 			do_pairing(argv[optind]);

@@ -30,9 +30,8 @@
 #include <glib.h>
 #include <fcntl.h>
 #include <inttypes.h>
-#ifdef TIZEN_PATCH
 #include <sys/time.h>
-#endif
+
 #include <gobex/gobex.h>
 #include <gobex/gobex-apparam.h>
 
@@ -78,6 +77,8 @@ struct mas_session {
 	int notification_status;
 	char *remote_addr;
 	char *response_handle;
+#else
+	uint8_t notification_status;
 #endif
 };
 
@@ -91,8 +92,8 @@ static int get_params(struct obex_session *os, struct mas_session *mas)
 	ssize_t size;
 
 	size = obex_get_apparam(os, &buffer);
-	if (size < 0)
-		size = 0;
+	if (size <= 0)
+		return 0;
 
 	mas->inparams = g_obex_apparam_decode(buffer, size);
 	if (mas->inparams == NULL) {
@@ -254,6 +255,35 @@ static void g_string_append_escaped_printf(GString *string,
 	va_end(ap);
 }
 
+static gchar *get_mse_timestamp(void)
+{
+	struct timeval time_val;
+	struct tm ltime;
+	gchar *local_ts;
+	char sign;
+
+	if (gettimeofday(&time_val, NULL) < 0)
+		return NULL;
+
+	if (!localtime_r(&time_val.tv_sec, &ltime))
+		return NULL;
+
+	if (difftime(mktime(localtime(&time_val.tv_sec)),
+				mktime(gmtime(&time_val.tv_sec))) < 0)
+		sign = '+';
+	else
+		sign = '-';
+
+	local_ts = g_strdup_printf("%04d%02d%02dT%02d%02d%02d%c%2ld%2ld",
+					ltime.tm_year + 1900, ltime.tm_mon + 1,
+					ltime.tm_mday, ltime.tm_hour,
+					ltime.tm_min, ltime.tm_sec, sign,
+					ltime.tm_gmtoff/3600,
+					(ltime.tm_gmtoff%3600)/60);
+
+	return local_ts;
+}
+
 static const char *yesorno(gboolean a)
 {
 	if (a)
@@ -262,24 +292,6 @@ static const char *yesorno(gboolean a)
 	return "no";
 }
 
-#ifdef __TIZEN_PATCH__
-static gchar *get_local_timestamp(void)
-{
-	struct timeval tv;
-	struct tm ltime;
-
-	gettimeofday(&tv, NULL);
-
-	if (!localtime_r(&tv.tv_sec, &ltime))
-		return NULL;
-
-	return g_strdup_printf("%04d%02d%02dT%02d%02d%02d",
-					ltime.tm_year + 1900, ltime.tm_mon + 1,
-					ltime.tm_mday, ltime.tm_hour,
-					ltime.tm_min, ltime.tm_sec);
-}
-#endif
-
 static void get_messages_listing_cb(void *session, int err, uint16_t size,
 					gboolean newmsg,
 					const struct messages_message *entry,
@@ -287,16 +299,16 @@ static void get_messages_listing_cb(void *session, int err, uint16_t size,
 {
 	struct mas_session *mas = user_data;
 	uint16_t max = 1024;
-#ifdef __TIZEN_PATCH__
-	gchar *msetime;
-#endif
+	gchar *mse_time;
 
 	if (err < 0 && err != -EAGAIN) {
 		obex_object_set_io_flags(mas, G_IO_ERR, err);
 		return;
 	}
 
-	g_obex_apparam_get_uint16(mas->inparams, MAP_AP_MAXLISTCOUNT, &max);
+	if (mas->inparams)
+		g_obex_apparam_get_uint16(mas->inparams, MAP_AP_MAXLISTCOUNT,
+									&max);
 
 	if (max == 0) {
 		if (!entry)
@@ -403,14 +415,13 @@ proceed:
 		mas->outparams = g_obex_apparam_set_uint8(mas->outparams,
 						MAP_AP_NEWMESSAGE,
 						newmsg ? 1 : 0);
-#ifdef __TIZEN_PATCH__
-		msetime = get_local_timestamp();
-		if (msetime) {
+		/* Response to report the local time of MSE */
+		mse_time = get_mse_timestamp();
+		if (mse_time) {
 			g_obex_apparam_set_string(mas->outparams,
-						MAP_AP_MSETIME, msetime);
-			g_free(msetime);
+						MAP_AP_MSETIME, mse_time);
+			g_free(mse_time);
 		}
-#endif
 	}
 
 	if (err != -EAGAIN)
@@ -471,7 +482,9 @@ static void get_folder_listing_cb(void *session, int err, uint16_t size,
 		return;
 	}
 
-	g_obex_apparam_get_uint16(mas->inparams, MAP_AP_MAXLISTCOUNT, &max);
+	if (mas->inparams)
+		g_obex_apparam_get_uint16(mas->inparams, MAP_AP_MAXLISTCOUNT,
+									&max);
 
 	if (max == 0) {
 		if (err != -EAGAIN)
@@ -484,13 +497,12 @@ static void get_folder_listing_cb(void *session, int err, uint16_t size,
 			mas->finished = TRUE;
 
 		goto proceed;
-#ifndef __TIZEN_PATCH__
-	}
-#else
+#ifdef __TIZEN_PATCH__
 	} else {
 		mas->ap_sent = TRUE;
-	}
 #endif
+	}
+
 	if (!mas->nth_call) {
 		g_string_append(mas->buffer, XML_DECL);
 		g_string_append(mas->buffer, FL_DTD);
@@ -572,8 +584,12 @@ static void *folder_listing_open(const char *name, int oflag, mode_t mode,
 
 	DBG("name = %s", name);
 
-	g_obex_apparam_get_uint16(mas->inparams, MAP_AP_MAXLISTCOUNT, &max);
-	g_obex_apparam_get_uint16(mas->inparams, MAP_AP_STARTOFFSET, &offset);
+	if (mas->inparams) {
+		g_obex_apparam_get_uint16(mas->inparams, MAP_AP_MAXLISTCOUNT,
+									&max);
+		g_obex_apparam_get_uint16(mas->inparams, MAP_AP_STARTOFFSET,
+								&offset);
+	}
 
 	*err = messages_get_folder_listing(mas->backend_data, name, max,
 					offset, get_folder_listing_cb, mas);
@@ -605,6 +621,9 @@ static void *msg_listing_open(const char *name, int oflag, mode_t mode,
 		return NULL;
 	}
 
+	if (!mas->inparams)
+		goto done;
+
 	g_obex_apparam_get_uint16(mas->inparams, MAP_AP_MAXLISTCOUNT, &max);
 	g_obex_apparam_get_uint16(mas->inparams, MAP_AP_STARTOFFSET, &offset);
 	g_obex_apparam_get_uint8(mas->inparams, MAP_AP_SUBJECTLENGTH,
@@ -627,6 +646,7 @@ static void *msg_listing_open(const char *name, int oflag, mode_t mode,
 	g_obex_apparam_get_uint8(mas->inparams, MAP_AP_FILTERPRIORITY,
 						&filter.priority);
 
+done:
 	*err = messages_get_messages_listing(mas->backend_data, name, max,
 			offset, subject_len, &filter,
 			get_messages_listing_cb, mas);
@@ -804,31 +824,6 @@ static void *message_set_status_open(const char *name, int oflag, mode_t mode,
 }
 
 #ifdef __TIZEN_PATCH__
-static void *notification_registration_open(const char *name, int oflag,
-		mode_t mode, void *driver_data, size_t *size, int *err)
-{
-	struct mas_session *mas = driver_data;
-	uint8_t status;
-
-	if (oflag == O_RDONLY) {
-		*err = -EBADR;
-		return NULL;
-	}
-
-	if (!g_obex_apparam_get_uint8(mas->inparams,
-			MAP_AP_NOTIFICATIONSTATUS, &status)) {
-		*err = -EBADR;
-		return NULL;
-	}
-
-	DBG("status: %d", status);
-
-	mas->notification_status = status;
-	*err = 0;
-	mas->finished = TRUE;
-	return mas;
-}
-
 static int notification_registration_close(void *obj)
 {
 	struct mas_session *mas = obj;
@@ -891,6 +886,9 @@ static ssize_t any_get_next_header(void *object, void *buf, size_t mtu,
 		return 0;
 
 	mas->ap_sent = TRUE;
+	if (!mas->outparams)
+		return 0;
+
 	return g_obex_apparam_encode(mas->outparams, buf, mtu);
 }
 
@@ -938,6 +936,33 @@ static int any_close(void *obj)
 	reset_request(mas);
 
 	return 0;
+}
+
+static void *notification_registration_open(const char *name, int oflag,
+						mode_t mode, void *driver_data,
+						size_t *size, int *err)
+{
+	struct mas_session *mas = driver_data;
+	uint8_t status;
+
+	DBG("");
+
+	if (O_RDONLY) {
+		*err = -EBADR;
+		return NULL;
+	}
+
+	if (!g_obex_apparam_get_uint8(mas->inparams, MAP_AP_NOTIFICATIONSTATUS,
+								&status)) {
+		*err = -EBADR;
+		return NULL;
+	}
+
+	mas->notification_status = status;
+	mas->finished = TRUE;
+	*err = 0;
+
+	return mas;
 }
 
 static struct obex_service_driver mas = {
@@ -1003,11 +1028,10 @@ static struct obex_mime_type_driver mime_notification_registration = {
 	.target = MAS_TARGET,
 	.target_size = TARGET_SIZE,
 	.mimetype = "x-bt/MAP-NotificationRegistration",
-#ifdef __TIZEN_PATCH__
 	.open = notification_registration_open,
+#ifdef __TIZEN_PATCH__
 	.close = notification_registration_close,
 #else
-	.open = any_open,
 	.close = any_close,
 #endif
 	.read = any_read,

@@ -72,12 +72,17 @@ static const char * const supported_options[] = {
 	"Name",
 	"Class",
 	"DiscoverableTimeout",
+	"AlwaysPairable",
 	"PairableTimeout",
 	"AutoConnectTimeout",
 	"DeviceID",
 	"ReverseServiceDiscovery",
 	"NameResolving",
 	"DebugKeys",
+	"ControllerMode",
+#ifdef __TIZEN_PATCH__
+	"EnableLEPrivacy",
+#endif
 };
 
 GKeyFile *btd_get_main_conf(void)
@@ -186,6 +191,20 @@ static void check_config(GKeyFile *config)
 	g_strfreev(keys);
 }
 
+static int get_mode(const char *str)
+{
+	if (strcmp(str, "dual") == 0)
+		return BT_MODE_DUAL;
+	else if (strcmp(str, "bredr") == 0)
+		return BT_MODE_BREDR;
+	else if (strcmp(str, "le") == 0)
+		return BT_MODE_LE;
+
+	error("Unknown controller mode \"%s\"", str);
+
+	return BT_MODE_DUAL;
+}
+
 static void parse_config(GKeyFile *config)
 {
 	GError *err = NULL;
@@ -281,6 +300,24 @@ static void parse_config(GKeyFile *config)
 		g_clear_error(&err);
 	else
 		main_opts.debug_keys = boolean;
+
+	str = g_key_file_get_string(config, "General", "ControllerMode", &err);
+	if (err) {
+		g_clear_error(&err);
+	} else {
+		DBG("ControllerMode=%s", str);
+		main_opts.mode = get_mode(str);
+		g_free(str);
+	}
+
+#ifdef __TIZEN_PATCH__
+	boolean = g_key_file_get_boolean(config, "General",
+						"EnableLEPrivacy", &err);
+	if (err)
+		g_clear_error(&err);
+	else
+		main_opts.le_privacy = boolean;
+#endif
 }
 
 static void init_defaults(void)
@@ -296,6 +333,9 @@ static void init_defaults(void)
 	main_opts.reverse_sdp = TRUE;
 	main_opts.name_resolv = TRUE;
 	main_opts.debug_keys = FALSE;
+#ifdef __TIZEN_PATCH__
+	main_opts.le_privacy = TRUE;
+#endif
 
 	if (sscanf(VERSION, "%hhu.%hhu", &major, &minor) != 2)
 		return;

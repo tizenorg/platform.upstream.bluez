@@ -59,6 +59,7 @@ static const uint8_t FTP_TARGET[TARGET_SIZE] = {
 
 struct ftp_session {
 	struct obex_session *os;
+	struct obex_transfer *transfer;
 	char *folder;
 };
 
@@ -116,6 +117,8 @@ void *ftp_connect(struct obex_session *os, int *err)
 	if (err)
 		*err = 0;
 
+	ftp->transfer = manager_register_transfer(os);
+
 	DBG("session %p created", ftp);
 
 	return ftp;
@@ -135,6 +138,10 @@ int ftp_get(struct obex_session *os, void *user_data)
 	ret = get_by_type(ftp, type);
 	if (ret < 0)
 		return ret;
+
+	/* Only track progress of file transfer */
+	if (type == NULL)
+		manager_emit_transfer_started(ftp->transfer);
 
 	return 0;
 }
@@ -163,6 +170,11 @@ int ftp_chkput(struct obex_session *os, void *user_data)
 {
 	struct ftp_session *ftp = user_data;
 	const char *name = obex_get_name(os);
+#ifdef TIZEN_PATCH
+	char *folder;
+	int32_t time;
+	int err;
+#endif
 	char *path;
 	int ret;
 
@@ -177,9 +189,19 @@ int ftp_chkput(struct obex_session *os, void *user_data)
 	if (obex_get_size(os) == OBJECT_SIZE_DELETE)
 		return 0;
 
+#ifdef TIZEN_PATCH
+	time = 0;
+	err = manager_request_authorization(os, time, &folder, &name);
+	if (err < 0)
+		return -EPERM;
+#endif
+
 	path = g_build_filename(ftp->folder, name, NULL);
 
 	ret = obex_put_stream_start(os, path);
+
+	if (ret == 0)
+		manager_emit_transfer_started(ftp->transfer);
 
 	g_free(path);
 
@@ -208,6 +230,34 @@ int ftp_put(struct obex_session *os, void *user_data)
 
 	return 0;
 }
+
+#ifdef TIZEN_PATCH
+static gboolean is_valid_name(const char *name)
+{
+	char *forbid_chars = "[*\"<>;?|\\^:/]";
+	int exp;
+	regex_t reg;
+	regmatch_t match[1];
+	size_t size = 1;
+
+	if (name[0] == '.')
+		return FALSE;
+
+	exp = regcomp(&reg, forbid_chars, 0);
+
+	if (exp != 0)
+		return FALSE;
+
+	exp = regexec(&reg, name, size, match, 0);
+
+	regfree(&reg);
+
+	if (exp != REG_NOMATCH)
+		return FALSE;
+
+	return TRUE;
+}
+#endif
 
 int ftp_setpath(struct obex_session *os, void *user_data)
 {
@@ -262,6 +312,14 @@ int ftp_setpath(struct obex_session *os, void *user_data)
 		error("Set path failed: name incorrect!");
 		return -EPERM;
 	}
+
+#ifdef TIZEN_PATCH
+	/* Check if the folder name is valid or not */
+	if (!is_valid_name(name)) {
+		error("Set path failed: Invalid folder name!");
+		return -EINVAL;
+	}
+#endif
 
 	fullname = g_build_filename(ftp->folder, name, NULL);
 
@@ -471,8 +529,24 @@ void ftp_disconnect(struct obex_session *os, void *user_data)
 
 	manager_unregister_session(os);
 
+	manager_unregister_transfer(ftp->transfer);
+
 	g_free(ftp->folder);
 	g_free(ftp);
+}
+
+static void ftp_progress(struct obex_session *os, void *user_data)
+{
+	struct ftp_session *ftp = user_data;
+
+	manager_emit_transfer_progress(ftp->transfer);
+}
+
+static void ftp_reset(struct obex_session *os, void *user_data)
+{
+	struct ftp_session *ftp = user_data;
+
+	manager_emit_transfer_completed(ftp->transfer);
 }
 
 static struct obex_service_driver ftp = {
@@ -481,12 +555,14 @@ static struct obex_service_driver ftp = {
 	.target = FTP_TARGET,
 	.target_size = TARGET_SIZE,
 	.connect = ftp_connect,
+	.progress = ftp_progress,
 	.get = ftp_get,
 	.put = ftp_put,
 	.chkput = ftp_chkput,
 	.setpath = ftp_setpath,
 	.action = ftp_action,
-	.disconnect = ftp_disconnect
+	.disconnect = ftp_disconnect,
+	.reset = ftp_reset
 };
 
 static int ftp_init(void)

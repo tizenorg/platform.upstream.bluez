@@ -1,5 +1,5 @@
 AC_PREREQ(2.60)
-AC_INIT(bluez, 5.19)
+AC_INIT(bluez, 5.27)
 
 AM_INIT_AUTOMAKE([foreign subdir-objects color-tests silent-rules
 					tar-pax no-dist-gzip dist-xz])
@@ -31,6 +31,11 @@ m4_ifdef([AC_LIBTOOL_TAGS], [AC_LIBTOOL_TAGS([])])
 
 AC_DISABLE_STATIC
 AC_PROG_LIBTOOL
+
+if (test "$USE_MAINTAINER_MODE" = "yes"); then
+	AC_CHECK_PROG(enable_coverage, [lcov], [yes], [no])
+fi
+AM_CONDITIONAL(COVERAGE, test "${enable_coverage}" = "yes")
 
 MISC_FLAGS
 
@@ -125,8 +130,8 @@ AM_CONDITIONAL(MONITOR, test "${enable_monitor}" != "no")
 AC_ARG_ENABLE(udev, AC_HELP_STRING([--disable-udev],
 		[disable udev device support]), [enable_udev=${enableval}])
 if (test "${enable_tools}" != "no" && test "${enable_udev}" != "no"); then
-	PKG_CHECK_MODULES(UDEV, libudev >= 143, dummy=yes,
-				AC_MSG_ERROR(libudev >= 143 is required))
+	PKG_CHECK_MODULES(UDEV, libudev >= 172, dummy=yes,
+				AC_MSG_ERROR(libudev >= 172 is required))
 	AC_SUBST(UDEV_CFLAGS)
 	AC_SUBST(UDEV_LIBS)
 	AC_CHECK_LIB(udev, udev_hwdb_new,
@@ -156,12 +161,8 @@ AM_CONDITIONAL(CUPS, test "${enable_cups}" != "no")
 
 AC_ARG_ENABLE(obex, AC_HELP_STRING([--disable-obex],
 		[disable OBEX profile support]), [enable_obex=${enableval}])
-if (test "${enable_obex}" != "no"); then
-	PKG_CHECK_MODULES(ICAL, libical, dummy=yes,
-					AC_MSG_ERROR(libical is required))
-	AC_SUBST(ICAL_CFLAGS)
-	AC_SUBST(ICAL_LIBS)
-fi
+AC_SUBST(ICAL_CFLAGS)
+AC_SUBST(ICAL_LIBS)
 AM_CONDITIONAL(OBEX, test "${enable_obex}" != "no")
 
 AC_ARG_ENABLE(client, AC_HELP_STRING([--disable-client],
@@ -211,19 +212,38 @@ AC_ARG_ENABLE(datafiles, AC_HELP_STRING([--disable-datafiles],
 					[enable_datafiles=${enableval}])
 AM_CONDITIONAL(DATAFILES, test "${enable_datafiles}" != "no")
 
+AC_ARG_ENABLE(manpages, AC_HELP_STRING([--enable-manpages],
+			[enable building of manual pages]),
+					[enable_manpages=${enableval}])
+AM_CONDITIONAL(MANPAGES, test "${enable_manpages}" = "yes")
+
 AC_ARG_ENABLE(experimental, AC_HELP_STRING([--enable-experimental],
 			[enable experimental plugins (SAP, NFC, ...)]),
 					[enable_experimental=${enableval}])
 AM_CONDITIONAL(EXPERIMENTAL, test "${enable_experimental}" = "yes")
 
+# Start of __TIZEN_PATCH__
+AC_ARG_ENABLE(wearable, AC_HELP_STRING([--enable-wearable],
+			[enable wearable profile]), [enable_wearable=${enableval}])
+AM_CONDITIONAL(WEARABLE, test "${enable_wearable}" = "yes")
+
+AC_ARG_ENABLE(autopair, AC_HELP_STRING([--enable-autopair],
+			[Enable Autopair Plugin]), [enable_autopair=${enableval}])
+AM_CONDITIONAL(AUTOPAIR, test "${enable_autopair}" = "yes")
+
+AC_ARG_ENABLE(hid, AC_HELP_STRING([--enable-hid],
+			[Enable HID Plugin]), [enable_hid=${enableval}])
+AM_CONDITIONAL(TIZEN_HID_PLUGIN, test "${enable_hid}" = "yes")
+
+AC_ARG_ENABLE(tizenunusedplugin, AC_HELP_STRING([--enable-tizenunusedplugin],
+                [Enable Unused Plugin]), [enable_tizenunusedplugin=${enableval}])
+AM_CONDITIONAL(TIZEN_UNUSED_PLUGIN, test "${enable_tizenunusedplugin}" = "yes")
+# End of __TIZEN_PATCH__
+
 AC_ARG_ENABLE(sixaxis, AC_HELP_STRING([--enable-sixaxis],
 		[enable sixaxis plugin]), [enable_sixaxis=${enableval}])
 AM_CONDITIONAL(SIXAXIS, test "${enable_sixaxis}" = "yes" &&
 					 test "${enable_udev}" != "no")
-
-AC_ARG_ENABLE(service, AC_HELP_STRING([--enable-service],
-		[enable service plugin]), [enable_service=${enableval}])
-AM_CONDITIONAL(SERVICE, test "${enable_service}" = "yes")
 
 if (test "${prefix}" = "NONE"); then
 	dnl no prefix and no localstatedir, so default to /var

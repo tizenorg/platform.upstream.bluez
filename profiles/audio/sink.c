@@ -90,7 +90,7 @@ static void sink_set_state(struct sink *sink, sink_state_t new_state)
 
 	sink->state = new_state;
 
-	DBG("State changed %s: %s -> %s", btd_device_get_path(dev),
+	DBG("State changed %s: %s -> %s", device_get_path(dev),
 				str_state[old_state], str_state[new_state]);
 
 	for (l = sink_callbacks; l != NULL; l = l->next) {
@@ -105,9 +105,17 @@ static void sink_set_state(struct sink *sink, sink_state_t new_state)
 	if (new_state != SINK_STATE_DISCONNECTED)
 		return;
 
+#ifdef __TIZEN_PATCH__
+	btd_service_disconnecting_complete(service, 0);
+#endif
+
 	if (sink->session) {
 		avdtp_unref(sink->session);
 		sink->session = NULL;
+#ifdef __TIZEN_PATCH__
+		sink->connect_id = 0;
+		sink->disconnect_id = 0;
+#endif
 	}
 }
 
@@ -147,7 +155,9 @@ static void stream_state_changed(struct avdtp_stream *stream,
 
 	switch (new_state) {
 	case AVDTP_STATE_IDLE:
+#ifndef __TIZEN_PATCH__
 		btd_service_disconnecting_complete(sink->service, 0);
+#endif
 
 		if (sink->disconnect_id > 0) {
 			a2dp_cancel(sink->disconnect_id);
@@ -191,8 +201,13 @@ static void stream_setup_complete(struct avdtp *session, struct a2dp_sep *sep,
 
 	avdtp_unref(sink->session);
 	sink->session = NULL;
+#ifdef __TIZEN_PATCH__
+	if (err && avdtp_error_category(err) == AVDTP_ERRNO
+				&& avdtp_error_posix_errno(err) != EHOSTDOWN)
+#else
 	if (avdtp_error_category(err) == AVDTP_ERRNO
 				&& avdtp_error_posix_errno(err) != EHOSTDOWN)
+#endif
 		btd_service_connecting_complete(sink->service, -EAGAIN);
 	else
 		btd_service_connecting_complete(sink->service, -EIO);
@@ -281,6 +296,7 @@ int sink_connect(struct btd_service *service)
 {
 	struct sink *sink = btd_service_get_user_data(service);
 
+#ifndef __TIZEN_PATCH__
 	if (!sink->session)
 		sink->session = avdtp_get(btd_service_get_device(service));
 
@@ -288,12 +304,26 @@ int sink_connect(struct btd_service *service)
 		DBG("Unable to get a session");
 		return -EIO;
 	}
+#endif
 
 	if (sink->connect_id > 0 || sink->disconnect_id > 0)
 		return -EBUSY;
 
+	if (sink->state == SINK_STATE_CONNECTING)
+		return -EBUSY;
+
 	if (sink->stream_state >= AVDTP_STATE_OPEN)
 		return -EALREADY;
+
+#ifdef __TIZEN_PATCH__
+	if (!sink->session)
+		sink->session = avdtp_get(btd_service_get_device(service));
+
+	if (!sink->session) {
+		DBG("Unable to get a session");
+		return -EIO;
+	}
+#endif
 
 	if (!sink_setup_stream(service, NULL)) {
 		DBG("Failed to create a stream");
@@ -313,8 +343,16 @@ static void sink_free(struct btd_service *service)
 		avdtp_stream_remove_cb(sink->session, sink->stream,
 					sink->cb_id);
 
+#ifdef __TIZEN_PATCH__
+	if (sink->session) {
+		/* We need to clear the avdtp discovery procedure */
+		finalize_discovery(sink->session, ECANCELED);
+		avdtp_unref(sink->session);
+	}
+#else
 	if (sink->session)
 		avdtp_unref(sink->session);
+#endif
 
 	if (sink->connect_id > 0) {
 		btd_service_connecting_complete(sink->service, -ECANCELED);
@@ -338,7 +376,7 @@ void sink_unregister(struct btd_service *service)
 {
 	struct btd_device *dev = btd_service_get_device(service);
 
-	DBG("%s", btd_device_get_path(dev));
+	DBG("%s", device_get_path(dev));
 
 	sink_free(service);
 }
@@ -348,7 +386,7 @@ int sink_init(struct btd_service *service)
 	struct btd_device *dev = btd_service_get_device(service);
 	struct sink *sink;
 
-	DBG("%s", btd_device_get_path(dev));
+	DBG("%s", device_get_path(dev));
 
 	sink = g_new0(struct sink, 1);
 

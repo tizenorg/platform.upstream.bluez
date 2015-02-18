@@ -339,23 +339,19 @@ int messages_init(void)
 		return -1;
 	}
 
-	create_folder_tree();
 	return 0;
 }
 
 void messages_exit(void)
 {
-	destroy_folder_tree(folder_tree);
-
 	if (g_conn) {
 		dbus_connection_unref(g_conn);
 		g_conn = NULL;
 	}
 }
 
-static void message_get_folder_list(DBusPendingCall *call, void *user_data)
+static void message_get_folder_list(DBusMessage *reply, void *user_data)
 {
-	DBusMessage *reply = dbus_pending_call_steal_reply(call);
 	DBusMessageIter iter;
 	DBusMessageIter iter_struct;
 	DBusMessageIter entry;
@@ -450,6 +446,8 @@ static void message_get_msg_list(DBusPendingCall *call, void *user_data)
 		g_free(session->name);
 		session_filter_free(session->filter);
 		dbus_message_unref(reply);
+
+		return;
 	}
 
 	dbus_message_iter_init(reply, &iter);
@@ -588,14 +586,9 @@ static void message_get_msg_list(DBusPendingCall *call, void *user_data)
 			DBG("type = %s \n", type);
 
 			type_val = get_type_val(type);
-			if (session->filter->type == 0) {
+			if (!(session->filter->type & type_val)) {
 				data->type = g_strdup(type);
 				data->mask |= PMASK_TYPE;
-			} else if (session->filter->type & type_val) {
-				DBG("Filter out type %d", type_val);
-				message_list_item_free(data);
-				dbus_message_iter_next(&iter_struct);
-				continue;
 			}
 		}
 
@@ -760,11 +753,14 @@ static void message_get_msg(DBusPendingCall *call, void *user_data)
 
 int messages_connect(void **s)
 {
-	DBusPendingCall *call;
 	DBusMessage *message;
+	DBusMessage *reply;
+	DBusError err;
 	DBG("+\n");
 
 	struct session *session = g_new0(struct session, 1);
+
+	create_folder_tree();
 
 	session->cwd = g_strdup("/");
 	session->folder = folder_tree;
@@ -780,15 +776,23 @@ int messages_connect(void **s)
 		return -1;
 	}
 
-	if (dbus_connection_send_with_reply(g_conn, message, &call, -1) ==
-			FALSE) {
-		error("Could not send dbus message");
+	dbus_error_init(&err);
+
+	reply = dbus_connection_send_with_reply_and_block(g_conn, message,
+						DBUS_TIMEOUT_USE_DEFAULT, &err);
+	if (!reply) {
+		DBG(" Reply failed");
+		if (dbus_error_is_set(&err)) {
+			DBG("%s", err.message);
+			dbus_error_free(&err);
+		}
+
 		dbus_message_unref(message);
 		return -1;
 	}
 
-	dbus_pending_call_set_notify(call, message_get_folder_list, session,
-						NULL);
+	message_get_folder_list(reply, session);
+
 	dbus_message_unref(message);
 	DBG("-\n");
 	return 0;
@@ -800,6 +804,8 @@ void messages_disconnect(void *s)
 	struct session *session = s;
 	DBG("+\n");
 
+	destroy_folder_tree(folder_tree);
+	folder_tree = NULL;
 	g_free(session->cwd);
 	g_free(session);
 
@@ -1017,7 +1023,7 @@ int messages_get_messages_listing(void *session, const char *name,
 	DBusMessage *message;
 	struct session *s = session;
 
-	if (strlen(name) != 0)
+	if (name != NULL && strlen(name))
 		s->name = g_strdup(name);
 	else
 		s->name = g_strdup(s->cwd);
@@ -1088,7 +1094,7 @@ int messages_push_message(void *session, const char *folder,
 
 	DBG("session->cwd %s +\n", s->cwd);
 
-	if (!folder)
+	if (folder)
 		folder_path = g_strdup(folder);
 	else
 		folder_path = g_strdup(s->cwd);

@@ -129,11 +129,18 @@ struct att_data_list *att_data_list_alloc(uint16_t num, uint16_t len)
 
 	return list;
 }
-
+#ifdef __TIZEN_PATCH__
+void get_uuid(uint8_t type, const void *val, bt_uuid_t *uuid)
+#else
 static void get_uuid(uint8_t type, const void *val, bt_uuid_t *uuid)
+#endif
 {
 	if (type == BT_UUID16)
 		bt_uuid16_create(uuid, get_le16(val));
+#ifdef __TIZEN_PATCH__
+	else if (type == BT_UUID32)
+		bt_uuid32_create(uuid, get_le32(val));
+#endif
 	else {
 		uint128_t u128;
 
@@ -153,6 +160,10 @@ uint16_t enc_read_by_grp_req(uint16_t start, uint16_t end, bt_uuid_t *uuid,
 
 	if (uuid->type == BT_UUID16)
 		uuid_len = 2;
+#ifdef __TIZEN_PATCH__
+	else if (uuid->type == BT_UUID32)
+		uuid_len = 4;
+#endif
 	else if (uuid->type == BT_UUID128)
 		uuid_len = 16;
 	else
@@ -187,6 +198,10 @@ uint16_t dec_read_by_grp_req(const uint8_t *pdu, size_t len, uint16_t *start,
 
 	if (len == (min_len + 2))
 		type = BT_UUID16;
+#ifdef __TIZEN_PATCH__
+	else if (len == (min_len + 4))
+		type = BT_UUID32;
+#endif
 	else if (len == (min_len + 16))
 		type = BT_UUID128;
 	else
@@ -557,6 +572,64 @@ uint16_t dec_write_cmd(const uint8_t *pdu, size_t len, uint16_t *handle,
 	*handle = get_le16(&pdu[1]);
 	memcpy(value, pdu + min_len, len - min_len);
 	*vlen = len - min_len;
+
+	return len;
+}
+
+uint16_t enc_signed_write_cmd(uint16_t handle, const uint8_t *value,
+					size_t vlen, struct bt_crypto *crypto,
+					const uint8_t csrk[16],
+					uint32_t sign_cnt,
+					uint8_t *pdu, size_t len)
+{
+	const uint16_t hdr_len = sizeof(pdu[0]) + sizeof(handle);
+	const uint16_t min_len =  hdr_len + ATT_SIGNATURE_LEN;
+
+	if (pdu == NULL)
+		return 0;
+
+	if (vlen > len - min_len)
+		vlen = len - min_len;
+
+	pdu[0] = ATT_OP_SIGNED_WRITE_CMD;
+	put_le16(handle, &pdu[1]);
+
+	if (vlen > 0)
+		memcpy(&pdu[hdr_len], value, vlen);
+
+	if (!bt_crypto_sign_att(crypto, csrk, pdu, hdr_len + vlen, sign_cnt,
+							&pdu[hdr_len + vlen]))
+		return 0;
+
+	return min_len + vlen;
+}
+
+uint16_t dec_signed_write_cmd(const uint8_t *pdu, size_t len,
+						uint16_t *handle,
+						uint8_t *value, size_t *vlen,
+						uint8_t signature[12])
+{
+	const uint16_t hdr_len = sizeof(pdu[0]) + sizeof(*handle);
+	const uint16_t min_len =  hdr_len + ATT_SIGNATURE_LEN;
+
+
+	if (pdu == NULL)
+		return 0;
+
+	if (value == NULL || vlen == NULL || handle == NULL)
+		return 0;
+
+	if (len < min_len)
+		return 0;
+
+	if (pdu[0] != ATT_OP_SIGNED_WRITE_CMD)
+		return 0;
+
+	*vlen = len - min_len;
+	*handle = get_le16(&pdu[1]);
+	memcpy(value, pdu + hdr_len, *vlen);
+
+	memcpy(signature, pdu + hdr_len + *vlen, ATT_SIGNATURE_LEN);
 
 	return len;
 }

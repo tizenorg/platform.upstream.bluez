@@ -105,6 +105,13 @@ guint gatt_execute_write(GAttrib *attrib, uint8_t flags,
 guint gatt_write_cmd(GAttrib *attrib, uint16_t handle, const uint8_t *value,
 			int vlen, GDestroyNotify notify, gpointer user_data);
 
+guint gatt_signed_write_cmd(GAttrib *attrib, uint16_t handle,
+						const uint8_t *value, int vlen,
+						struct bt_crypto *crypto,
+						const uint8_t csrk[16],
+						uint32_t sign_cnt,
+						GDestroyNotify notify,
+						gpointer user_data);
 guint gatt_read_char_by_uuid(GAttrib *attrib, uint16_t start, uint16_t end,
 				bt_uuid_t *uuid, GAttribResultFunc func,
 				gpointer user_data);
@@ -115,3 +122,8 @@ guint gatt_exchange_mtu(GAttrib *attrib, uint16_t mtu, GAttribResultFunc func,
 gboolean gatt_parse_record(const sdp_record_t *rec,
 					uuid_t *prim_uuid, uint16_t *psm,
 					uint16_t *start, uint16_t *end);
+
+#ifdef __TIZEN_PATCH__
+guint gatt_find_info(GAttrib *attrib, uint16_t start, uint16_t end,
+				GAttribResultFunc func, gpointer user_data);
+#endif

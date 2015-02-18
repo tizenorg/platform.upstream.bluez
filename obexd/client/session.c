@@ -42,6 +42,9 @@
 #include "log.h"
 #include "transfer.h"
 #include "session.h"
+#ifdef __TIZEN_PATCH__
+#include "manager.h"
+#endif
 #include "driver.h"
 #include "transport.h"
 
@@ -334,8 +337,11 @@ static void session_disconnected(GObex *obex, GError *err, gpointer user_data)
 
 	if (err)
 		error("%s", err->message);
-
+#ifdef __TIZEN_PATCH__
+	release_session(session);
+#else
 	obc_session_shutdown(session);
+#endif
 }
 
 static void transport_func(GIOChannel *io, GError *err, gpointer user_data)
@@ -345,6 +351,7 @@ static void transport_func(GIOChannel *io, GError *err, gpointer user_data)
 	struct obc_driver *driver = session->driver;
 	struct obc_transport *transport = session->transport;
 	GObex *obex;
+	GObexApparam *apparam;
 	GObexTransportType type;
 	int tx_mtu = -1;
 	int rx_mtu = -1;
@@ -370,7 +377,29 @@ static void transport_func(GIOChannel *io, GError *err, gpointer user_data)
 
 	g_io_channel_set_close_on_unref(io, TRUE);
 
-	if (driver->target != NULL)
+	apparam = NULL;
+
+	if (driver->supported_features)
+		apparam = driver->supported_features(session);
+
+	if (apparam) {
+		uint8_t buf[1024];
+		ssize_t len;
+
+		len = g_obex_apparam_encode(apparam, buf, sizeof(buf));
+		if (driver->target)
+			g_obex_connect(obex, connect_cb, callback, &err,
+					G_OBEX_HDR_TARGET,
+					driver->target, driver->target_len,
+					G_OBEX_HDR_APPARAM,
+					buf, len,
+					G_OBEX_HDR_INVALID);
+		else
+			g_obex_connect(obex, connect_cb, callback, &err,
+					G_OBEX_HDR_APPARAM, buf, len,
+					G_OBEX_HDR_INVALID);
+		g_obex_apparam_free(apparam);
+	} else if (driver->target)
 		g_obex_connect(obex, connect_cb, callback, &err,
 			G_OBEX_HDR_TARGET, driver->target, driver->target_len,
 			G_OBEX_HDR_INVALID);
@@ -878,17 +907,8 @@ static void session_terminate_transfer(struct obc_session *session,
 
 	pending_request_free(p);
 
-#ifdef __TIZEN_PATCH__
-	if (session->p == NULL) {
-		if (gerr)
-			obc_session_shutdown(session);
-		else
-			session_process_queue(session);
-	}
-#else
 	if (session->p == NULL)
 		session_process_queue(session);
-#endif
 
 	obc_session_unref(session);
 }

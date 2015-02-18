@@ -54,16 +54,26 @@ static DBusMessage *opp_send_file(DBusConnection *connection,
 	char *filename;
 	char *basename;
 	GError *err = NULL;
+#ifdef __TIZEN_PATCH__
+	char *mimetype = NULL;
+#endif
 
 	if (dbus_message_get_args(message, NULL,
 					DBUS_TYPE_STRING, &filename,
+#ifdef __TIZEN_PATCH__
+					DBUS_TYPE_STRING, &mimetype,
+#endif
 					DBUS_TYPE_INVALID) == FALSE)
 		return g_dbus_create_error(message,
 				ERROR_INTERFACE ".InvalidArguments", NULL);
 
 	basename = g_path_get_basename(filename);
 
+#ifdef __TIZEN_PATCH__
+	transfer = obc_transfer_put(mimetype, basename, filename, NULL, 0, &err);
+#else
 	transfer = obc_transfer_put(NULL, basename, filename, NULL, 0, &err);
+#endif
 
 	g_free(basename);
 
@@ -121,7 +131,11 @@ static DBusMessage *opp_exchange_business_cards(DBusConnection *connection,
 
 static const GDBusMethodTable opp_methods[] = {
 	{ GDBUS_METHOD("SendFile",
+#ifdef __TIZEN_PATCH__
+		GDBUS_ARGS({ "sourcefile", "s" }, { "mimetype", "s" }),
+#else
 		GDBUS_ARGS({ "sourcefile", "s" }),
+#endif
 		GDBUS_ARGS({ "transfer", "o" }, { "properties", "a{sv}" }),
 		opp_send_file) },
 	{ GDBUS_METHOD("PullBusinessCard",

@@ -30,11 +30,9 @@ struct btd_service;
 struct btd_profile {
 	const char *name;
 	int priority;
-	uint16_t version;
 
 	const char *local_uuid;
 	const char *remote_uuid;
-	const char *auth_uuid;
 
 	bool auto_connect;
 
@@ -43,6 +41,8 @@ struct btd_profile {
 
 	int (*connect) (struct btd_service *service);
 	int (*disconnect) (struct btd_service *service);
+
+	int (*accept) (struct btd_service *service);
 
 	int (*adapter_probe) (struct btd_profile *p,
 						struct btd_adapter *adapter);

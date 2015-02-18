@@ -70,6 +70,9 @@ struct proxy_write_data {
  */
 static GHashTable *proxy_hash;
 
+static DBusMessage *get_service(DBusConnection *conn,
+                                        DBusMessage *msg, void *user_data);
+
 static GSList *external_services;
 
 static int external_service_path_cmp(gconstpointer a, gconstpointer b)
@@ -233,8 +236,46 @@ static void proxy_removed(GDBusProxy *proxy, void *user_data)
 	esvc->proxies = g_slist_remove(esvc->proxies, proxy);
 }
 
+#ifdef __TIZEN_PATCH__
+static void proxy_prop_changed(GDBusProxy *proxy, const char *name,
+					DBusMessageIter *iter, void *user_data)
+{
+	DBusMessageIter iter_uuid, array;
+	const char *str;
+	bt_uuid_t uuid;
+	uint8_t *value;
+	size_t len;
+
+	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_ARRAY)
+		return;
+
+	dbus_message_iter_recurse(iter, &array);
+	dbus_message_iter_get_fixed_array(&array, &value, &len);
+
+	if (!g_dbus_proxy_get_property(proxy, "UUID", &iter_uuid))
+		return;
+
+	if (dbus_message_iter_get_arg_type(&iter_uuid) != DBUS_TYPE_STRING)
+		return;
+
+	dbus_message_iter_get_basic(&iter_uuid, &str);
+
+	if (bt_string_to_uuid(&uuid, str) < 0)
+		return;
+
+	/* Update the charateristics in attrib database and
+	 * send notification or indication if CCC is set */
+	btd_gatt_update_char(&uuid, value, len);
+}
+#endif
+
+#ifdef __TIZEN_PATCH__
+static uint8_t proxy_read_cb(struct btd_attribute *attr,
+				btd_attr_read_result_t result, void *user_data)
+#else
 static void proxy_read_cb(struct btd_attribute *attr,
 				btd_attr_read_result_t result, void *user_data)
+#endif
 {
 	DBusMessageIter iter, array;
 	GDBusProxy *proxy;
@@ -249,20 +290,32 @@ static void proxy_read_cb(struct btd_attribute *attr,
 	 */
 	proxy = g_hash_table_lookup(proxy_hash, attr);
 	if (!proxy) {
+#ifdef __TIZEN_PATCH__
+		return result(-ENOENT, NULL, 0, user_data);
+#else
 		result(-ENOENT, NULL, 0, user_data);
 		return;
+#endif
 	}
 
 	if (!g_dbus_proxy_get_property(proxy, "Value", &iter)) {
 		/* Unusual situation, read property will checked earlier */
+#ifdef __TIZEN_PATCH__
+		return result(-EPERM, NULL, 0, user_data);
+#else
 		result(-EPERM, NULL, 0, user_data);
 		return;
+#endif
 	}
 
 	if (dbus_message_iter_get_arg_type(&iter) != DBUS_TYPE_ARRAY) {
 		DBG("External service inconsistent!");
+#ifdef __TIZEN_PATCH__
+		return result(-EPERM, NULL, 0, user_data);
+#else
 		result(-EPERM, NULL, 0, user_data);
 		return;
+#endif
 	}
 
 	dbus_message_iter_recurse(&iter, &array);
@@ -270,7 +323,11 @@ static void proxy_read_cb(struct btd_attribute *attr,
 
 	DBG("attribute: %p read %d bytes", attr, len);
 
+#ifdef __TIZEN_PATCH__
+	return result(0, value, len, user_data);
+#else
 	result(0, value, len, user_data);
+#endif
 }
 
 static void proxy_write_reply(const DBusError *derr, void *user_data)
@@ -303,17 +360,28 @@ done:
 		wdata->result_cb(err, wdata->user_data);
 }
 
+#ifdef __TIZEN_PATCH__
+static uint8_t proxy_write_cb(struct btd_attribute *attr,
+					const uint8_t *value, size_t len,
+					btd_attr_write_result_t result,
+					void *user_data)
+#else
 static void proxy_write_cb(struct btd_attribute *attr,
 					const uint8_t *value, size_t len,
 					btd_attr_write_result_t result,
 					void *user_data)
+#endif
 {
 	GDBusProxy *proxy;
 
 	proxy = g_hash_table_lookup(proxy_hash, attr);
 	if (!proxy) {
+#ifdef __TIZEN_PATCH__
+		return result(-ENOENT, user_data);
+#else
 		result(-ENOENT, user_data);
 		return;
+#endif
 	}
 
 	/*
@@ -332,12 +400,21 @@ static void proxy_write_cb(struct btd_attribute *attr,
 		wdata->result_cb = result;
 		wdata->user_data = user_data;
 
+#ifdef __TIZEN_PATCH__
+		btd_gatt_set_notify_indicate_flag(attr, FALSE);
+#endif
+
 		if (!g_dbus_proxy_set_property_array(proxy, "Value",
 						DBUS_TYPE_BYTE, value, len,
 						proxy_write_reply,
 						wdata, g_free)) {
 			g_free(wdata);
+#ifdef __TIZEN_PATCH__
+			return result(-ENOENT, user_data);
+#else
 			result(-ENOENT, user_data);
+			return;
+#endif
 		}
 	} else {
 		/*
@@ -345,6 +422,9 @@ static void proxy_write_cb(struct btd_attribute *attr,
 		 * This flow implements the ATT Write Command scenario, where
 		 * the remote doesn't receive ATT response.
 		 */
+#ifdef __TIZEN_PATCH__
+		btd_gatt_set_notify_indicate_flag(attr, FALSE);
+#endif
 		g_dbus_proxy_set_property_array(proxy, "Value", DBUS_TYPE_BYTE,
 						value, len, proxy_write_reply,
 						NULL, NULL);
@@ -352,6 +432,9 @@ static void proxy_write_cb(struct btd_attribute *attr,
 
 	DBG("Server: Write attribute callback %s",
 					g_dbus_proxy_get_path(proxy));
+#ifdef __TIZEN_PATCH__
+		return 0;
+#endif
 
 }
 
@@ -379,7 +462,11 @@ static int register_external_service(struct external_service *esvc,
 	if (bt_string_to_uuid(&uuid, str) < 0)
 		return -EINVAL;
 
+#ifdef __TIZEN_PATCH__
+	esvc->service = btd_gatt_add_service(&uuid, path);
+#else
 	esvc->service = btd_gatt_add_service(&uuid);
+#endif
 	if (!esvc->service)
 		return -EINVAL;
 
@@ -393,6 +480,9 @@ static int add_char(GDBusProxy *proxy, const bt_uuid_t *uuid)
 	btd_attr_write_t write_cb;
 	btd_attr_read_t read_cb;
 	uint8_t propmask = 0;
+#ifdef __TIZEN_PATCH__
+	const char *path;
+#endif
 
 	/*
 	 * Optional property. If is not informed, read and write
@@ -418,7 +508,12 @@ static int add_char(GDBusProxy *proxy, const bt_uuid_t *uuid)
 	else
 		write_cb = NULL;
 
+#ifdef __TIZEN_PATCH__
+	path = g_dbus_proxy_get_path(proxy);
+	attr = btd_gatt_add_char(uuid, propmask, path, read_cb, write_cb);
+#else
 	attr = btd_gatt_add_char(uuid, propmask, read_cb, write_cb);
+#endif
 	if (!attr)
 		return -ENOMEM;
 
@@ -430,8 +525,16 @@ static int add_char(GDBusProxy *proxy, const bt_uuid_t *uuid)
 static int add_char_desc(GDBusProxy *proxy, const bt_uuid_t *uuid)
 {
 	struct btd_attribute *attr;
+#ifdef __TIZEN_PATCH__
+	const char *path;
+#endif
 
+#ifdef __TIZEN_PATCH__
+	path = g_dbus_proxy_get_path(proxy);
+	attr = btd_gatt_add_char_desc(uuid, path, proxy_read_cb, proxy_write_cb);
+#else
 	attr = btd_gatt_add_char_desc(uuid, proxy_read_cb, proxy_write_cb);
+#endif
 	if (!attr)
 		return -ENOMEM;
 
@@ -505,6 +608,9 @@ static void client_ready(GDBusClient *client, void *user_data)
 
 	dbus_message_unref(esvc->reg);
 	esvc->reg = NULL;
+#ifdef __TIZEN_PATCH__
+	btd_gatt_update_attr_db();
+#endif
 
 	return;
 
@@ -543,12 +649,42 @@ static struct external_service *external_service_new(DBusConnection *conn,
 	g_dbus_client_set_disconnect_watch(client, remove_service, esvc);
 
 	g_dbus_client_set_proxy_handlers(client, proxy_added, proxy_removed,
-								NULL, esvc);
+#ifdef __TIZEN_PATCH__
+					proxy_prop_changed, esvc);
+#else
+					NULL, esvc);
+#endif
 
 	g_dbus_client_set_ready_watch(client, client_ready, esvc);
 
 	return esvc;
 }
+
+#ifdef __TIZEN_PATCH__
+static DBusMessage *get_service(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	char *uuid_str = NULL;
+	bt_uuid_t uuid;
+	char *path = NULL;
+	DBusMessage *reply = NULL;
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &uuid_str,
+							DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	if (bt_string_to_uuid(&uuid, uuid_str) < 0)
+		return btd_error_invalid_args(msg);
+
+	path = btd_get_service_path(uuid);
+	if (path)
+		reply = service_append_dict(uuid, msg);
+	else
+		reply = btd_error_failed(msg, "Service Not Registered");
+
+	return reply;
+}
+#endif
 
 static DBusMessage *register_service(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
@@ -602,7 +738,12 @@ static DBusMessage *unregister_service(DBusConnection *conn,
 		return btd_error_does_not_exist(msg);
 
 	esvc = list->data;
+
+#ifdef __TIZEN_PATCH__
+	if (strcmp(dbus_message_get_sender(msg), esvc->owner))
+#else
 	if (!strcmp(dbus_message_get_sender(msg), esvc->owner))
+#endif
 		return btd_error_does_not_exist(msg);
 
 	/*
@@ -617,13 +758,29 @@ static DBusMessage *unregister_service(DBusConnection *conn,
 }
 
 static const GDBusMethodTable methods[] = {
+#ifdef __TIZEN_PATCH__
+	{ GDBUS_ASYNC_METHOD("RegisterService",
+#else
 	{ GDBUS_EXPERIMENTAL_ASYNC_METHOD("RegisterService",
+#endif
 				GDBUS_ARGS({ "service", "o"},
 						{ "options", "a{sv}"}),
 				NULL, register_service) },
+#ifdef __TIZEN_PATCH__
+	{ GDBUS_METHOD("UnregisterService",
+#else
 	{ GDBUS_EXPERIMENTAL_METHOD("UnregisterService",
+#endif
 				GDBUS_ARGS({"service", "o"}),
 				NULL, unregister_service) },
+#ifdef __TIZEN_PATCH__
+	{ GDBUS_METHOD("GetService",
+#else
+	{ GDBUS_EXPERIMENTAL_METHOD("GetService",
+#endif
+				GDBUS_ARGS({ "uuid", "s"}),
+				GDBUS_ARGS({ "service", "a{sv}"})
+				, get_service) },
 	{ }
 };
 

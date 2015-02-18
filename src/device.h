@@ -22,9 +22,20 @@
  *
  */
 
+#ifdef __TIZEN_PATCH__
+#include "attrib/gattrib.h"
+#endif
+
 #define DEVICE_INTERFACE	"org.bluez.Device1"
 
 struct btd_device;
+
+#ifdef __TIZEN_PATCH__
+/* Device Physical channel connection Type */
+#define DEV_CONN_DEFAULT 0xFF /* Represents support for BREDR and LE */
+#define DEV_CONN_BREDR 0x00 /* Only BREDR */
+#define DEV_CONN_LE 0x01 /* Only LE*/
+#endif
 
 struct btd_device *device_create(struct btd_adapter *adapter,
 				const bdaddr_t *address, uint8_t bdaddr_type);
@@ -67,23 +78,34 @@ const sdp_record_t *btd_device_get_record(struct btd_device *device,
 struct gatt_primary *btd_device_get_primary(struct btd_device *device,
 							const char *uuid);
 GSList *btd_device_get_primaries(struct btd_device *device);
+struct gatt_db *btd_device_get_gatt_db(struct btd_device *device);
+struct bt_gatt_client *btd_device_get_gatt_client(struct btd_device *device);
 void btd_device_gatt_set_service_changed(struct btd_device *device,
 						uint16_t start, uint16_t end);
-bool device_attach_attrib(struct btd_device *dev, GIOChannel *io);
+bool device_attach_att(struct btd_device *dev, GIOChannel *io);
 void btd_device_add_uuid(struct btd_device *device, const char *uuid);
 void device_add_eir_uuids(struct btd_device *dev, GSList *uuids);
 void device_probe_profile(gpointer a, gpointer b);
 void device_remove_profile(gpointer a, gpointer b);
 struct btd_adapter *device_get_adapter(struct btd_device *device);
 const bdaddr_t *device_get_address(struct btd_device *device);
-const char *btd_device_get_path(const struct btd_device *device);
+const char *device_get_path(const struct btd_device *device);
+#ifdef __TIZEN_PATCH__
+void device_set_remote_feature_flag(struct btd_device *device, int flags);
+gboolean device_is_bredrle(struct btd_device *device);
+void device_set_disconnect_reason(struct btd_device *device, uint8_t reason);
+void device_set_gatt_connected(struct btd_device *device, gboolean connected);
+void device_set_attrib(struct btd_device *device, guint attachid, GAttrib *attrib);
+void device_unset_attrib(struct btd_device *device);
+void device_unpair(struct btd_device *device, gboolean remove_stored);
+gboolean device_get_gatt_connected(const struct btd_device *device);
+#endif
 gboolean device_is_temporary(struct btd_device *device);
 bool device_is_paired(struct btd_device *device, uint8_t bdaddr_type);
 bool device_is_bonded(struct btd_device *device, uint8_t bdaddr_type);
 gboolean device_is_trusted(struct btd_device *device);
 void device_set_paired(struct btd_device *dev, uint8_t bdaddr_type);
 void device_set_unpaired(struct btd_device *dev, uint8_t bdaddr_type);
-bool device_is_service_blocked(struct btd_device *device, const char *uuid);
 void btd_device_set_temporary(struct btd_device *device, gboolean temporary);
 void btd_device_set_trusted(struct btd_device *device, gboolean trusted);
 void device_set_bonded(struct btd_device *device, uint8_t bdaddr_type);
@@ -125,6 +147,16 @@ void device_remove_disconnect_watch(struct btd_device *device, guint id);
 int device_get_appearance(struct btd_device *device, uint16_t *value);
 void device_set_appearance(struct btd_device *device, uint16_t value);
 
+#ifdef __TIZEN_PATCH__
+struct eir_data;
+void device_set_manufacturer_info(struct btd_device *dev, struct eir_data *eir);
+void device_set_adv_report_info(struct btd_device *device, void *data,
+			uint8_t data_len, uint8_t adv_info);
+void device_set_payload_timeout(struct btd_device *device,
+			uint16_t payload_timeout);
+void device_set_last_addr_type(struct btd_device *device, uint8_t type);
+#endif
+
 struct btd_device *btd_device_ref(struct btd_device *device);
 void btd_device_unref(struct btd_device *device);
 
@@ -148,8 +180,16 @@ bool device_remove_svc_complete_callback(struct btd_device *dev,
 struct btd_service *btd_device_get_service(struct btd_device *dev,
 						const char *remote_uuid);
 
+#ifdef __TIZEN_PATCH__
+void btd_device_disconnect(struct btd_device *dev);
+void btd_device_set_legacy_pairing(struct btd_device *dev, bool legacy_pairing);
+#endif
+
 int device_discover_services(struct btd_device *device);
 int btd_device_connect_services(struct btd_device *dev, GSList *services);
 
 void btd_device_init(void);
 void btd_device_cleanup(void);
+#ifdef BLUEZ5_GATT_CLIENT
+gboolean disconnect_le_device(gpointer user_data);
+#endif

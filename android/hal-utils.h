@@ -15,6 +15,8 @@
  *
  */
 
+#include <endian.h>
+
 #include <hardware/bluetooth.h>
 
 #define MAX_UUID_STR_LEN	37
@@ -33,6 +35,8 @@ void str2bt_bdaddr_t(const char *str, bt_bdaddr_t *bd_addr);
 void str2bt_uuid_t(const char *str, bt_uuid_t *uuid);
 const char *btproperty2str(const bt_property_t *property);
 const char *bdaddr2str(const bt_bdaddr_t *bd_addr);
+
+int get_config(const char *config_key, char *value, const char *fallback);
 
 /*
  * Begin mapping section
@@ -128,3 +132,21 @@ DECINTMAP(bt_bond_state_t);
 DECINTMAP(bt_ssp_variant_t);
 DECINTMAP(bt_property_type_t);
 DECINTMAP(bt_cb_thread_evt);
+
+static inline uint16_t get_le16(const void *src)
+{
+	const struct __attribute__((packed)) {
+		uint16_t le16;
+	} *p = src;
+
+	return le16toh(p->le16);
+}
+
+static inline void put_le16(uint16_t val, void *dst)
+{
+	struct __attribute__((packed)) {
+		uint16_t le16;
+	} *p = dst;
+
+	p->le16 = htole16(val);
+}

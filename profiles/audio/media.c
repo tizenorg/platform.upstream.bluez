@@ -49,12 +49,22 @@
 #include "transport.h"
 #include "a2dp.h"
 #include "avrcp.h"
+#ifdef __TIZEN_PATCH__
+#include "sink.h"
+#endif
+
 
 #define MEDIA_INTERFACE "org.bluez.Media1"
 #define MEDIA_ENDPOINT_INTERFACE "org.bluez.MediaEndpoint1"
 #define MEDIA_PLAYER_INTERFACE "org.mpris.MediaPlayer2.Player"
 
 #define REQUEST_TIMEOUT (3 * 1000)		/* 3 seconds */
+
+#ifdef __TIZEN_PATCH__
+#define SINK_SUSPEND_TIMEOUT 4		/* 4 seconds */
+
+unsigned int suspend_timer_id = 0;
+#endif
 
 struct media_adapter {
 	struct btd_adapter	*btd_adapter;
@@ -97,6 +107,9 @@ struct media_player {
 	guint			watch;
 	guint			properties_watch;
 	guint			seek_watch;
+#ifdef __TIZEN_PATCH__
+	guint			sink_watch;
+#endif
 	char			*status;
 	uint32_t		position;
 	uint32_t		duration;
@@ -110,6 +123,22 @@ struct media_player {
 };
 
 static GSList *adapters = NULL;
+
+#ifdef __TIZEN_PATCH__
+static gboolean set_avrcp_status = FALSE;
+static gboolean send_track_changed_event = FALSE;
+
+static int media_set_sink_callback(struct btd_device *device,
+				struct media_player *mp);
+static void media_sink_state_changed_cb(struct btd_service *service,
+				sink_state_t old_state,
+				sink_state_t new_state,
+				void *user_data);
+void media_stop_suspend_timer(void);
+struct media_player *media_adapter_get_player(struct media_adapter *adapter);
+static struct media_adapter *find_adapter(struct btd_device *device);
+static uint32_t get_position(void *user_data);
+#endif
 
 static void endpoint_request_free(struct endpoint_request *request)
 {
@@ -222,6 +251,9 @@ static void clear_configuration(struct media_endpoint *endpoint,
 {
 	DBusMessage *msg;
 	const char *path;
+#ifdef __TIZEN_PATCH__
+	struct media_player *mp;
+#endif
 
 	msg = dbus_message_new_method_call(endpoint->sender, endpoint->path,
 						MEDIA_ENDPOINT_INTERFACE,
@@ -237,6 +269,14 @@ static void clear_configuration(struct media_endpoint *endpoint,
 	g_dbus_send_message(btd_get_dbus_connection(), msg);
 done:
 	endpoint->transports = g_slist_remove(endpoint->transports, transport);
+#ifdef __TIZEN_PATCH__
+	if (mp = media_adapter_get_player(endpoint->adapter))
+		if (mp->sink_watch) {
+			sink_remove_state_cb(mp->sink_watch);
+			mp->sink_watch = 0;
+		}
+	media_stop_suspend_timer();
+#endif
 	media_transport_destroy(transport);
 }
 
@@ -402,6 +442,123 @@ static struct media_transport *find_device_transport(
 	return match->data;
 }
 
+#ifdef __TIZEN_PATCH__
+struct media_player * media_adapter_get_player(struct media_adapter * adapter)
+{
+	GSList *l;
+	DBG(" ");
+
+	for (l = adapter->players; l; l = l->next) {
+		struct media_player *mp = l->data;
+		if (mp != NULL)
+			return mp;
+	}
+	return NULL;
+}
+
+void media_stop_suspend_timer(void)
+{
+	if (suspend_timer_id > 0) {
+		DBG("Removing sink suspend timer");
+		g_source_remove(suspend_timer_id);
+		suspend_timer_id = 0;
+	}
+}
+
+gboolean media_reset_mp_status(gpointer user_data)
+{
+	struct media_player *mp = user_data;
+	DBG(" ");
+
+	/* PlayBackStatus already reset; so return */
+	if (g_strcmp0(mp->status, "playing") != 0)
+		return FALSE;
+
+	mp->position = get_position(mp);
+	g_timer_start(mp->timer);
+
+	g_free(mp->status);
+	mp->status = g_strdup("paused");
+	suspend_timer_id = 0;
+	avrcp_player_event(mp->player, AVRCP_EVENT_STATUS_CHANGED, mp->status);
+
+	return FALSE;
+}
+
+static void media_sink_state_changed_cb(struct btd_service *service,
+					sink_state_t old_state,
+					sink_state_t new_state,
+					void *user_data)
+{
+	struct media_player *mp = user_data;
+	DBG(" ");
+
+	/* Check if A2DP streaming is suspended */
+	if ((old_state == SINK_STATE_PLAYING) &&
+		(new_state == SINK_STATE_CONNECTED)) {
+
+		/* Check AVRCP play back status */
+		if (g_strcmp0(mp->status, "playing") != 0)
+			return;
+
+		media_stop_suspend_timer();
+
+		/* PlayBackStatus is still PLAYING; start a timer */
+		suspend_timer_id = g_timeout_add_seconds(SINK_SUSPEND_TIMEOUT,
+				media_reset_mp_status, mp);
+		DBG("SINK SUSPEND TIMEOUT started");
+	}
+
+	/* Check if A2DP streaming is started */
+	if ((old_state == SINK_STATE_CONNECTED) &&
+		(new_state == SINK_STATE_PLAYING)) {
+
+		struct btd_device *device = btd_service_get_device(service);
+		char name[20];
+
+		media_stop_suspend_timer();
+
+		/* NULL packet streaming during initial connection */
+		if (set_avrcp_status == FALSE) {
+			set_avrcp_status = TRUE;
+			return;
+		}
+
+		/* Check for BMW, Audi, VW car kit */
+		device_get_name(device, name, sizeof(name));
+		DBG("Name : %s", name);
+		if ((g_str_has_prefix(name, "BMW") == TRUE) ||
+				(g_str_has_prefix(name, "Audi") == TRUE) ||
+				(g_str_has_prefix(name, "VW BT") == TRUE)) {
+
+			/* Check AVRCP play back status */
+			if (g_strcmp0(mp->status, "playing") == 0)
+				return;
+
+			g_free(mp->status);
+			mp->status = g_strdup("playing");
+			avrcp_player_event(mp->player,
+				AVRCP_EVENT_STATUS_CHANGED, mp->status);
+		}
+	}
+}
+
+static int media_set_sink_callback(struct btd_device *device,
+					struct media_player *mp)
+{
+	struct btd_service *service;
+	DBG(" ");
+
+	service = btd_device_get_service(device, A2DP_SINK_UUID);
+	if (service == NULL)
+		return -EINVAL;
+
+	mp->sink_watch = sink_add_state_cb(service, media_sink_state_changed_cb, mp);
+
+	return 0;
+}
+#endif
+
 struct a2dp_config_data {
 	struct a2dp_setup *setup;
 	a2dp_endpoint_config_t cb;
@@ -420,6 +577,10 @@ static gboolean set_configuration(struct media_endpoint *endpoint,
 	const char *path;
 	DBusMessageIter iter;
 	struct media_transport *transport;
+#ifdef __TIZEN_PATCH__
+	struct media_adapter *adapter;
+	struct media_player *mp;
+#endif
 
 	transport = find_device_transport(endpoint, device);
 
@@ -439,6 +600,13 @@ static gboolean set_configuration(struct media_endpoint *endpoint,
 		media_transport_destroy(transport);
 		return FALSE;
 	}
+
+#ifdef __TIZEN_PATCH__
+	set_avrcp_status = FALSE;
+	adapter = find_adapter(device);
+	if (mp = media_adapter_get_player(adapter))
+		media_set_sink_callback(device, mp);
+#endif
 
 	endpoint->transports = g_slist_append(endpoint->transports, transport);
 
@@ -957,6 +1125,13 @@ static void media_player_free(gpointer data)
 	if (mp->settings)
 		g_hash_table_unref(mp->settings);
 
+#ifdef __TIZEN_PATCH__
+	media_stop_suspend_timer();
+
+	if (mp->sink_watch)
+		sink_remove_state_cb(mp->sink_watch);
+#endif
+
 	g_timer_destroy(mp->timer);
 	g_free(mp->sender);
 	g_free(mp->path);
@@ -1032,6 +1207,8 @@ static const char *repeat_to_loop_status(const char *value)
 		return "Track";
 	else if (strcasecmp(value, "alltracks") == 0)
 		return "Playlist";
+	else if (strcasecmp(value, "group") == 0)
+		return "Playlist";
 
 	return NULL;
 }
@@ -1057,11 +1234,16 @@ static int set_setting(const char *key, const char *value, void *user_data)
 	const char *iface = MEDIA_PLAYER_INTERFACE;
 	DBusMessage *msg;
 	DBusMessageIter iter;
+	const char *curval;
 
 	DBG("%s = %s", key, value);
 
-	if (!g_hash_table_lookup(mp->settings, key))
+	curval = g_hash_table_lookup(mp->settings, key);
+	if (!curval)
 		return -EINVAL;
+
+	if (strcasecmp(curval, value) == 0)
+		return 0;
 
 	msg = dbus_message_new_method_call(mp->sender, mp->path,
 					DBUS_INTERFACE_PROPERTIES, "Set");
@@ -1281,6 +1463,9 @@ static void media_player_exit(DBusConnection *connection, void *user_data)
 static gboolean set_status(struct media_player *mp, DBusMessageIter *iter)
 {
 	const char *value;
+#ifdef __TIZEN_PATCH__
+	uint32_t playback_position;
+#endif
 
 	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_STRING)
 		return FALSE;
@@ -1298,26 +1483,48 @@ static gboolean set_status(struct media_player *mp, DBusMessageIter *iter)
 	mp->status = g_strdup(value);
 
 	avrcp_player_event(mp->player, AVRCP_EVENT_STATUS_CHANGED, mp->status);
+#ifdef __TIZEN_PATCH__
+	if (strcasecmp(mp->status, "reverse-seek") != 0) {
+		playback_position = get_position(mp);
+		avrcp_player_event(mp->player, AVRCP_EVENT_PLAYBACK_POS_CHANGED,
+							&playback_position);
+	}
+#endif
 
 	return TRUE;
 }
 
 static gboolean set_position(struct media_player *mp, DBusMessageIter *iter)
 {
+#ifdef __TIZEN_PATCH__
+	uint32_t value;
+#else
 	uint64_t value;
 	const char *status;
+#endif
+#ifdef __TIZEN_PATCH__
+	uint32_t playback_position;
+#endif
 
+#ifndef __TIZEN_PATCH__
 	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_INT64)
-			return FALSE;
-
+		return FALSE;
+#else
+	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_UINT32)
+		return FALSE;
+#endif
 	dbus_message_iter_get_basic(iter, &value);
 
+#ifndef __TIZEN_PATCH__
 	value /= 1000;
-
+#endif
+	DBG("Value %d", value);
+#ifndef __TIZEN_PATCH__
 	if (value > get_position(mp))
 		status = "forward-seek";
 	else
 		status = "reverse-seek";
+#endif
 
 	mp->position = value;
 	g_timer_start(mp->timer);
@@ -1327,6 +1534,12 @@ static gboolean set_position(struct media_player *mp, DBusMessageIter *iter)
 	if (!mp->position) {
 		avrcp_player_event(mp->player,
 					AVRCP_EVENT_TRACK_REACHED_START, NULL);
+#ifdef __TIZEN_PATCH__
+		playback_position = get_position(mp);
+		avrcp_player_event(mp->player, AVRCP_EVENT_PLAYBACK_POS_CHANGED,
+						&playback_position);
+#endif
+
 		return TRUE;
 	}
 
@@ -1337,11 +1550,23 @@ static gboolean set_position(struct media_player *mp, DBusMessageIter *iter)
 	if (mp->position == UINT32_MAX || mp->position >= mp->duration) {
 		avrcp_player_event(mp->player, AVRCP_EVENT_TRACK_REACHED_END,
 									NULL);
+#ifdef __TIZEN_PATCH__
+		playback_position = get_position(mp);
+		avrcp_player_event(mp->player, AVRCP_EVENT_PLAYBACK_POS_CHANGED,
+						&playback_position);
+#endif
 		return TRUE;
 	}
 
+#ifndef __TIZEN_PATCH__
 	/* Send a status change to force resync the position */
 	avrcp_player_event(mp->player, AVRCP_EVENT_STATUS_CHANGED, status);
+#endif
+#ifdef __TIZEN_PATCH__
+	playback_position = get_position(mp);
+	avrcp_player_event(mp->player, AVRCP_EVENT_PLAYBACK_POS_CHANGED,
+						&playback_position);
+#endif
 
 	return TRUE;
 }
@@ -1349,6 +1574,15 @@ static gboolean set_position(struct media_player *mp, DBusMessageIter *iter)
 static void set_metadata(struct media_player *mp, const char *key,
 							const char *value)
 {
+#ifdef __TIZEN_PATCH__
+	const char *current_value = NULL;
+
+	current_value = g_hash_table_lookup(mp->track, key);
+
+	if ((g_strcmp0(value, current_value) != 0) &&
+		(send_track_changed_event == FALSE))
+		send_track_changed_event = TRUE;
+#endif
 	DBG("%s=%s", key, value);
 	g_hash_table_replace(mp->track, g_strdup(key), g_strdup(value));
 }
@@ -1408,7 +1642,9 @@ static gboolean parse_int64_metadata(struct media_player *mp, const char *key,
 	dbus_message_iter_get_basic(iter, &value);
 
 	if (strcasecmp(key, "Duration") == 0) {
+#ifndef __TIZEN_PATCH__
 		value /= 1000;
+#endif
 		mp->duration = value;
 	}
 
@@ -1449,6 +1685,9 @@ static gboolean parse_player_metadata(struct media_player *mp,
 	int ctype;
 	gboolean title = FALSE;
 	uint64_t uid;
+#ifdef __TIZEN_PATCH__
+	uint32_t playback_position;
+#endif
 
 	ctype = dbus_message_iter_get_arg_type(iter);
 	if (ctype != DBUS_TYPE_ARRAY)
@@ -1456,11 +1695,13 @@ static gboolean parse_player_metadata(struct media_player *mp,
 
 	dbus_message_iter_recurse(iter, &dict);
 
+#ifndef __TIZEN_PATCH__
 	if (mp->track != NULL)
 		g_hash_table_unref(mp->track);
 
 	mp->track = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
 								g_free);
+#endif
 
 	while ((ctype = dbus_message_iter_get_arg_type(&dict)) !=
 							DBUS_TYPE_INVALID) {
@@ -1498,6 +1739,11 @@ static gboolean parse_player_metadata(struct media_player *mp,
 		} else if (strcasecmp(key, "mpris:length") == 0) {
 			if (!parse_int64_metadata(mp, "Duration", &var))
 				return FALSE;
+#ifdef __TIZEN_PATCH__
+		} else if (strcasecmp(key, "xesam:totalTracks") == 0) {
+			if (!parse_int32_metadata(mp, "NumberOfTracks", &var))
+				return FALSE;
+#endif
 		} else if (strcasecmp(key, "xesam:trackNumber") == 0) {
 			if (!parse_int32_metadata(mp, "TrackNumber", &var))
 				return FALSE;
@@ -1511,13 +1757,25 @@ static gboolean parse_player_metadata(struct media_player *mp,
 		g_hash_table_insert(mp->track, g_strdup("Title"),
 								g_strdup(""));
 
+#ifdef __TIZEN_PATCH__
+	if (send_track_changed_event) {
+		uid = get_uid(mp);
+		avrcp_player_event(mp->player,
+			AVRCP_EVENT_TRACK_CHANGED, &uid);
+		send_track_changed_event = FALSE;
+
+		playback_position = get_position(mp);
+		avrcp_player_event(mp->player,
+			AVRCP_EVENT_PLAYBACK_POS_CHANGED, &playback_position);
+	}
+#else
 	mp->position = 0;
 	g_timer_start(mp->timer);
 	uid = get_uid(mp);
 
 	avrcp_player_event(mp->player, AVRCP_EVENT_TRACK_CHANGED, &uid);
 	avrcp_player_event(mp->player, AVRCP_EVENT_TRACK_REACHED_START, NULL);
-
+#endif
 	return TRUE;
 }
 
@@ -1746,6 +2004,10 @@ static struct media_player *media_player_create(struct media_adapter *adapter,
 
 	mp->settings = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
 								g_free);
+#ifdef __TIZEN_PATCH__
+	mp->track = g_hash_table_new_full(g_str_hash, g_str_equal, g_free,
+								g_free);
+#endif
 
 	adapter->players = g_slist_append(adapter->players, mp);
 
@@ -1821,11 +2083,19 @@ static const GDBusMethodTable media_methods[] = {
 		NULL, register_endpoint) },
 	{ GDBUS_METHOD("UnregisterEndpoint",
 		GDBUS_ARGS({ "endpoint", "o" }), NULL, unregister_endpoint) },
+#ifndef __TIZEN_PATCH__
 	{ GDBUS_EXPERIMENTAL_METHOD("RegisterPlayer",
 		GDBUS_ARGS({ "player", "o" }, { "properties", "a{sv}" }),
 		NULL, register_player) },
 	{ GDBUS_EXPERIMENTAL_METHOD("UnregisterPlayer",
 		GDBUS_ARGS({ "player", "o" }), NULL, unregister_player) },
+#else
+	{ GDBUS_METHOD("RegisterPlayer",
+		GDBUS_ARGS({ "player", "o" }, { "properties", "a{sv}" }),
+		NULL, register_player) },
+	{ GDBUS_METHOD("UnregisterPlayer",
+		GDBUS_ARGS({ "player", "o" }), NULL, unregister_player) },
+#endif /* __TIZEN_PATCH__ */
 	{ },
 };
 

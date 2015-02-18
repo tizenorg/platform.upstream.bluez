@@ -49,5 +49,7 @@ ssize_t bnep_send_ctrl_rsp(int sk, uint8_t type, uint8_t ctrl, uint16_t resp);
 uint16_t bnep_setup_chk(uint16_t dst_role, uint16_t src_role);
 uint16_t bnep_setup_decode(struct bnep_setup_conn_req *req, uint16_t *dst,
 								uint16_t *src);
-
+#ifdef  __TIZEN_PATCH__
 int bnep_if_down_wrapper(const char *devname);
+int bnep_conndel_wrapper(const bdaddr_t *dst);
+#endif

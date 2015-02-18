@@ -654,7 +654,6 @@ static void cmd_show(int argc, char *argv[])
 	rl_printf("Player %s\n", g_dbus_proxy_get_path(proxy));
 
 	print_property(proxy, "Name");
-	print_property(proxy, "Searchable");
 	print_property(proxy, "Repeat");
 	print_property(proxy, "Equalizer");
 	print_property(proxy, "Shuffle");
@@ -928,7 +927,6 @@ static void cmd_search(int argc, char *argv[])
 {
 	GDBusProxy *proxy;
 	char *string;
-	DBusMessageIter iter;
 
 	if (argc < 2) {
 		rl_printf("Missing string argument\n");
@@ -943,11 +941,6 @@ static void cmd_search(int argc, char *argv[])
 		rl_printf("Operation not supported\n");
 		return;
 	}
-
-	if (g_dbus_proxy_get_property(proxy, "Searchable", &iter) == FALSE) {
-                rl_printf("Search not supported on the client side\n");
-                return;
-        }
 
 	string = g_strdup(argv[1]);
 

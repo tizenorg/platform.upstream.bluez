@@ -150,13 +150,28 @@ static void events_handler(const uint8_t *pdu, uint16_t len, gpointer user_data)
 
 static void connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 {
+	uint16_t mtu;
+	uint16_t cid;
+
 	if (err) {
 		set_state(STATE_DISCONNECTED);
 		error("%s\n", err->message);
 		return;
 	}
 
-	attrib = g_attrib_new(iochannel);
+	bt_io_get(io, &err, BT_IO_OPT_IMTU, &mtu,
+				BT_IO_OPT_CID, &cid, BT_IO_OPT_INVALID);
+
+	if (err) {
+		g_printerr("Can't detect MTU, using default: %s", err->message);
+		g_error_free(err);
+		mtu = ATT_DEFAULT_LE_MTU;
+	}
+
+	if (cid == ATT_CID)
+		mtu = ATT_DEFAULT_LE_MTU;
+
+	attrib = g_attrib_new(iochannel, mtu);
 	g_attrib_register(attrib, ATT_OP_HANDLE_NOTIFY, GATTRIB_ALL_HANDLES,
 						events_handler, attrib, NULL);
 	g_attrib_register(attrib, ATT_OP_HANDLE_IND, GATTRIB_ALL_HANDLES,
@@ -541,7 +556,9 @@ static void cmd_char_desc(int argcp, char **argvp)
 static void cmd_read_hnd(int argcp, char **argvp)
 {
 	int handle;
-
+#ifdef __TIZEN_PATCH__
+	int offset = 0;
+#endif
 	if (conn_state != STATE_CONNECTED) {
 		failed("Disconnected\n");
 		return;
@@ -557,8 +574,18 @@ static void cmd_read_hnd(int argcp, char **argvp)
 		error("Invalid handle: %s\n", argvp[1]);
 		return;
 	}
-
+#ifdef __TIZEN_PATCH__
+	if (argcp > 2) {
+		offset = strtohandle(argvp[2]);
+		if (offset < 0) {
+			error("Invalid Offset: %s\n", argvp[2]);
+			return;
+		}
+	}
+	gatt_read_char_by_offset(attrib, handle, offset, char_read_cb, attrib);
+#else
 	gatt_read_char(attrib, handle, char_read_cb, attrib);
+#endif
 }
 
 static void cmd_read_uuid(int argcp, char **argvp)

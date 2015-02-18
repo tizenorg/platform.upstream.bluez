@@ -29,8 +29,6 @@
 #include "hal-ipc.h"
 #include "hal-utils.h"
 
-#define MODE_PROPERTY_NAME "persist.sys.bluetooth.mode"
-
 static const bt_callbacks_t *bt_hal_cbacks = NULL;
 
 #define enum_prop_to_hal(prop, hal_prop, type) do { \
@@ -52,7 +50,7 @@ static const bt_callbacks_t *bt_hal_cbacks = NULL;
 	*hal_len = 1; \
 } while (0)
 
-static void handle_adapter_state_changed(void *buf, uint16_t len)
+static void handle_adapter_state_changed(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_adapter_state_changed *ev = buf;
 
@@ -118,6 +116,21 @@ static void adapter_prop_from_hal(const bt_property_t *property, uint8_t *type,
 	case HAL_PROP_ADAPTER_SCAN_MODE:
 		enum_prop_from_hal(property, len, val, bt_scan_mode_t);
 		break;
+	case BT_PROPERTY_BDNAME:
+	case BT_PROPERTY_BDADDR:
+	case BT_PROPERTY_UUIDS:
+	case BT_PROPERTY_CLASS_OF_DEVICE:
+	case BT_PROPERTY_TYPE_OF_DEVICE:
+	case BT_PROPERTY_SERVICE_RECORD:
+	case BT_PROPERTY_ADAPTER_BONDED_DEVICES:
+	case BT_PROPERTY_ADAPTER_DISCOVERY_TIMEOUT:
+	case BT_PROPERTY_REMOTE_FRIENDLY_NAME:
+	case BT_PROPERTY_REMOTE_RSSI:
+	case BT_PROPERTY_REMOTE_VERSION_INFO:
+	case BT_PROPERTY_REMOTE_DEVICE_TIMESTAMP:
+#if ANDROID_VERSION >= PLATFORM_VER(5, 0, 0)
+	case BT_PROPERTY_LOCAL_LE_FEATURES:
+#endif
 	default:
 		*len = property->len;
 		memcpy(val, property->val, property->len);
@@ -197,7 +210,7 @@ static void device_props_to_hal(bt_property_t *send_props,
 	exit(EXIT_FAILURE);
 }
 
-static void handle_adapter_props_changed(void *buf, uint16_t len)
+static void handle_adapter_props_changed(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_adapter_props_changed *ev = buf;
 	bt_property_t props[ev->num_props];
@@ -213,7 +226,7 @@ static void handle_adapter_props_changed(void *buf, uint16_t len)
 	bt_hal_cbacks->adapter_properties_cb(ev->status, ev->num_props, props);
 }
 
-static void handle_bond_state_change(void *buf, uint16_t len)
+static void handle_bond_state_change(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_bond_state_changed *ev = buf;
 	bt_bdaddr_t *addr = (bt_bdaddr_t *) ev->bdaddr;
@@ -225,7 +238,7 @@ static void handle_bond_state_change(void *buf, uint16_t len)
 								ev->state);
 }
 
-static void handle_pin_request(void *buf, uint16_t len)
+static void handle_pin_request(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_pin_request *ev = buf;
 	/* Those are declared as packed, so it's safe to assign pointers */
@@ -238,7 +251,7 @@ static void handle_pin_request(void *buf, uint16_t len)
 		bt_hal_cbacks->pin_request_cb(addr, name, ev->class_of_dev);
 }
 
-static void handle_ssp_request(void *buf, uint16_t len)
+static void handle_ssp_request(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_ssp_request *ev = buf;
 	/* Those are declared as packed, so it's safe to assign pointers */
@@ -270,7 +283,7 @@ static bool interface_ready(void)
 	return bt_hal_cbacks != NULL;
 }
 
-static void handle_discovery_state_changed(void *buf, uint16_t len)
+static void handle_discovery_state_changed(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_discovery_state_changed *ev = buf;
 
@@ -280,7 +293,7 @@ static void handle_discovery_state_changed(void *buf, uint16_t len)
 		bt_hal_cbacks->discovery_state_changed_cb(ev->state);
 }
 
-static void handle_device_found(void *buf, uint16_t len)
+static void handle_device_found(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_device_found *ev = buf;
 	bt_property_t props[ev->num_props];
@@ -296,7 +309,7 @@ static void handle_device_found(void *buf, uint16_t len)
 	bt_hal_cbacks->device_found_cb(ev->num_props, props);
 }
 
-static void handle_device_state_changed(void *buf, uint16_t len)
+static void handle_device_state_changed(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_remote_device_props *ev = buf;
 	bt_property_t props[ev->num_props];
@@ -314,7 +327,7 @@ static void handle_device_state_changed(void *buf, uint16_t len)
 						ev->num_props, props);
 }
 
-static void handle_acl_state_changed(void *buf, uint16_t len)
+static void handle_acl_state_changed(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_acl_state_changed *ev = buf;
 	bt_bdaddr_t *addr = (bt_bdaddr_t *) ev->bdaddr;
@@ -326,7 +339,7 @@ static void handle_acl_state_changed(void *buf, uint16_t len)
 								ev->state);
 }
 
-static void handle_dut_mode_receive(void *buf, uint16_t len)
+static void handle_dut_mode_receive(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_dut_mode_receive *ev = buf;
 
@@ -341,7 +354,7 @@ static void handle_dut_mode_receive(void *buf, uint16_t len)
 		bt_hal_cbacks->dut_mode_recv_cb(ev->opcode, ev->data, ev->len);
 }
 
-static void handle_le_test_mode(void *buf, uint16_t len)
+static void handle_le_test_mode(void *buf, uint16_t len, int fd)
 {
 	struct hal_ev_le_test_mode *ev = buf;
 
@@ -351,84 +364,144 @@ static void handle_le_test_mode(void *buf, uint16_t len)
 		bt_hal_cbacks->le_test_mode_cb(ev->status, ev->num_packets);
 }
 
+static void handle_energy_info(void *buf, uint16_t len, int fd)
+{
+#if ANDROID_VERSION >= PLATFORM_VER(5, 0, 0)
+	struct hal_ev_energy_info *ev = buf;
+	bt_activity_energy_info info;
+
+	DBG("");
+
+	info.ctrl_state = ev->ctrl_state;
+	info.energy_used = ev->energy_used;
+	info.idle_time = ev->idle_time;
+	info.rx_time = ev->rx_time;
+	info.status = ev->status;
+	info.tx_time = ev->status;
+
+	if (bt_hal_cbacks->energy_info_cb)
+		bt_hal_cbacks->energy_info_cb(&info);
+#endif
+}
+
 /*
  * handlers will be called from notification thread context,
  * index in table equals to 'opcode - HAL_MINIMUM_EVENT'
  */
 static const struct hal_ipc_handler ev_handlers[] = {
-	{	/* HAL_EV_ADAPTER_STATE_CHANGED */
-		.handler = handle_adapter_state_changed,
-		.var_len = false,
-		.data_len = sizeof(struct hal_ev_adapter_state_changed)
-	},
-	{	/* HAL_EV_ADAPTER_PROPS_CHANGED */
-		.handler = handle_adapter_props_changed,
-		.var_len = true,
-		.data_len = sizeof(struct hal_ev_adapter_props_changed) +
-						sizeof(struct hal_property),
-	},
-	{	/* HAL_EV_REMOTE_DEVICE_PROPS */
-		.handler = handle_device_state_changed,
-		.var_len = true,
-		.data_len = sizeof(struct hal_ev_remote_device_props) +
-						sizeof(struct hal_property),
-	},
-	{	/* HAL_EV_DEVICE_FOUND */
-		.handler = handle_device_found,
-		.var_len = true,
-		.data_len = sizeof(struct hal_ev_device_found) +
-						sizeof(struct hal_property),
-	},
-	{	/* HAL_EV_DISCOVERY_STATE_CHANGED */
-		.handler = handle_discovery_state_changed,
-		.var_len = false,
-		.data_len = sizeof(struct hal_ev_discovery_state_changed),
-	},
-	{	/* HAL_EV_PIN_REQUEST */
-		.handler = handle_pin_request,
-		.var_len = false,
-		.data_len = sizeof(struct hal_ev_pin_request),
-	},
-	{	/* HAL_EV_SSP_REQUEST */
-		.handler = handle_ssp_request,
-		.var_len = false,
-		.data_len = sizeof(struct hal_ev_ssp_request),
-	},
-	{	/* HAL_EV_BOND_STATE_CHANGED */
-		.handler = handle_bond_state_change,
-		.var_len = false,
-		.data_len = sizeof(struct hal_ev_bond_state_changed),
-	},
-	{	/* HAL_EV_ACL_STATE_CHANGED */
-		.handler = handle_acl_state_changed,
-		.var_len = false,
-		.data_len = sizeof(struct hal_ev_acl_state_changed),
-	},
-	{	/* HAL_EV_DUT_MODE_RECEIVE */
-		.handler = handle_dut_mode_receive,
-		.var_len = true,
-		.data_len = sizeof(struct hal_ev_dut_mode_receive),
-	},
-	{	/* HAL_EV_LE_TEST_MODE */
-		.handler = handle_le_test_mode,
-		.var_len = false,
-		.data_len = sizeof(struct hal_ev_le_test_mode),
-	}
+	/* HAL_EV_ADAPTER_STATE_CHANGED */
+	{ handle_adapter_state_changed, false,
+				sizeof(struct hal_ev_adapter_state_changed) },
+	/* HAL_EV_ADAPTER_PROPS_CHANGED */
+	{ handle_adapter_props_changed, true,
+				sizeof(struct hal_ev_adapter_props_changed) +
+				sizeof(struct hal_property) },
+	/* HAL_EV_REMOTE_DEVICE_PROPS */
+	{ handle_device_state_changed, true,
+				sizeof(struct hal_ev_remote_device_props) +
+				sizeof(struct hal_property) },
+	/* HAL_EV_DEVICE_FOUND */
+	{ handle_device_found, true, sizeof(struct hal_ev_device_found) +
+				sizeof(struct hal_property) },
+	/* HAL_EV_DISCOVERY_STATE_CHANGED */
+	{ handle_discovery_state_changed, false,
+				sizeof(struct hal_ev_discovery_state_changed) },
+	/* HAL_EV_PIN_REQUEST */
+	{ handle_pin_request, false, sizeof(struct hal_ev_pin_request) },
+	/* HAL_EV_SSP_REQUEST */
+	{ handle_ssp_request, false, sizeof(struct hal_ev_ssp_request) },
+	/* HAL_EV_BOND_STATE_CHANGED */
+	{ handle_bond_state_change, false,
+				sizeof(struct hal_ev_bond_state_changed) },
+	/* HAL_EV_ACL_STATE_CHANGED */
+	{ handle_acl_state_changed, false,
+				sizeof(struct hal_ev_acl_state_changed) },
+	/* HAL_EV_DUT_MODE_RECEIVE */
+	{ handle_dut_mode_receive, true,
+				sizeof(struct hal_ev_dut_mode_receive) },
+	/* HAL_EV_LE_TEST_MODE */
+	{ handle_le_test_mode, false, sizeof(struct hal_ev_le_test_mode) },
+	/* HAL_EV_ENERGY_INFO */
+	{ handle_energy_info, false, sizeof(struct hal_ev_energy_info) },
 };
 
 static uint8_t get_mode(void)
 {
 	char value[PROPERTY_VALUE_MAX];
 
-	if (property_get(MODE_PROPERTY_NAME, value, "") > 0 &&
-					(!strcasecmp(value, "bredr")))
-		return HAL_MODE_BREDR;
+	if (get_config("mode", value, NULL) > 0) {
+		if (!strcasecmp(value, "bredr"))
+			return HAL_MODE_BREDR;
 
-	if (property_get(MODE_PROPERTY_NAME, value, "") > 0 &&
-					(!strcasecmp(value, "le")))
-		return HAL_MODE_LE;
+		if (!strcasecmp(value, "le"))
+			return HAL_MODE_LE;
+	}
 
 	return HAL_MODE_DEFAULT;
+}
+
+static uint16_t add_prop(const char *prop, uint8_t type, void *buf)
+{
+	struct hal_config_prop *hal_prop = buf;
+
+	hal_prop->type = type;
+	hal_prop->len = strlen(prop) + 1;
+	memcpy(hal_prop->val, prop, hal_prop->len);
+
+	return sizeof(*hal_prop) + hal_prop->len;
+}
+
+static int send_configuration(void)
+{
+	char buf[IPC_MTU];
+	struct hal_cmd_configuration *cmd = (void *) buf;
+	char prop[PROPERTY_VALUE_MAX];
+	uint16_t len = sizeof(*cmd);
+
+	cmd->num = 0;
+
+	if (get_config("vendor", prop, "ro.product.manufacturer") > 0) {
+		len += add_prop(prop, HAL_CONFIG_VENDOR, buf + len);
+		cmd->num++;
+	}
+
+	if (get_config("name", prop, "ro.product.name") > 0) {
+		len += add_prop(prop, HAL_CONFIG_NAME, buf + len);
+		cmd->num++;
+	}
+
+	if (get_config("model", prop, "ro.product.model") > 0) {
+		len += add_prop(prop, HAL_CONFIG_MODEL, buf + len);
+		cmd->num++;
+	}
+
+	if (get_config("serialno", prop, "ro.serialno") > 0) {
+		len += add_prop(prop, HAL_CONFIG_SERIAL_NUMBER, buf + len);
+		cmd->num++;
+	}
+
+	if (get_config("systemid", prop, NULL) > 0) {
+		len += add_prop(prop, HAL_CONFIG_SYSTEM_ID, buf + len);
+		cmd->num++;
+	}
+
+	if (get_config("pnpid", prop, NULL) > 0) {
+		len += add_prop(prop, HAL_CONFIG_PNP_ID, buf + len);
+		cmd->num++;
+	}
+
+	if (get_config("fwrev", prop, "ro.build.version.release") > 0) {
+		len += add_prop(prop, HAL_CONFIG_FW_REV, buf + len);
+		cmd->num++;
+	}
+
+	if (get_config("hwrev", prop, "ro.board.platform") > 0) {
+		len += add_prop(prop, HAL_CONFIG_HW_REV, buf + len);
+		cmd->num++;
+	}
+
+	return hal_ipc_cmd(HAL_SERVICE_ID_CORE, HAL_OP_CONFIGURATION, len, cmd,
+							NULL, NULL, NULL);
 }
 
 static int init(bt_callbacks_t *callbacks)
@@ -441,18 +514,37 @@ static int init(bt_callbacks_t *callbacks)
 	if (interface_ready())
 		return BT_STATUS_DONE;
 
-	bt_hal_cbacks = callbacks;
-
 	hal_ipc_register(HAL_SERVICE_ID_BLUETOOTH, ev_handlers,
 				sizeof(ev_handlers)/sizeof(ev_handlers[0]));
 
-	if (!hal_ipc_init()) {
+	if (!hal_ipc_init(BLUEZ_HAL_SK_PATH, sizeof(BLUEZ_HAL_SK_PATH)))
+		return BT_STATUS_FAIL;
+
+	bt_hal_cbacks = callbacks;
+
+	/* Start Android Bluetooth daemon service */
+	if (property_set("bluetooth.start", "daemon") < 0) {
+		error("Failed to set bluetooth.start=daemon");
+		hal_ipc_cleanup();
 		bt_hal_cbacks = NULL;
 		return BT_STATUS_FAIL;
 	}
 
+	if (!hal_ipc_accept()) {
+		hal_ipc_cleanup();
+		bt_hal_cbacks = NULL;
+		return BT_STATUS_FAIL;
+	}
+
+	status = send_configuration();
+	if (status != BT_STATUS_SUCCESS) {
+		error("Failed to send configuration");
+		goto fail;
+	}
+
 	cmd.service_id = HAL_SERVICE_ID_BLUETOOTH;
 	cmd.mode = get_mode();
+	cmd.max_clients = 1;
 
 	status = hal_ipc_cmd(HAL_SERVICE_ID_CORE, HAL_OP_REGISTER_MODULE,
 					sizeof(cmd), &cmd, NULL, NULL, NULL);
@@ -462,7 +554,13 @@ static int init(bt_callbacks_t *callbacks)
 	}
 
 	cmd.service_id = HAL_SERVICE_ID_SOCKET;
+	cmd.max_clients = 1;
+
+#if ANDROID_VERSION >= PLATFORM_VER(5, 0, 0)
+	cmd.mode = HAL_MODE_SOCKET_DYNAMIC_MAP;
+#else
 	cmd.mode = HAL_MODE_DEFAULT;
+#endif
 
 	status = hal_ipc_cmd(HAL_SERVICE_ID_CORE, HAL_OP_REGISTER_MODULE,
 					sizeof(cmd), &cmd, NULL, NULL, NULL);
@@ -489,8 +587,8 @@ static int enable(void)
 	if (!interface_ready())
 		return BT_STATUS_NOT_READY;
 
-	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_ENABLE, 0, NULL, 0,
-								NULL, NULL);
+	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_ENABLE, 0, NULL,
+							NULL, NULL, NULL);
 }
 
 static int disable(void)
@@ -500,8 +598,8 @@ static int disable(void)
 	if (!interface_ready())
 		return BT_STATUS_NOT_READY;
 
-	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_DISABLE, 0, NULL, 0,
-								NULL, NULL);
+	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_DISABLE, 0, NULL,
+							NULL, NULL, NULL);
 }
 
 static void cleanup(void)
@@ -513,9 +611,9 @@ static void cleanup(void)
 
 	hal_ipc_cleanup();
 
-	bt_hal_cbacks = NULL;
-
 	hal_ipc_unregister(HAL_SERVICE_ID_BLUETOOTH);
+
+	bt_hal_cbacks = NULL;
 }
 
 static int get_adapter_properties(void)
@@ -526,7 +624,7 @@ static int get_adapter_properties(void)
 		return BT_STATUS_NOT_READY;
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_GET_ADAPTER_PROPS,
-						0, NULL, 0, NULL, NULL);
+						0, NULL, NULL, NULL, NULL);
 }
 
 static int get_adapter_property(bt_property_type_t type)
@@ -542,7 +640,7 @@ static int get_adapter_property(bt_property_type_t type)
 	cmd.type = type;
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_GET_ADAPTER_PROP,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static int set_adapter_property(const bt_property_t *property)
@@ -561,7 +659,7 @@ static int set_adapter_property(const bt_property_t *property)
 	len = sizeof(*cmd) + cmd->len;
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_SET_ADAPTER_PROP,
-						len, cmd, 0, NULL, NULL);
+						len, cmd, NULL, NULL, NULL);
 }
 
 static int get_remote_device_properties(bt_bdaddr_t *remote_addr)
@@ -577,7 +675,7 @@ static int get_remote_device_properties(bt_bdaddr_t *remote_addr)
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH,
 					HAL_OP_GET_REMOTE_DEVICE_PROPS,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static int get_remote_device_property(bt_bdaddr_t *remote_addr,
@@ -598,7 +696,7 @@ static int get_remote_device_property(bt_bdaddr_t *remote_addr,
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH,
 					HAL_OP_GET_REMOTE_DEVICE_PROP,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static int set_remote_device_property(bt_bdaddr_t *remote_addr,
@@ -625,7 +723,7 @@ static int set_remote_device_property(bt_bdaddr_t *remote_addr,
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH,
 					HAL_OP_SET_REMOTE_DEVICE_PROP,
-					len, cmd, 0, NULL, NULL);
+					len, cmd, NULL, NULL, NULL);
 }
 
 static int get_remote_service_record(bt_bdaddr_t *remote_addr, bt_uuid_t *uuid)
@@ -642,7 +740,7 @@ static int get_remote_service_record(bt_bdaddr_t *remote_addr, bt_uuid_t *uuid)
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH,
 					HAL_OP_GET_REMOTE_SERVICE_REC,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static int get_remote_services(bt_bdaddr_t *remote_addr)
@@ -656,9 +754,8 @@ static int get_remote_services(bt_bdaddr_t *remote_addr)
 
 	memcpy(cmd.bdaddr, remote_addr, sizeof(cmd.bdaddr));
 
-	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH,
-			HAL_OP_GET_REMOTE_SERVICES, sizeof(cmd), &cmd, 0,
-			NULL, NULL);
+	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_GET_REMOTE_SERVICES,
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static int start_discovery(void)
@@ -668,9 +765,8 @@ static int start_discovery(void)
 	if (!interface_ready())
 		return BT_STATUS_NOT_READY;
 
-	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH,
-				HAL_OP_START_DISCOVERY, 0, NULL, 0,
-				NULL, NULL);
+	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_START_DISCOVERY, 0,
+						NULL, NULL, NULL, NULL);
 }
 
 static int cancel_discovery(void)
@@ -680,12 +776,11 @@ static int cancel_discovery(void)
 	if (!interface_ready())
 		return BT_STATUS_NOT_READY;
 
-	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH,
-				HAL_OP_CANCEL_DISCOVERY, 0, NULL, 0,
-				NULL, NULL);
+	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_CANCEL_DISCOVERY, 0,
+						NULL, NULL, NULL, NULL);
 }
 
-static int create_bond(const bt_bdaddr_t *bd_addr)
+static int create_bond_real(const bt_bdaddr_t *bd_addr, int transport)
 {
 	struct hal_cmd_create_bond cmd;
 
@@ -694,11 +789,25 @@ static int create_bond(const bt_bdaddr_t *bd_addr)
 	if (!interface_ready())
 		return BT_STATUS_NOT_READY;
 
+	cmd.transport = transport;
+
 	memcpy(cmd.bdaddr, bd_addr, sizeof(cmd.bdaddr));
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_CREATE_BOND,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
+
+#if ANDROID_VERSION >= PLATFORM_VER(5, 0, 0)
+static int create_bond(const bt_bdaddr_t *bd_addr, int transport)
+{
+	return create_bond_real(bd_addr, transport);
+}
+#else
+static int create_bond(const bt_bdaddr_t *bd_addr)
+{
+	return create_bond_real(bd_addr, BT_TRANSPORT_UNKNOWN);
+}
+#endif
 
 static int cancel_bond(const bt_bdaddr_t *bd_addr)
 {
@@ -712,7 +821,7 @@ static int cancel_bond(const bt_bdaddr_t *bd_addr)
 	memcpy(cmd.bdaddr, bd_addr, sizeof(cmd.bdaddr));
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_CANCEL_BOND,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static int remove_bond(const bt_bdaddr_t *bd_addr)
@@ -727,7 +836,7 @@ static int remove_bond(const bt_bdaddr_t *bd_addr)
 	memcpy(cmd.bdaddr, bd_addr, sizeof(cmd.bdaddr));
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_REMOVE_BOND,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static int pin_reply(const bt_bdaddr_t *bd_addr, uint8_t accept,
@@ -746,7 +855,7 @@ static int pin_reply(const bt_bdaddr_t *bd_addr, uint8_t accept,
 	memcpy(cmd.pin_code, pin_code, sizeof(cmd.pin_code));
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_PIN_REPLY,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static int ssp_reply(const bt_bdaddr_t *bd_addr, bt_ssp_variant_t variant,
@@ -766,7 +875,7 @@ static int ssp_reply(const bt_bdaddr_t *bd_addr, bt_ssp_variant_t variant,
 	cmd.passkey = passkey;
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_SSP_REPLY,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static const void *get_profile_interface(const char *profile_id)
@@ -800,6 +909,20 @@ static const void *get_profile_interface(const char *profile_id)
 	if (!strcmp(profile_id, BT_PROFILE_HEALTH_ID))
 		return bt_get_health_interface();
 
+#if ANDROID_VERSION >= PLATFORM_VER(5, 0, 0)
+	if (!strcmp(profile_id, BT_PROFILE_AV_RC_CTRL_ID))
+		return bt_get_avrcp_ctrl_interface();
+
+	if (!strcmp(profile_id, BT_PROFILE_HANDSFREE_CLIENT_ID))
+		return bt_get_hf_client_interface();
+
+	if (!strcmp(profile_id, BT_PROFILE_MAP_CLIENT_ID))
+		return bt_get_map_client_interface();
+
+	if (!strcmp(profile_id, BT_PROFILE_ADVANCED_AUDIO_SINK_ID))
+		return bt_get_a2dp_sink_interface();
+#endif
+
 	return NULL;
 }
 
@@ -815,7 +938,7 @@ static int dut_mode_configure(uint8_t enable)
 	cmd.enable = enable;
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_DUT_MODE_CONF,
-					sizeof(cmd), &cmd, 0, NULL, NULL);
+					sizeof(cmd), &cmd, NULL, NULL, NULL);
 }
 
 static int dut_mode_send(uint16_t opcode, uint8_t *buf, uint8_t buf_len)
@@ -836,7 +959,7 @@ static int dut_mode_send(uint16_t opcode, uint8_t *buf, uint8_t buf_len)
 	len = sizeof(*cmd) + cmd->len;
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_DUT_MODE_SEND,
-						len, cmd, 0, NULL, NULL);
+						len, cmd, NULL, NULL, NULL);
 }
 
 static int le_test_mode(uint16_t opcode, uint8_t *buf, uint8_t buf_len)
@@ -857,7 +980,7 @@ static int le_test_mode(uint16_t opcode, uint8_t *buf, uint8_t buf_len)
 	len = sizeof(*cmd) + cmd->len;
 
 	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_LE_TEST_MODE,
-						len, cmd, 0, NULL, NULL);
+						len, cmd, NULL, NULL, NULL);
 }
 
 static int config_hci_snoop_log(uint8_t enable)
@@ -875,6 +998,52 @@ static int config_hci_snoop_log(uint8_t enable)
 
 	return BT_STATUS_SUCCESS;
 }
+
+#if ANDROID_VERSION >= PLATFORM_VER(5, 0, 0)
+static int get_connection_state(const bt_bdaddr_t *bd_addr)
+{
+	struct hal_cmd_get_connection_state cmd;
+	struct hal_rsp_get_connection_state rsp;
+	size_t rsp_len = sizeof(rsp);
+	bt_status_t status;
+
+	DBG("bdaddr: %s", bdaddr2str(bd_addr));
+
+	if (!interface_ready())
+		return 0;
+
+	memcpy(cmd.bdaddr, bd_addr, sizeof(cmd.bdaddr));
+
+	status = hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH,
+			HAL_OP_GET_CONNECTION_STATE, sizeof(cmd), &cmd,
+			&rsp_len, &rsp, NULL);
+
+	if (status != BT_STATUS_SUCCESS)
+		return 0;
+
+	return rsp.connection_state;
+}
+
+static int set_os_callouts(bt_os_callouts_t *callouts)
+{
+	DBG("callouts: %p", callouts);
+
+	/* TODO: implement */
+
+	return BT_STATUS_SUCCESS;
+}
+
+static int read_energy_info(void)
+{
+	DBG("");
+
+	if (!interface_ready())
+		return BT_STATUS_NOT_READY;
+
+	return hal_ipc_cmd(HAL_SERVICE_ID_BLUETOOTH, HAL_OP_READ_ENERGY_INFO, 0,
+							NULL, NULL, NULL, NULL);
+}
+#endif
 
 static const bt_interface_t bluetooth_if = {
 	.size = sizeof(bt_interface_t),
@@ -902,6 +1071,11 @@ static const bt_interface_t bluetooth_if = {
 	.dut_mode_send = dut_mode_send,
 	.le_test_mode = le_test_mode,
 	.config_hci_snoop_log = config_hci_snoop_log,
+#if ANDROID_VERSION >= PLATFORM_VER(5, 0, 0)
+	.get_connection_state = get_connection_state,
+	.set_os_callouts = set_os_callouts,
+	.read_energy_info = read_energy_info,
+#endif
 };
 
 static const bt_interface_t *get_bluetooth_interface(void)

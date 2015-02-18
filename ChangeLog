@@ -1,3 +1,72 @@
+ver 5.27:
+	Fix issue with endian handling and management interface.
+	Fix issue with pending GATT operations when disconnecting.
+	Fix issue with 128-bit UUID conversions for HID over GATT.
+	Add support for Android 5.0 SELinux policies.
+
+ver 5.26:
+	Fix issue with handling A2DP XCASE connection state.
+	Fix issue with crash and A2DP configuration failures.
+	Fix issue with crash during OBEX session shutdown.
+	Add support for version 1.2 of Phonebook Access Profile.
+	Add support for HID over GATT get and set report handling.
+	Add support for Low Energy Secure Connections feature.
+	Add support for Bluetooth 4.2 commands and events.
+	Add support for Android 5.0 Bluetooth features.
+
+ver 5.25:
+	Fix issue with SCO connection after codec negotiation.
+	Fix issue with GATT and secondary service discovery.
+	Fix issue with GATT write descriptor callback.
+	Fix issue with MAP supported features bits.
+	Add support for MAP local time and timezone offset.
+	Add support for PBAP speed-dial and favorites folders.
+	Add support for PBAP speed-dial and identifier filters.
+	Add support for controller mode configuration option.
+	Add initial support for Android Lollipop features.
+
+ver 5.24:
+	Fix issue with storing of connection parameters.
+	Add support for Phonebook Access Profile 1.2 features.
+	Add support for Message Access Profile 1.2 event reports.
+	Add support for Android Bluetooth configuration options.
+
+ver 5.23:
+	Fix issue with concurrent authorization requests.
+	Fix issue with HID report identifier mismatch.
+	Fix issue with crash when receiving uHID events.
+	Fix issue with crash and OBEX disconnect handling.
+	Fix issue with OBEX client transfers and suspend.
+	Fix issue with parsing of MAP application parameters.
+	Fix issue with devices rejecting AVRCP GetCapabilities.
+	Add support for kernel whitelist and Android Bluetooth.
+
+ver 5.22:
+	Fix issue with UHID_OUTPUT events mapping.
+	Fix issue with UHID_FEATURE events handling.
+	Fix issue with UINT32_MAX overflow and AVRCP.
+	Fix issue when dirent type DT_UNKNOWN is returned.
+	Add support for kernel whitelist filtering feature.
+	Add support for Android Bluetooth GATT over BR/EDR.
+
+ver 5.21:
+	Fix issue with SDP requests and wrong PDU size.
+	Fix issue with handling passive scanning triggers.
+	Add support for storing and loading connection parameters.
+	Add support for kernel background auto-connection feature.
+	Add support for Android Bluetooth Scan Parameters feature.
+	Add support for Android Bluetooth Device Information feature.
+	Add support for Android Bluetooth Health Device interface.
+
+ver 5.20:
+	Fix issue with LED handling of PS3 controllers.
+	Add support for Android Bluetooth GATT server interface.
+	Add support for Android Bluetooth HID over GATT feature.
+	Add support for Android Bluetooth multi-profile feature.
+	Add support for Android Bluetooth aptX audio integration.
+
+	Note: aptX codec not included
+
 ver 5.19:
 	Fix issue with OBEX Put-Delete and Create-Empty methods.
 	Fix issue with AVRCP browsable/searchable player properties.

@@ -100,6 +100,7 @@ struct map_data {
 	GHashTable *messages;
 	int16_t mas_instance_id;
 	uint8_t supported_message_types;
+	uint32_t supported_features;
 };
 
 struct pending_request {
@@ -271,8 +272,10 @@ static void folder_listing_cb(struct obc_session *session,
 	}
 
 	reply = dbus_message_new_method_return(request->msg);
-	if (reply == NULL)
-		return;
+	if (reply == NULL) {
+		g_free(contents);
+		goto clean;
+	}
 
 	dbus_message_iter_init_append(reply, &iter);
 	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
@@ -288,6 +291,7 @@ static void folder_listing_cb(struct obc_session *session,
 
 done:
 	g_dbus_send_message(conn, reply);
+clean:
 	pending_request_free(request);
 }
 
@@ -444,8 +448,7 @@ static DBusMessage *map_msg_get(DBusConnection *connection,
 		return g_dbus_create_error(message,
 				ERROR_INTERFACE ".InvalidArguments", NULL);
 
-	if (snprintf(handle, sizeof(handle), "%" PRIx64, msg->handle) < 0)
-		goto fail;
+	snprintf(handle, sizeof(handle), "%" PRIx64, msg->handle);
 
 	transfer = obc_transfer_get("x-bt/message", handle, target_file, &err);
 	if (transfer == NULL)
@@ -743,8 +746,7 @@ static void set_status(const GDBusPropertyTable *property,
 
 	contents[0] = FILLER_BYTE;
 
-	if (snprintf(handle, sizeof(handle), "%" PRIx64, msg->handle) < 0)
-		goto fail;
+	snprintf(handle, sizeof(handle), "%" PRIx64, msg->handle);
 
 	transfer = obc_transfer_put("x-bt/messageStatus", handle, NULL,
 					contents, sizeof(contents), &err);
@@ -1131,7 +1133,7 @@ static void msg_element(GMarkupParseContext *ctxt, const char *element,
 
 		for (parser = msg_parsers; parser && parser->name; parser++) {
 			if (strcasecmp(key, parser->name) == 0) {
-				if(values[i])
+				if (values[i])
 					parser->func(msg, values[i]);
 				break;
 			}
@@ -1181,8 +1183,10 @@ static void message_listing_cb(struct obc_session *session,
 	}
 
 	reply = dbus_message_new_method_return(request->msg);
-	if (reply == NULL)
-		return;
+	if (reply == NULL) {
+		g_free(contents);
+		goto clean;
+	}
 
 	dbus_message_iter_init_append(reply, &iter);
 	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
@@ -1209,6 +1213,7 @@ static void message_listing_cb(struct obc_session *session,
 
 done:
 	g_dbus_send_message(conn, reply);
+clean:
 	pending_request_free(request);
 }
 
@@ -1924,6 +1929,8 @@ static void map_handle_notification(struct map_event *event, void *user_data)
 	case MAP_ET_MESSAGE_SHIFT:
 		map_handle_folder_changed(map, event, event->folder);
 		break;
+	case MAP_ET_MEMORY_FULL:
+	case MAP_ET_MEMORY_AVAILABLE:
 	default:
 		break;
 	}
@@ -1999,6 +2006,14 @@ static void parse_service_record(struct map_data *map)
 		map->supported_message_types = *(uint8_t *)data;
 	else
 		DBG("Failed to read supported message types");
+
+	/* Supported Feature Bits */
+	data = obc_session_get_attribute(map->session,
+					SDP_ATTR_MAP_SUPPORTED_FEATURES);
+	if(data != NULL)
+		map->supported_features = *(uint32_t *) data;
+	else
+		map->supported_features = 0x0000001f;
 }
 
 static int map_probe(struct obc_session *session)

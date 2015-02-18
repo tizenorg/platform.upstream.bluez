@@ -39,11 +39,12 @@
 
 #include "monitor/bt.h"
 #include "emulator/bthost.h"
+#include "emulator/hciemu.h"
 
 #include "src/shared/crypto.h"
+#include "src/shared/ecc.h"
 #include "src/shared/tester.h"
 #include "src/shared/mgmt.h"
-#include "src/shared/hciemu.h"
 
 #define SMP_CID 0x0006
 
@@ -69,6 +70,11 @@ struct test_data {
 	uint8_t preq[7];
 	uint8_t prsp[7];
 	uint8_t ltk[16];
+	uint8_t remote_pk[64];
+	uint8_t local_pk[64];
+	uint8_t local_sk[32];
+	uint8_t dhkey[32];
+	int unmet_conditions;
 };
 
 struct smp_req_rsp {
@@ -81,6 +87,12 @@ struct smp_req_rsp {
 struct smp_data {
 	const struct smp_req_rsp *req;
 	size_t req_count;
+	bool mitm;
+	uint16_t expect_hci_command;
+	const void *expect_hci_param;
+	uint8_t expect_hci_len;
+	const void * (*expect_hci_func)(uint8_t *len);
+	bool sc;
 };
 
 static void mgmt_debug(const char *str, void *user_data)
@@ -242,13 +254,33 @@ static void test_data_free(void *test_data)
 	free(data);
 }
 
+static void test_add_condition(struct test_data *data)
+{
+	data->unmet_conditions++;
+
+	tester_print("Test condition added, total %d", data->unmet_conditions);
+}
+
+static void test_condition_complete(struct test_data *data)
+{
+	data->unmet_conditions--;
+
+	tester_print("Test condition complete, %d left",
+						data->unmet_conditions);
+
+	if (data->unmet_conditions > 0)
+		return;
+
+	tester_test_passed();
+}
+
 #define test_smp(name, data, setup, func) \
 	do { \
 		struct test_data *user; \
 		user = calloc(1, sizeof(struct test_data)); \
 		if (!user) \
 			break; \
-		user->hciemu_type = HCIEMU_TYPE_LE; \
+		user->hciemu_type = HCIEMU_TYPE_BREDRLE; \
 		user->test_data = data; \
 		tester_add_full(name, data, \
 				test_pre_setup, setup, func, NULL, \
@@ -282,16 +314,23 @@ static const struct smp_data smp_server_nval_req_2_test = {
 };
 
 static const uint8_t smp_nval_req_3[] = { 0x01, 0xff };
-static const uint8_t smp_nval_req_3_rsp[] = { 0x05, 0x08 };
+static const uint8_t smp_nval_req_3_rsp[] = { 0x05, 0x0a };
 
 static const struct smp_req_rsp srv_nval_req_2[] = {
-	{ smp_nval_req_2, sizeof(smp_nval_req_3),
+	{ smp_nval_req_3, sizeof(smp_nval_req_3),
 			smp_nval_req_3_rsp, sizeof(smp_nval_req_3_rsp) },
 };
 
 static const struct smp_data smp_server_nval_req_3_test = {
 	.req = srv_nval_req_2,
 	.req_count = G_N_ELEMENTS(srv_nval_req_2),
+};
+
+static const uint8_t smp_nval_req_4[] = { 0xff, 0xff };
+static const uint8_t smp_nval_req_4_rsp[] = { 0x05, 0x07 };
+
+static const struct smp_req_rsp srv_nval_req_3[] = {
+	{ smp_nval_req_4, sizeof(smp_nval_req_4), NULL, 0 },
 };
 
 static const uint8_t smp_basic_req_1[] = {	0x01,	/* Pairing Request */
@@ -342,6 +381,97 @@ static const struct smp_data smp_client_basic_req_1_test = {
 	.req_count = G_N_ELEMENTS(cli_basic_req_1),
 };
 
+static const uint8_t smp_basic_req_2[] = {	0x01,	/* Pairing Request */
+						0x04,	/* NoInputNoOutput */
+						0x00,	/* OOB Flag */
+						0x05,	/* Bonding - MITM */
+						0x10,	/* Max key size */
+						0x05,	/* Init. key dist. */
+						0x05,	/* Rsp. key dist. */
+};
+
+static const struct smp_req_rsp cli_basic_req_2[] = {
+	{ NULL, 0, smp_basic_req_2, sizeof(smp_basic_req_2) },
+	{ smp_basic_req_1_rsp, sizeof(smp_basic_req_1_rsp),
+			smp_confirm_req_1, sizeof(smp_confirm_req_1) },
+	{ smp_confirm_req_1, sizeof(smp_confirm_req_1),
+			smp_random_req_1, sizeof(smp_random_req_1) },
+	{ smp_random_req_1, sizeof(smp_random_req_1), NULL, 0 },
+};
+
+static const struct smp_data smp_client_basic_req_2_test = {
+	.req = cli_basic_req_2,
+	.req_count = G_N_ELEMENTS(cli_basic_req_1),
+	.mitm = true,
+};
+
+static void user_confirm_request_callback(uint16_t index, uint16_t length,
+							const void *param,
+							void *user_data)
+{
+	const struct mgmt_ev_user_confirm_request *ev = param;
+	struct test_data *data = tester_get_data();
+	struct mgmt_cp_user_confirm_reply cp;
+
+	memset(&cp, 0, sizeof(cp));
+	memcpy(&cp.addr, &ev->addr, sizeof(cp.addr));
+
+	mgmt_reply(data->mgmt, MGMT_OP_USER_CONFIRM_REPLY,
+			data->mgmt_index, sizeof(cp), &cp, NULL, NULL, NULL);
+}
+
+static const uint8_t smp_sc_req_1[] = {	0x01,	/* Pairing Request */
+					0x03,	/* NoInputNoOutput */
+					0x00,	/* OOB Flag */
+					0x09,	/* Bonding - no MITM, SC */
+					0x10,	/* Max key size */
+					0x0d,	/* Init. key dist. */
+					0x0d,	/* Rsp. key dist. */
+};
+
+static const struct smp_req_rsp cli_sc_req_1[] = {
+	{ NULL, 0, smp_sc_req_1, sizeof(smp_sc_req_1) },
+	{ smp_basic_req_1_rsp, sizeof(smp_basic_req_1_rsp),
+			smp_confirm_req_1, sizeof(smp_confirm_req_1) },
+	{ smp_confirm_req_1, sizeof(smp_confirm_req_1),
+			smp_random_req_1, sizeof(smp_random_req_1) },
+	{ smp_random_req_1, sizeof(smp_random_req_1), NULL, 0 },
+};
+
+static const struct smp_data smp_client_sc_req_1_test = {
+	.req = cli_sc_req_1,
+	.req_count = G_N_ELEMENTS(cli_sc_req_1),
+	.sc = true,
+};
+
+static const uint8_t smp_sc_rsp_1[] = {	0x02,	/* Pairing Response */
+					0x03,	/* NoInputNoOutput */
+					0x00,	/* OOB Flag */
+					0x09,	/* Bonding - no MITM, SC */
+					0x10,	/* Max key size */
+					0x0d,	/* Init. key dist. */
+					0x0d,	/* Rsp. key dist. */
+};
+
+static const uint8_t smp_sc_pk[65] = { 0x0c };
+
+static const uint8_t smp_sc_failed_rsp_1[] = { 0x05, 0x08 };
+
+static const struct smp_req_rsp cli_sc_req_2[] = {
+	{ NULL, 0, smp_sc_req_1, sizeof(smp_sc_req_1) },
+	{ smp_sc_rsp_1, sizeof(smp_sc_rsp_1), smp_sc_pk, sizeof(smp_sc_pk) },
+	{ smp_sc_pk, sizeof(smp_sc_pk), NULL, 0 },
+	{ smp_confirm_req_1, sizeof(smp_confirm_req_1),
+				smp_random_req_1, sizeof(smp_random_req_1) },
+	{ smp_random_req_1, sizeof(smp_random_req_1), NULL, 0 },
+};
+
+static const struct smp_data smp_client_sc_req_2_test = {
+	.req = cli_sc_req_2,
+	.req_count = G_N_ELEMENTS(cli_sc_req_2),
+	.sc = true,
+};
+
 static void client_connectable_complete(uint16_t opcode, uint8_t status,
 					const void *param, uint8_t len,
 					void *user_data)
@@ -372,20 +502,39 @@ static void setup_powered_client_callback(uint8_t status, uint16_t length,
 
 	bthost = hciemu_client_get_host(data->hciemu);
 	bthost_set_cmd_complete_cb(bthost, client_connectable_complete, data);
-	bthost_set_adv_enable(bthost, 0x01);
+	bthost_set_adv_enable(bthost, 0x01, 0x00);
+}
+
+static void make_pk(struct test_data *data)
+{
+	if (!ecc_make_key(data->local_pk, data->local_sk)) {
+		tester_print("Failed to general local ECDH keypair");
+		tester_setup_failed();
+		return;
+	}
 }
 
 static void setup_powered_client(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
+	const struct smp_data *smp = data->test_data;
 	unsigned char param[] = { 0x01 };
 
 	tester_print("Powering on controller");
 
 	mgmt_send(data->mgmt, MGMT_OP_SET_LE, data->mgmt_index,
 				sizeof(param), param, NULL, NULL, NULL);
-	mgmt_send(data->mgmt, MGMT_OP_SET_PAIRABLE, data->mgmt_index,
+	mgmt_send(data->mgmt, MGMT_OP_SET_BONDABLE, data->mgmt_index,
 				sizeof(param), param, NULL, NULL, NULL);
+	if (smp->sc) {
+		mgmt_send(data->mgmt, MGMT_OP_SET_SSP, data->mgmt_index,
+				sizeof(param), param, NULL, NULL, NULL);
+		mgmt_send(data->mgmt, MGMT_OP_SET_SECURE_CONN,
+				data->mgmt_index, sizeof(param), param, NULL,
+				NULL, NULL);
+		make_pk(data);
+	}
+
 	mgmt_send(data->mgmt, MGMT_OP_SET_POWERED, data->mgmt_index,
 			sizeof(param), param, setup_powered_client_callback,
 			NULL, NULL);
@@ -396,19 +545,18 @@ static void pair_device_complete(uint8_t status, uint16_t length,
 {
 	if (status != MGMT_STATUS_SUCCESS) {
 		tester_warn("Pairing failed: %s", mgmt_errstr(status));
-		tester_test_failed();
 		return;
 	}
 
 	tester_print("Pairing succeedded");
-	tester_test_passed();
 }
 
 static const void *get_pdu(const uint8_t *pdu)
 {
 	struct test_data *data = tester_get_data();
+	const struct smp_data *smp = data->test_data;
 	uint8_t opcode = pdu[0];
-	static uint8_t buf[17];
+	static uint8_t buf[65];
 
 	switch (opcode) {
 	case 0x01: /* Pairing Request */
@@ -419,13 +567,23 @@ static const void *get_pdu(const uint8_t *pdu)
 		break;
 	case 0x03: /* Pairing Confirm */
 		buf[0] = pdu[0];
-		bt_crypto_c1(data->crypto, data->tk, data->prnd, data->prsp,
-					data->preq, data->ia_type, data->ia,
-					data->ra_type, data->ra, &buf[1]);
+		if (smp->sc)
+			bt_crypto_f4(data->crypto, data->local_pk,
+					data->remote_pk, data->prnd, 0,
+					&buf[1]);
+		else
+			bt_crypto_c1(data->crypto, data->tk, data->prnd,
+					data->prsp, data->preq, data->ia_type,
+					data->ia, data->ra_type, data->ra,
+					&buf[1]);
 		return buf;
 	case 0x04: /* Pairing Random */
 		buf[0] = pdu[0];
 		memcpy(&buf[1], data->prnd, 16);
+		return buf;
+	case 0x0c: /* Public Key */
+		buf[0] = pdu[0];
+		memcpy(&buf[1], data->local_pk, 64);
 		return buf;
 	default:
 		break;
@@ -462,14 +620,19 @@ static bool verify_random(const uint8_t rnd[16])
 	return true;
 }
 
+static bool sc_random(struct test_data *test_data)
+{
+	return true;
+}
+
 static void smp_server(const void *data, uint16_t len, void *user_data)
 {
 	struct test_data *test_data = user_data;
 	struct bthost *bthost = hciemu_client_get_host(test_data->hciemu);
 	const struct smp_data *smp = test_data->test_data;
 	const struct smp_req_rsp *req;
-	const void *pdu;
 	uint8_t opcode;
+	const void *pdu;
 
 	if (len < 1) {
 		tester_warn("Received too small SMP PDU");
@@ -481,7 +644,7 @@ static void smp_server(const void *data, uint16_t len, void *user_data)
 	tester_print("Received SMP opcode 0x%02x", opcode);
 
 	if (test_data->counter >= smp->req_count) {
-		tester_test_passed();
+		test_condition_complete(test_data);
 		return;
 	}
 
@@ -507,8 +670,18 @@ static void smp_server(const void *data, uint16_t len, void *user_data)
 		goto next;
 	case 0x04: /* Pairing Random */
 		memcpy(test_data->rrnd, data + 1, 16);
-		if (!verify_random(data + 1))
-			goto failed;
+		if (smp->sc) {
+			if (!sc_random(test_data))
+				goto failed;
+		} else {
+			if (!verify_random(data + 1))
+				goto failed;
+		}
+		goto next;
+	case 0x0c: /* Public Key */
+		memcpy(test_data->remote_pk, data + 1, 64);
+		ecdh_shared_secret(test_data->remote_pk, test_data->local_sk,
+							test_data->dhkey);
 		goto next;
 	default:
 		break;
@@ -520,24 +693,58 @@ static void smp_server(const void *data, uint16_t len, void *user_data)
 	}
 
 next:
-	if (smp->req_count == test_data->counter) {
-		tester_test_passed();
-		return;
+	while (true) {
+		if (smp->req_count == test_data->counter) {
+			test_condition_complete(test_data);
+			break;
+		}
+
+		req = &smp->req[test_data->counter];
+
+		pdu = get_pdu(req->send);
+		bthost_send_cid(bthost, test_data->handle, SMP_CID, pdu,
+								req->send_len);
+		if (req->expect)
+			break;
+		else
+			test_data->counter++;
 	}
-
-	req = &smp->req[test_data->counter];
-
-	pdu = get_pdu(req->send);
-	bthost_send_cid(bthost, test_data->handle, SMP_CID, pdu,
-							req->send_len);
-
-	if (!req->expect)
-		tester_test_passed();
 
 	return;
 
 failed:
 	tester_test_failed();
+}
+
+static void command_hci_callback(uint16_t opcode, const void *param,
+					uint8_t length, void *user_data)
+{
+	struct test_data *data = user_data;
+	const struct smp_data *smp = data->test_data;
+	const void *expect_hci_param = smp->expect_hci_param;
+	uint8_t expect_hci_len = smp->expect_hci_len;
+
+	tester_print("HCI Command 0x%04x length %u", opcode, length);
+
+	if (opcode != smp->expect_hci_command)
+		return;
+
+	if (smp->expect_hci_func)
+		expect_hci_param = smp->expect_hci_func(&expect_hci_len);
+
+	if (length != expect_hci_len) {
+		tester_warn("Invalid parameter size for HCI command");
+		tester_test_failed();
+		return;
+	}
+
+	if (memcmp(param, expect_hci_param, length) != 0) {
+		tester_warn("Unexpected HCI command parameter value");
+		tester_test_failed();
+		return;
+	}
+
+	test_condition_complete(data);
 }
 
 static void smp_new_conn(uint16_t handle, void *user_data)
@@ -566,6 +773,9 @@ static void smp_new_conn(uint16_t handle, void *user_data)
 
 	pdu = get_pdu(req->send);
 	bthost_send_cid(bthost, handle, SMP_CID, pdu, req->send_len);
+
+	if (!req->expect)
+		test_condition_complete(data);
 }
 
 static void init_bdaddr(struct test_data *data)
@@ -601,6 +811,7 @@ static void init_bdaddr(struct test_data *data)
 static void test_client(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
+	const struct smp_data *smp = data->test_data;
 	struct mgmt_cp_pair_device cp;
 	struct bthost *bthost;
 
@@ -608,10 +819,21 @@ static void test_client(const void *test_data)
 
 	bthost = hciemu_client_get_host(data->hciemu);
 	bthost_set_connect_cb(bthost, smp_new_conn, data);
+	test_add_condition(data);
+
+	if (smp->expect_hci_command) {
+		tester_print("Registering HCI command callback");
+		hciemu_add_master_post_command_hook(data->hciemu,
+						command_hci_callback, data);
+		test_add_condition(data);
+	}
 
 	memcpy(&cp.addr.bdaddr, data->ra, sizeof(data->ra));
 	cp.addr.type = BDADDR_LE_PUBLIC;
-	cp.io_cap = 0x03; /* NoInputNoOutput */
+	if (smp->mitm)
+		cp.io_cap = 0x04; /* KeyboardDisplay */
+	else
+		cp.io_cap = 0x03; /* NoInputNoOutput */
 
 	mgmt_send(data->mgmt, MGMT_OP_PAIR_DEVICE, data->mgmt_index,
 			sizeof(cp), &cp, pair_device_complete, NULL, NULL);
@@ -635,18 +857,30 @@ static void setup_powered_server_callback(uint8_t status, uint16_t length,
 static void setup_powered_server(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
+	const struct smp_data *smp = data->test_data;
 	unsigned char param[] = { 0x01 };
+
+	mgmt_register(data->mgmt, MGMT_EV_USER_CONFIRM_REQUEST,
+			data->mgmt_index, user_confirm_request_callback,
+			data, NULL);
 
 	tester_print("Powering on controller");
 
 	mgmt_send(data->mgmt, MGMT_OP_SET_LE, data->mgmt_index,
 				sizeof(param), param, NULL, NULL, NULL);
-	mgmt_send(data->mgmt, MGMT_OP_SET_PAIRABLE, data->mgmt_index,
+	mgmt_send(data->mgmt, MGMT_OP_SET_BONDABLE, data->mgmt_index,
 				sizeof(param), param, NULL, NULL, NULL);
 	mgmt_send(data->mgmt, MGMT_OP_SET_CONNECTABLE, data->mgmt_index,
 				sizeof(param), param, NULL, NULL, NULL);
 	mgmt_send(data->mgmt, MGMT_OP_SET_ADVERTISING, data->mgmt_index,
 				sizeof(param), param, NULL, NULL, NULL);
+	if (smp->sc) {
+		mgmt_send(data->mgmt, MGMT_OP_SET_SECURE_CONN,
+				data->mgmt_index, sizeof(param), param, NULL,
+				NULL, NULL);
+		make_pk(data);
+	}
+
 	mgmt_send(data->mgmt, MGMT_OP_SET_POWERED, data->mgmt_index,
 			sizeof(param), param, setup_powered_server_callback,
 			NULL, NULL);
@@ -655,6 +889,7 @@ static void setup_powered_server(const void *test_data)
 static void test_server(const void *test_data)
 {
 	struct test_data *data = tester_get_data();
+	const struct smp_data *smp = data->test_data;
 	struct bthost *bthost;
 
 	data->out = true;
@@ -663,8 +898,16 @@ static void test_server(const void *test_data)
 
 	bthost = hciemu_client_get_host(data->hciemu);
 	bthost_set_connect_cb(bthost, smp_new_conn, data);
+	test_add_condition(data);
 
 	bthost_hci_connect(bthost, data->ra, BDADDR_LE_PUBLIC);
+
+	if (smp->expect_hci_command) {
+		tester_print("Registering HCI command callback");
+		hciemu_add_master_post_command_hook(data->hciemu,
+						command_hci_callback, data);
+		test_add_condition(data);
+	}
 }
 
 int main(int argc, char *argv[])
@@ -686,6 +929,16 @@ int main(int argc, char *argv[])
 
 	test_smp("SMP Client - Basic Request 1",
 					&smp_client_basic_req_1_test,
+					setup_powered_client, test_client);
+	test_smp("SMP Client - Basic Request 2",
+					&smp_client_basic_req_2_test,
+					setup_powered_client, test_client);
+
+	test_smp("SMP Client - SC Request 1",
+					&smp_client_sc_req_1_test,
+					setup_powered_client, test_client);
+	test_smp("SMP Client - SC Request 2",
+					&smp_client_sc_req_2_test,
 					setup_powered_client, test_client);
 
 	return tester_run();

@@ -55,7 +55,13 @@
 
 #define TI_MANUFACTURER_ID	13
 
+/* __TIZEN_PATCH__ */
+#ifdef __TI_PATCH__
+#define FIRMWARE_DIRECTORY1	"/mnt/mmc/"
+#define FIRMWARE_DIRECTORY2	"/usr/etc/bluetooth/"
+#else
 #define FIRMWARE_DIRECTORY	"/lib/firmware/ti-connectivity/"
+#endif
 
 #define ACTION_SEND_COMMAND	1
 #define ACTION_WAIT_EVENT	2
@@ -197,7 +203,24 @@ static const char *get_firmware_name(const uint8_t *respond)
 	if (version & 0x8000)
 		maj_ver |= 0x0008;
 
+/* __TIZEN_PATCH__ */
+#ifdef __TI_PATCH__
+	FILE *fp;
+	sprintf(firmware_file_name, FIRMWARE_DIRECTORY1 "TIInit_%d.%d.%d.bts", chip, maj_ver, min_ver);
+
+	if ((fp = fopen(firmware_file_name, "r")) == NULL ) {
+		extern int firmware_path;
+		if (firmware_path)
+			sprintf(firmware_file_name, FIRMWARE_DIRECTORY2 "TIInit_edutm_%d.%d.%d.bts", chip, maj_ver, min_ver);
+		else
+			sprintf(firmware_file_name, FIRMWARE_DIRECTORY2 "TIInit_%d.%d.%d.bts", chip, maj_ver, min_ver);
+	}
+	else {
+		fclose(fp);
+	}
+#else
 	sprintf(firmware_file_name, FIRMWARE_DIRECTORY "TIInit_%d.%d.%d.bts", chip, maj_ver, min_ver);
+#endif
 
 	return firmware_file_name;
 }

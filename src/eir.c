@@ -53,6 +53,12 @@ void eir_data_free(struct eir_data *eir)
 	eir->hash = NULL;
 	g_free(eir->randomizer);
 	eir->randomizer = NULL;
+	g_slist_free_full(eir->msd_list, g_free);
+	eir->msd_list = NULL;
+#ifdef __TIZEN_PATCH__
+	g_free(eir->manufacturer_data);
+	eir->manufacturer_data = NULL;
+#endif
 }
 
 static void eir_parse_uuid16(struct eir_data *eir, const void *data,
@@ -116,6 +122,23 @@ static void eir_parse_uuid128(struct eir_data *eir, const uint8_t *data,
 
 static char *name2utf8(const uint8_t *name, uint8_t len)
 {
+#ifdef __TIZEN_PATCH__
+	char *utf8_name;
+	char *in_name;
+	char *ptr;
+
+	in_name = g_malloc0(sizeof(char) * (len + 1));
+	memcpy(in_name, name, sizeof(char) * len);
+	in_name[len] = '\0';
+
+	if (!g_utf8_validate(in_name, -1, (const char **)&ptr))
+		*ptr = '\0';
+
+	utf8_name = g_strdup(in_name);
+	g_free(in_name);
+
+	return utf8_name;
+#else
 	char utf8_name[HCI_MAX_NAME_LENGTH + 2];
 	int i;
 
@@ -135,6 +158,23 @@ static char *name2utf8(const uint8_t *name, uint8_t len)
 	g_strstrip(utf8_name);
 
 	return g_strdup(utf8_name);
+#endif
+}
+
+static void eir_parse_msd(struct eir_data *eir, const uint8_t *data,
+								uint8_t len)
+{
+	struct eir_msd *msd;
+
+	if (len < 2 || len > 2 + sizeof(msd->data))
+		return;
+
+	msd = g_malloc(sizeof(*msd));
+	msd->company = get_le16(data);
+	msd->data_len = len - 2;
+	memcpy(&msd->data, data + 2, msd->data_len);
+
+	eir->msd_list = g_slist_append(eir->msd_list, msd);
 }
 
 void eir_parse(struct eir_data *eir, const uint8_t *eir_data, uint8_t eir_len)
@@ -239,6 +279,19 @@ void eir_parse(struct eir_data *eir, const uint8_t *eir_data, uint8_t eir_len)
 			eir->did_vendor = data[2] | (data[3] << 8);
 			eir->did_product = data[4] | (data[5] << 8);
 			eir->did_version = data[6] | (data[7] << 8);
+			break;
+
+		case EIR_MANUFACTURER_DATA:
+#ifdef __TIZEN_PATCH__
+			if (data_len < 1)
+				break;
+
+			eir->manufacturer_data = g_memdup(data,
+								data_len);
+			eir->manufacturer_data_len = data_len;
+#endif
+			eir_parse_msd(eir, data, data_len);
+
 			break;
 		}
 

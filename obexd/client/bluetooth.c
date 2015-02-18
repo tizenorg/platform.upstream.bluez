@@ -25,6 +25,7 @@
 #include <config.h>
 #endif
 
+#include <stdlib.h>
 #include <errno.h>
 #include <inttypes.h>
 
@@ -185,10 +186,21 @@ static void search_callback(uint8_t type, uint16_t status,
 			protos = NULL;
 		}
 
+#ifdef __TIZEN_PATCH__
+		/* Use obex over l2cap only if obex over rfcomm is not there */
+		if (ch == -1) {
+			data = sdp_data_get(rec, 0x0200);
+			/* PSM must be odd and lsb of upper byte must be 0 */
+			if (data != NULL && (data->val.uint16 & 0x0101) ==
+									0x0001)
+				ch = data->val.uint16;
+		}
+#else
 		data = sdp_data_get(rec, 0x0200);
 		/* PSM must be odd and lsb of upper byte must be 0 */
 		if (data != NULL && (data->val.uint16 & 0x0101) == 0x0001)
 			ch = data->val.uint16;
+#endif
 
 		/* Cache the sdp record associated with the service that we
 		 * attempt to connect. This allows reading its application
@@ -481,6 +493,25 @@ static const void *bluetooth_getattribute(guint id, int attribute_id)
 
 		if (session->sdp_record == NULL)
 			break;
+
+		/* Read version since UUID is already known */
+		if (attribute_id == SDP_ATTR_PFILE_DESC_LIST) {
+			sdp_list_t *descs;
+			void *ret = NULL;
+
+			if (sdp_get_profile_descs(session->sdp_record,
+								&descs) < 0)
+				return NULL;
+
+			if (descs && descs->data) {
+				sdp_profile_desc_t *desc = descs->data;
+				ret = GINT_TO_POINTER(desc->version);
+			}
+
+			sdp_list_free(descs, free);
+
+			return ret;
+		}
 
 		data = sdp_data_get(session->sdp_record, attribute_id);
 		if (!data)

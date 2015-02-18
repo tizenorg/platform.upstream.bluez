@@ -336,7 +336,7 @@ const char *bt_compidtostr(int compid)
 	case 36:
 		return "Alcatel";
 	case 37:
-		return "Philips Semiconductors";
+		return "NXP Semiconductors (formerly Philips Semiconductors)";
 	case 38:
 		return "C Technologies";
 	case 39:
@@ -370,7 +370,7 @@ const char *bt_compidtostr(int compid)
 	case 53:
 		return "Eclipse (HQ Espana) S.L.";
 	case 54:
-		return "Renesas Technology Corp.";
+		return "Renesas Electronics Corporation";
 	case 55:
 		return "Mobilian Corporation";
 	case 56:
@@ -382,7 +382,7 @@ const char *bt_compidtostr(int compid)
 	case 59:
 		return "Gennum Corporation";
 	case 60:
-		return "Research In Motion";
+		return "BlackBerry Limited (formerly Research In Motion)";
 	case 61:
 		return "IPextreme, Inc.";
 	case 62:
@@ -542,7 +542,7 @@ const char *bt_compidtostr(int compid)
 	case 139:
 		return "Topcorn Positioning Systems, LLC";
 	case 140:
-		return "Qualcomm Retail Solutions, Inc. (formerly Qualcomm Labs, Inc.)";
+		return "Gimbal Inc. (formerly Qualcomm Labs, Inc. and Qualcomm Retail Solutions, Inc.)";
 	case 141:
 		return "Zscan Software";
 	case 142:
@@ -882,7 +882,7 @@ const char *bt_compidtostr(int compid)
 	case 309:
 		return "Airewear LLC";
 	case 310:
-		return "ETC sp. z.o.o.";
+		return "Seed Labs, Inc. (formerly ETC sp. z.o.o.)";
 	case 311:
 		return "Prestigio Plaza Ltd.";
 	case 312:
@@ -928,11 +928,219 @@ const char *bt_compidtostr(int compid)
 	case 332:
 		return "Mesh-Net Ltd";
 	case 333:
-		return "HUIZHOU DESAY SV AUTOMOTIVE CO., LTD.";
+		return "Huizhou Desay SV Automotive CO., LTD.";
 	case 334:
 		return "Tangerine, Inc.";
 	case 335:
 		return "B&W Group Ltd.";
+	case 336:
+		return "Pioneer Corporation";
+	case 337:
+		return "OnBeep";
+	case 338:
+		return "Vernier Software & Technology";
+	case 339:
+		return "ROL Ergo";
+	case 340:
+		return "Pebble Technology";
+	case 341:
+		return "NETATMO";
+	case 342:
+		return "Accumulate AB";
+	case 343:
+		return "Anhui Huami Information Technology Co., Ltd.";
+	case 344:
+		return "Inmite s.r.o.";
+	case 345:
+		return "ChefSteps, Inc.";
+	case 346:
+		return "micas AG";
+	case 347:
+		return "Biomedical Research Ltd.";
+	case 348:
+		return "Pitius Tec S.L.";
+	case 349:
+		return "Estimote, Inc.";
+	case 350:
+		return "Unikey Technologies, Inc.";
+	case 351:
+		return "Timer Cap Co.";
+	case 352:
+		return "AwoX";
+	case 353:
+		return "yikes";
+	case 354:
+		return "MADSGlobal NZ Ltd.";
+	case 355:
+		return "PCH International";
+	case 356:
+		return "Qingdao Yeelink Information Technology Co., Ltd.";
+	case 357:
+		return "Milwaukee Tool (formerly Milwaukee Electric Tools)";
+	case 358:
+		return "MISHIK Pte Ltd";
+	case 359:
+		return "Bayer HealthCare";
+	case 360:
+		return "Spicebox LLC";
+	case 361:
+		return "emberlight";
+	case 362:
+		return "Cooper-Atkins Corporation";
+	case 363:
+		return "Qblinks";
+	case 364:
+		return "MYSPHERA";
+	case 365:
+		return "LifeScan Inc";
+	case 366:
+		return "Volantic AB";
+	case 367:
+		return "Podo Labs, Inc";
+	case 368:
+		return "Roche Diabetes Care AG";
+	case 369:
+		return "Amazon Fulfillment Service";
+	case 370:
+		return "Connovate Technology Private Limited";
+	case 371:
+		return "Kocomojo, LLC";
+	case 372:
+		return "Everykey LLC";
+	case 373:
+		return "Dynamic Controls";
+	case 374:
+		return "SentriLock";
+	case 375:
+		return "I-SYST inc.";
+	case 376:
+		return "CASIO COMPUTER CO., LTD.";
+	case 377:
+		return "LAPIS Semiconductor Co., Ltd.";
+	case 378:
+		return "Telemonitor, Inc.";
+	case 379:
+		return "taskit GmbH";
+	case 380:
+		return "Daimler AG";
+	case 381:
+		return "BatAndCat";
+	case 382:
+		return "BluDotz Ltd";
+	case 383:
+		return "XTel ApS";
+	case 384:
+		return "Gigaset Communications GmbH";
+	case 385:
+		return "Gecko Health Innovations, Inc.";
+	case 386:
+		return "HOP Ubiquitous";
+	case 387:
+		return "To Be Assigned";
+	case 388:
+		return "Nectar";
+	case 389:
+		return "bel'apps LLC";
+	case 390:
+		return "CORE Lighting Ltd";
+	case 391:
+		return "Seraphim Sense Ltd";
+	case 392:
+		return "Unico RBC";
+	case 393:
+		return "Physical Enterprises Inc.";
+	case 394:
+		return "Able Trend Technology Limited";
+	case 395:
+		return "Konica Minolta, Inc.";
+	case 396:
+		return "Wilo SE";
+	case 397:
+		return "Extron Design Services";
+	case 398:
+		return "Fitbit, Inc.";
+	case 399:
+		return "Fireflies Systems";
+	case 400:
+		return "Intelletto Technologies Inc.";
+	case 401:
+		return "FDK CORPORATION";
+	case 402:
+		return "Cloudleaf, Inc";
+	case 403:
+		return "Maveric Automation LLC";
+	case 404:
+		return "Acoustic Stream Corporation";
+	case 405:
+		return "Zuli";
+	case 406:
+		return "Paxton Access Ltd";
+	case 407:
+		return "WiSilica Inc";
+	case 408:
+		return "Vengit Limited";
+	case 409:
+		return "SALTO SYSTEMS S.L.";
+	case 410:
+		return "T-Engine Forum";
+	case 411:
+		return "CUBETECH s.r.o.";
+	case 412:
+		return "Cokiya Incorporated";
+	case 413:
+		return "CVS Health";
+	case 414:
+		return "Ceruus";
+	case 415:
+		return "Strainstall Ltd";
+	case 416:
+		return "Channel Enterprises (HK) Ltd.";
+	case 417:
+		return "FIAMM";
+	case 418:
+		return "GIGALANE.CO.,LTD";
+	case 419:
+		return "EROAD";
+	case 420:
+		return "Mine Safety Appliances";
+	case 421:
+		return "Icon Health and Fitness";
+	case 422:
+		return "Asandoo GmbH";
+	case 423:
+		return "ENERGOUS CORPORATION";
+	case 424:
+		return "Taobao";
+	case 425:
+		return "Canon Inc.";
+	case 426:
+		return "Geophysical Technology Inc.";
+	case 427:
+		return "Facebook, Inc.";
+	case 428:
+		return "Nipro Diagnostics, Inc.";
+	case 429:
+		return "FlightSafety International";
+	case 430:
+		return "Earlens Corporation";
+	case 431:
+		return "Sunrise Micro Devices, Inc.";
+	case 432:
+		return "Star Micronics Co., Ltd.";
+	case 433:
+		return "Netizens Sp. z o.o.";
+	case 434:
+		return "Nymi Inc.";
+	case 435:
+		return "Nytec, Inc.";
+	case 436:
+		return "Trineo Sp. z o.o.";
+	case 437:
+		return "Nest Labs Inc.";
+	case 438:
+		return "LM Technologies Ltd";
+	case 439:
+		return "General Electric Company";
 	case 65535:
 		return "internal use";
 	default:

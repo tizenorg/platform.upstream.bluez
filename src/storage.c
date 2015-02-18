@@ -67,7 +67,7 @@ static inline int create_filename(char *buf, size_t size,
 
 int read_discoverable_timeout(const char *src, int *timeout)
 {
-	char filename[PATH_MAX + 1], *str;
+	char filename[PATH_MAX], *str;
 
 	create_name(filename, PATH_MAX, STORAGEDIR, src, "config");
 
@@ -87,7 +87,7 @@ int read_discoverable_timeout(const char *src, int *timeout)
 
 int read_pairable_timeout(const char *src, int *timeout)
 {
-	char filename[PATH_MAX + 1], *str;
+	char filename[PATH_MAX], *str;
 
 	create_name(filename, PATH_MAX, STORAGEDIR, src, "config");
 
@@ -107,7 +107,7 @@ int read_pairable_timeout(const char *src, int *timeout)
 
 int read_on_mode(const char *src, char *mode, int length)
 {
-	char filename[PATH_MAX + 1], *str;
+	char filename[PATH_MAX], *str;
 
 	create_name(filename, PATH_MAX, STORAGEDIR, src, "config");
 
@@ -125,7 +125,7 @@ int read_on_mode(const char *src, char *mode, int length)
 
 int read_local_name(const bdaddr_t *bdaddr, char *name)
 {
-	char filename[PATH_MAX + 1], *str;
+	char filename[PATH_MAX], *str;
 	int len;
 
 	create_filename(filename, PATH_MAX, bdaddr, "config");
@@ -143,6 +143,53 @@ int read_local_name(const bdaddr_t *bdaddr, char *name)
 
 	return 0;
 }
+
+#ifdef __TIZEN_PATCH__
+int write_device_characteristics(const bdaddr_t *sba, const bdaddr_t *dba,
+					uint8_t bdaddr_type, uint16_t handle,
+								  const char *chars)
+{
+	char filename[PATH_MAX + 1], addr[18], key[25];
+
+	create_filename(filename, PATH_MAX, sba, "characteristics");
+
+	create_file(filename, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+
+	ba2str(dba, addr);
+	snprintf(key, sizeof(key), "%17s#%hhu#%04X", addr, bdaddr_type, handle);
+
+	return textfile_put(filename, key, chars);
+}
+
+char *read_device_characteristics(const bdaddr_t *sba, const bdaddr_t *dba,
+					uint8_t bdaddr_type, uint16_t handle)
+{
+	char filename[PATH_MAX + 1], addr[18], key[25];
+
+	create_filename(filename, PATH_MAX, sba, "characteristics");
+
+	ba2str(dba, addr);
+	snprintf(key, sizeof(key), "%17s#%hhu#%04X", addr, bdaddr_type, handle);
+
+	return textfile_get(filename, key);
+}
+
+int write_device_attribute(const bdaddr_t *sba, const bdaddr_t *dba,
+				uint8_t bdaddr_type, uint16_t handle,
+							const char *chars)
+{
+	char filename[PATH_MAX + 1], addr[18], key[25];
+
+	create_filename(filename, PATH_MAX, sba, "attributes");
+
+	create_file(filename, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+
+	ba2str(dba, addr);
+	snprintf(key, sizeof(key), "%17s#%hhu#%04X", addr, bdaddr_type, handle);
+
+	return textfile_put(filename, key, chars);
+}
+#endif
 
 sdp_record_t *record_from_string(const char *str)
 {

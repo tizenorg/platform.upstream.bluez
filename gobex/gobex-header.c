@@ -146,6 +146,8 @@ GObexHeader *g_obex_header_decode(const void *data, gsize len,
 	GError *conv_err = NULL;
 
 	if (len < 2) {
+		if (!err)
+			return NULL;
 		g_set_error(err, G_OBEX_ERROR, G_OBEX_ERROR_PARSE_ERROR,
 						"Too short header in packet");
 		g_obex_debug(G_OBEX_DEBUG_ERROR, "%s", (*err)->message);
@@ -239,6 +241,7 @@ GObexHeader *g_obex_header_decode(const void *data, gsize len,
 			header->extdata = TRUE;
 			header->v.extdata = ptr;
 			break;
+		case G_OBEX_DATA_INHERIT:
 		default:
 			g_set_error(err, G_OBEX_ERROR,
 					G_OBEX_ERROR_INVALID_ARGS,
@@ -386,6 +389,11 @@ GObexHeader *g_obex_header_new_unicode(guint8 id, const char *str)
 	GObexHeader *header;
 	gsize len;
 
+#ifdef __TIZEN_PATCH__
+	gunichar2 *utf16;
+	glong utf16_len;
+#endif
+
 	g_obex_debug(G_OBEX_DEBUG_HEADER, "header 0x%02x", G_OBEX_HDR_ENC(id));
 
 	if (G_OBEX_HDR_ENC(id) != G_OBEX_HDR_ENC_UNICODE)
@@ -398,9 +406,15 @@ GObexHeader *g_obex_header_new_unicode(guint8 id, const char *str)
 	len = g_utf8_strlen(str, -1);
 
 	header->vlen = len;
+#ifndef __TIZEN_PATCH__
 	header->hlen = len == 0 ? 3 : 3 + ((len + 1) * 2);
 	header->v.string = g_strdup(str);
-
+#else
+	header->v.string = g_strdup(str);
+	utf16_len = utf8_to_utf16(&utf16, header->v.string);
+	header->hlen = len == 0 ? 3 : 3 + utf16_len;
+	g_free(utf16);
+#endif
 	g_obex_debug(G_OBEX_DEBUG_HEADER, "%s", header->v.string);
 
 	return header;

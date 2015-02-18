@@ -33,7 +33,22 @@
 
 #include "gdbus.h"
 
+#ifdef __TIZEN_PATCH__
+#include <syslog.h>
+static void gdbus_dbg(const char *format, ...)
+{
+	va_list ap;
+
+	va_start(ap, format);
+
+	vsyslog(LOG_DEBUG, format, ap);
+
+	va_end(ap);
+}
+#else
 #define info(fmt...)
+#endif
+
 #define error(fmt...)
 #define debug(fmt...)
 
@@ -87,6 +102,12 @@ struct property_data {
 static int global_flags = 0;
 static struct generic_data *root;
 static GSList *pending = NULL;
+
+#ifdef __TIZEN_PATCH__
+#define ADAPTER_INTERFACE	"org.bluez.Adapter1"
+
+static char *adapter_path = NULL;
+#endif
 
 static gboolean process_changes(gpointer user_data);
 static void process_properties_from_interface(struct generic_data *data,
@@ -654,6 +675,13 @@ static gboolean remove_interface(struct generic_data *data, const char *name)
 
 	data->interfaces = g_slist_remove(data->interfaces, iface);
 
+#ifdef __TIZEN_PATCH__
+	if (g_strcmp0(iface->name, ADAPTER_INTERFACE) == 0) {
+		g_free(adapter_path);
+		adapter_path = NULL;
+	}
+#endif
+
 	if (iface->destroy) {
 		iface->destroy(iface->user_data);
 		iface->user_data = NULL;
@@ -1066,7 +1094,10 @@ static DBusHandlerResult generic_message(DBusConnection *connection,
 		if (check_privilege(connection, message, method,
 						iface->user_data) == TRUE)
 			return DBUS_HANDLER_RESULT_HANDLED;
-
+#ifdef __TIZEN_PATCH__
+		gdbus_dbg("%s: %s.%s()", dbus_message_get_path(message),
+							iface->name, method->name);
+#endif
 		return process_message(connection, message, method,
 							iface->user_data);
 	}
@@ -1088,7 +1119,6 @@ static const GDBusMethodTable introspect_methods[] = {
 static void append_interfaces(struct generic_data *data, DBusMessageIter *iter)
 {
 	DBusMessageIter array;
-	GSList *l;
 
 	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
 				DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
@@ -1100,12 +1130,7 @@ static void append_interfaces(struct generic_data *data, DBusMessageIter *iter)
 				DBUS_DICT_ENTRY_END_CHAR_AS_STRING
 				DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &array);
 
-	for (l = data->interfaces; l != NULL; l = l->next) {
-		if (g_slist_find(data->added, l->data))
-			continue;
-
-		append_interface(l->data, &array);
-	}
+	g_slist_foreach(data->interfaces, append_interface, &array);
 
 	dbus_message_iter_close_container(iter, &array);
 }
@@ -1162,9 +1187,36 @@ static DBusMessage *get_objects(DBusConnection *connection,
 	return reply;
 }
 
+#ifdef __TIZEN_PATCH__
+static DBusMessage *default_adapter(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	DBusMessage *reply;
+
+	if (!adapter_path)
+		return g_dbus_create_error(msg,
+				"org.bluez.Error" ".NoSuchAdapter",
+				"No such adapter");
+
+	reply = dbus_message_new_method_return(msg);
+	if (!reply)
+		return NULL;
+
+	dbus_message_append_args(reply, DBUS_TYPE_OBJECT_PATH, &adapter_path,
+				DBUS_TYPE_INVALID);
+
+	return reply;
+}
+#endif
+
 static const GDBusMethodTable manager_methods[] = {
 	{ GDBUS_METHOD("GetManagedObjects", NULL,
 		GDBUS_ARGS({ "objects", "a{oa{sa{sv}}}" }), get_objects) },
+#ifdef __TIZEN_PATCH__
+	{ GDBUS_METHOD("DefaultAdapter",
+			NULL, GDBUS_ARGS({ "adapter", "o" }),
+			default_adapter) },
+#endif
 	{ }
 };
 
@@ -1351,6 +1403,11 @@ gboolean g_dbus_register_interface(DBusConnection *connection,
 		object_path_unref(connection, path);
 		return FALSE;
 	}
+
+#ifdef __TIZEN_PATCH__
+	if (g_strcmp0(name, ADAPTER_INTERFACE) == 0)
+		adapter_path = g_strdup(path);
+#endif
 
 	if (!add_interface(data, name, methods, signals, properties, user_data,
 								destroy)) {

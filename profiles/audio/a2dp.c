@@ -357,6 +357,13 @@ static void stream_state_changed(struct avdtp_stream *stream,
 		return;
 	}
 
+#ifdef __TIZEN_PATCH__
+	if (new_state == AVDTP_STATE_STREAMING && sep->suspend_timer) {
+		g_source_remove(sep->suspend_timer);
+		sep->suspend_timer = 0;
+	}
+#endif
+
 	if (new_state != AVDTP_STATE_IDLE)
 		return;
 
@@ -379,7 +386,8 @@ static void stream_state_changed(struct avdtp_stream *stream,
 static gboolean auto_config(gpointer data)
 {
 	struct a2dp_setup *setup = data;
-	struct btd_device *dev = avdtp_get_device(setup->session);
+	struct btd_device *dev = NULL;
+
 	struct btd_service *service;
 
 	/* Check if configuration was aborted */
@@ -388,6 +396,8 @@ static gboolean auto_config(gpointer data)
 
 	if (setup->err != NULL)
 		goto done;
+
+	dev = avdtp_get_device(setup->session);
 
 	avdtp_stream_add_cb(setup->session, setup->stream,
 				stream_state_changed, setup->sep);
@@ -1113,7 +1123,11 @@ static sdp_record_t *a2dp_record(uint8_t type)
 	sdp_record_t *record;
 	sdp_data_t *psm, *version, *features;
 	uint16_t lp = AVDTP_UUID;
+#ifdef __TIZEN_PATCH__
+	uint16_t a2dp_ver = 0x0102, avdtp_ver = 0x0103, feat = 0x0001;
+#else
 	uint16_t a2dp_ver = 0x0103, avdtp_ver = 0x0103, feat = 0x000f;
+#endif
 
 	record = sdp_record_alloc();
 	if (!record)
@@ -1390,18 +1404,14 @@ static gboolean check_vendor_codec(struct a2dp_sep *sep, uint8_t *cap,
 
 	local_codec = (a2dp_vendor_codec_t *) capabilities;
 
-	if (memcmp(remote_codec->vendor_id, local_codec->vendor_id,
-					sizeof(local_codec->vendor_id)))
+	if (btohl(remote_codec->vendor_id) != btohl(local_codec->vendor_id))
 		return FALSE;
 
-	if (memcmp(remote_codec->codec_id, local_codec->codec_id,
-					sizeof(local_codec->codec_id)))
+	if (btohs(remote_codec->codec_id) != btohs(local_codec->codec_id))
 		return FALSE;
 
-	DBG("vendor 0x%02x%02x%02x%02x codec 0x%02x%02x",
-			remote_codec->vendor_id[0], remote_codec->vendor_id[1],
-			remote_codec->vendor_id[2], remote_codec->vendor_id[3],
-			remote_codec->codec_id[0], remote_codec->codec_id[1]);
+	DBG("vendor 0x%08x codec 0x%04x", btohl(remote_codec->vendor_id),
+						btohs(remote_codec->codec_id));
 
 	return TRUE;
 }
@@ -1409,6 +1419,10 @@ static gboolean check_vendor_codec(struct a2dp_sep *sep, uint8_t *cap,
 static struct a2dp_sep *a2dp_find_sep(struct avdtp *session, GSList *list,
 					const char *sender)
 {
+#ifdef __TIZEN_PATCH__
+	struct a2dp_sep *selected_sep = NULL;
+#endif
+
 	for (; list; list = list->next) {
 		struct a2dp_sep *sep = list->data;
 		struct avdtp_remote_sep *rsep;
@@ -1434,15 +1448,29 @@ static struct a2dp_sep *a2dp_find_sep(struct avdtp *session, GSList *list,
 		service = avdtp_get_codec(rsep);
 		cap = (struct avdtp_media_codec_capability *) service->data;
 
+#ifdef __TIZEN_PATCH__
+		if (cap->media_codec_type != A2DP_CODEC_VENDOR) {
+			selected_sep = sep;
+			continue;
+		}
+#else
 		if (cap->media_codec_type != A2DP_CODEC_VENDOR)
 			return sep;
+#endif
 
 		if (check_vendor_codec(sep, cap->data,
 					service->length - sizeof(*cap)))
 			return sep;
 	}
 
+#ifdef __TIZEN_PATCH__
+	if (selected_sep)
+		return selected_sep;
+	else
+		return NULL;
+#else
 	return NULL;
+#endif
 }
 
 static struct a2dp_sep *a2dp_select_sep(struct avdtp *session, uint8_t type,
@@ -1621,6 +1649,9 @@ unsigned int a2dp_config(struct avdtp *session, struct a2dp_sep *sep,
 			}
 		}
 		break;
+	case AVDTP_STATE_CONFIGURED:
+	case AVDTP_STATE_CLOSING:
+	case AVDTP_STATE_ABORTING:
 	default:
 		error("SEP in bad state for requesting a new stream");
 		goto failed;
@@ -1677,6 +1708,8 @@ unsigned int a2dp_resume(struct avdtp *session, struct a2dp_sep *sep,
 			cb_data->source_id = g_idle_add(finalize_resume,
 								setup);
 		break;
+	case AVDTP_STATE_CLOSING:
+	case AVDTP_STATE_ABORTING:
 	default:
 		error("SEP in bad state for resume");
 		goto failed;
@@ -1721,6 +1754,9 @@ unsigned int a2dp_suspend(struct avdtp *session, struct a2dp_sep *sep,
 		}
 		sep->suspending = TRUE;
 		break;
+	case AVDTP_STATE_CONFIGURED:
+	case AVDTP_STATE_CLOSING:
+	case AVDTP_STATE_ABORTING:
 	default:
 		error("SEP in bad state for suspend");
 		goto failed;
@@ -1808,6 +1844,10 @@ gboolean a2dp_sep_unlock(struct a2dp_sep *sep, struct avdtp *session)
 		if (avdtp_suspend(session, sep->stream) == 0)
 			sep->suspending = TRUE;
 		break;
+	case AVDTP_STATE_IDLE:
+	case AVDTP_STATE_CONFIGURED:
+	case AVDTP_STATE_CLOSING:
+	case AVDTP_STATE_ABORTING:
 	default:
 		break;
 	}
@@ -1832,7 +1872,7 @@ static int a2dp_source_probe(struct btd_service *service)
 {
 	struct btd_device *dev = btd_service_get_device(service);
 
-	DBG("path %s", btd_device_get_path(dev));
+	DBG("path %s", device_get_path(dev));
 
 	source_init(service);
 
@@ -1848,7 +1888,7 @@ static int a2dp_sink_probe(struct btd_service *service)
 {
 	struct btd_device *dev = btd_service_get_device(service);
 
-	DBG("path %s", btd_device_get_path(dev));
+	DBG("path %s", device_get_path(dev));
 
 	return sink_init(service);
 }
@@ -1863,7 +1903,7 @@ static int a2dp_source_connect(struct btd_service *service)
 	struct btd_device *dev = btd_service_get_device(service);
 	struct btd_adapter *adapter = device_get_adapter(dev);
 	struct a2dp_server *server;
-	const char *path = btd_device_get_path(dev);
+	const char *path = device_get_path(dev);
 
 	DBG("path %s", path);
 
@@ -1883,7 +1923,7 @@ static int a2dp_source_connect(struct btd_service *service)
 static int a2dp_source_disconnect(struct btd_service *service)
 {
 	struct btd_device *dev = btd_service_get_device(service);
-	const char *path = btd_device_get_path(dev);
+	const char *path = device_get_path(dev);
 
 	DBG("path %s", path);
 
@@ -1895,7 +1935,7 @@ static int a2dp_sink_connect(struct btd_service *service)
 	struct btd_device *dev = btd_service_get_device(service);
 	struct btd_adapter *adapter = device_get_adapter(dev);
 	struct a2dp_server *server;
-	const char *path = btd_device_get_path(dev);
+	const char *path = device_get_path(dev);
 
 	DBG("path %s", path);
 
@@ -1915,7 +1955,7 @@ static int a2dp_sink_connect(struct btd_service *service)
 static int a2dp_sink_disconnect(struct btd_service *service)
 {
 	struct btd_device *dev = btd_service_get_device(service);
-	const char *path = btd_device_get_path(dev);
+	const char *path = device_get_path(dev);
 
 	DBG("path %s", path);
 
@@ -2031,12 +2071,8 @@ static void media_server_remove(struct btd_adapter *adapter)
 static struct btd_profile a2dp_source_profile = {
 	.name		= "a2dp-source",
 	.priority	= BTD_PROFILE_PRIORITY_MEDIUM,
-	.version	= 0x0103,
 
 	.remote_uuid	= A2DP_SOURCE_UUID,
-	.local_uuid	= A2DP_SINK_UUID,
-	.auth_uuid	= ADVANCED_AUDIO_UUID,
-
 	.device_probe	= a2dp_source_probe,
 	.device_remove	= a2dp_source_remove,
 
@@ -2051,12 +2087,8 @@ static struct btd_profile a2dp_source_profile = {
 static struct btd_profile a2dp_sink_profile = {
 	.name		= "a2dp-sink",
 	.priority	= BTD_PROFILE_PRIORITY_MEDIUM,
-	.version	= 0x0103,
 
 	.remote_uuid	= A2DP_SINK_UUID,
-	.local_uuid	= A2DP_SOURCE_UUID,
-	.auth_uuid	= ADVANCED_AUDIO_UUID,
-
 	.device_probe	= a2dp_sink_probe,
 	.device_remove	= a2dp_sink_remove,
 

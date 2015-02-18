@@ -112,14 +112,16 @@ static void bnep_disconn_cb(gpointer data)
 {
 	struct network_conn *nc = data;
 	DBusConnection *conn = btd_get_dbus_connection();
-	const char *path = btd_device_get_path(nc->peer->device);
+	const char *path = device_get_path(nc->peer->device);
 
+#ifndef __TIZEN_PATCH__
 	g_dbus_emit_property_changed(conn, path,
 					NETWORK_PEER_INTERFACE, "Connected");
 	g_dbus_emit_property_changed(conn, path,
 					NETWORK_PEER_INTERFACE, "Interface");
 	g_dbus_emit_property_changed(conn, path,
 					NETWORK_PEER_INTERFACE, "UUID");
+#endif
 	device_remove_disconnect_watch(nc->peer->device, nc->dc_id);
 	nc->dc_id = 0;
 
@@ -128,6 +130,14 @@ static void bnep_disconn_cb(gpointer data)
 	info("%s disconnected", nc->dev);
 
 	nc->state = DISCONNECTED;
+#ifdef __TIZEN_PATCH__
+	g_dbus_emit_property_changed(conn, path,
+					NETWORK_PEER_INTERFACE, "Connected");
+	g_dbus_emit_property_changed(conn, path,
+					NETWORK_PEER_INTERFACE, "Interface");
+	g_dbus_emit_property_changed(conn, path,
+					NETWORK_PEER_INTERFACE, "UUID");
+#endif
 	memset(nc->dev, 0, sizeof(nc->dev));
 	strncpy(nc->dev, BNEP_INTERFACE, 16);
 	nc->dev[15] = '\0';
@@ -170,9 +180,10 @@ static void cancel_connection(struct network_conn *nc, int err)
 	if (nc->state == CONNECTED)
 		bnep_disconnect(nc->session);
 
+#ifndef __TIZEN_PATCH__
 	bnep_free(nc->session);
 	nc->session = NULL;
-
+#endif
 	nc->state = DISCONNECTED;
 }
 
@@ -188,7 +199,7 @@ static void disconnect_cb(struct btd_device *device, gboolean removal,
 {
 	struct network_conn *nc = user_data;
 
-	info("Network: disconnect %s", btd_device_get_path(nc->peer->device));
+	info("Network: disconnect %s", device_get_path(nc->peer->device));
 
 	connection_destroy(NULL, user_data);
 }
@@ -215,8 +226,11 @@ static void bnep_conn_cb(char *iface, int err, void *data)
 		local_connect_cb(nc, 0);
 
 	conn = btd_get_dbus_connection();
-	path = btd_device_get_path(nc->peer->device);
+	path = device_get_path(nc->peer->device);
 
+#ifdef __TIZEN_PATCH__
+	nc->state = CONNECTED;
+#endif
 	g_dbus_emit_property_changed(conn, path,
 					NETWORK_PEER_INTERFACE, "Connected");
 	g_dbus_emit_property_changed(conn, path,
@@ -224,7 +238,9 @@ static void bnep_conn_cb(char *iface, int err, void *data)
 	g_dbus_emit_property_changed(conn, path,
 					NETWORK_PEER_INTERFACE, "UUID");
 
+#ifndef __TIZEN_PATCH__
 	nc->state = CONNECTED;
+#endif
 	nc->dc_id = device_add_disconnect_watch(nc->peer->device, disconnect_cb,
 								nc, NULL);
 
@@ -471,7 +487,7 @@ static void path_unregister(void *data)
 	struct network_peer *peer = data;
 
 	DBG("Unregistered interface %s on path %s",
-		NETWORK_PEER_INTERFACE, btd_device_get_path(peer->device));
+		NETWORK_PEER_INTERFACE, device_get_path(peer->device));
 
 	peers = g_slist_remove(peers, peer);
 	peer_free(peer);
@@ -503,7 +519,7 @@ void connection_unregister(struct btd_service *service)
 	struct network_peer *peer = conn->peer;
 	uint16_t id = get_service_id(service);
 
-	DBG("%s id %u", btd_device_get_path(device), id);
+	DBG("%s id %u", device_get_path(device), id);
 
 	peer->connections = g_slist_remove(peer->connections, conn);
 	connection_free(conn);
@@ -512,7 +528,7 @@ void connection_unregister(struct btd_service *service)
 		return;
 
 	g_dbus_unregister_interface(btd_get_dbus_connection(),
-						btd_device_get_path(device),
+						device_get_path(device),
 						NETWORK_PEER_INTERFACE);
 }
 
@@ -524,7 +540,7 @@ static struct network_peer *create_peer(struct btd_device *device)
 	peer = g_new0(struct network_peer, 1);
 	peer->device = btd_device_ref(device);
 
-	path = btd_device_get_path(device);
+	path = device_get_path(device);
 
 	if (g_dbus_register_interface(btd_get_dbus_connection(), path,
 					NETWORK_PEER_INTERFACE,
@@ -550,7 +566,7 @@ int connection_register(struct btd_service *service)
 	struct network_conn *nc;
 	uint16_t id = get_service_id(service);
 
-	DBG("%s id %u", btd_device_get_path(device), id);
+	DBG("%s id %u", device_get_path(device), id);
 
 	peer = find_peer(peers, device);
 	if (!peer) {

@@ -423,6 +423,52 @@ static void print_addr_type(const char *label, uint8_t addr_type)
 	print_field("%s: %s (0x%2.2x)", label, str, addr_type);
 }
 
+static void print_own_addr_type(uint8_t addr_type)
+{
+	const char *str;
+
+	switch (addr_type) {
+	case 0x00:
+	case 0x02:
+		str = "Public";
+		break;
+	case 0x01:
+	case 0x03:
+		str = "Random";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Own address type: %s (0x%2.2x)", str, addr_type);
+}
+
+static void print_peer_addr_type(const char *label, uint8_t addr_type)
+{
+	const char *str;
+
+	switch (addr_type) {
+	case 0x00:
+		str = "Public";
+		break;
+	case 0x01:
+		str = "Random";
+		break;
+	case 0x02:
+		str = "Resolved Public";
+		break;
+	case 0x03:
+		str = "Resolved Random";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("%s: %s (0x%2.2x)", label, str, addr_type);
+}
+
 static void print_addr_resolve(const char *label, const uint8_t *addr,
 					uint8_t addr_type, bool resolve)
 {
@@ -431,6 +477,7 @@ static void print_addr_resolve(const char *label, const uint8_t *addr,
 
 	switch (addr_type) {
 	case 0x00:
+	case 0x02:
 		if (!hwdb_get_company(addr, &company))
 			company = NULL;
 
@@ -450,6 +497,7 @@ static void print_addr_resolve(const char *label, const uint8_t *addr,
 		}
 		break;
 	case 0x01:
+	case 0x03:
 		switch ((addr[5] & 0xc0) >> 6) {
 		case 0x00:
 			str = "Non-Resolvable";
@@ -896,15 +944,30 @@ static const struct {
 	{  967, false, "Digital Pen"		},
 	{  968, false, "Barcode Scanner"	},
 	{ 1024, true,  "Glucose Meter"		},
-	{ 1088, true,  "Running Walking Sensor"	},
-	{ 1152, true,  "Cycling"		},
-	{ 1216, true,  "Undefined"		},
+	{ 1088, true,  "Running Walking Sensor"			},
+	{ 1089, false, "Running Walking Sensor: In-Shoe"	},
+	{ 1090, false, "Running Walking Sensor: On-Shoe"	},
+	{ 1091, false, "Running Walking Sensor: On-Hip"		},
+	{ 1152, true,  "Cycling"				},
+	{ 1153, false, "Cycling: Cycling Computer"		},
+	{ 1154, false, "Cycling: Speed Sensor"			},
+	{ 1155, false, "Cycling: Cadence Sensor"		},
+	{ 1156, false, "Cycling: Power Sensor"			},
+	{ 1157, false, "Cycling: Speed and Cadence Sensor"	},
+	{ 1216, true,  "Undefined"				},
 
-	{ 3136, true,  "Pulse Oximeter"		},
-	{ 3200, true,  "Undefined"		},
+	{ 3136, true,  "Pulse Oximeter"				},
+	{ 3137, false, "Pulse Oximeter: Fingertip"		},
+	{ 3138, false, "Pulse Oximeter: Wrist Worn"		},
+	{ 3200, true,  "Weight Scale"				},
+	{ 3264, true,  "Undefined"				},
 
-	{ 5184, true,  "Outdoor Sports Activity"},
-	{ 5248, true,  "Undefined"		},
+	{ 5184, true,  "Outdoor Sports Activity"		},
+	{ 5185, false, "Location Display Device"		},
+	{ 5186, false, "Location and Navigation Display Device"	},
+	{ 5187, false, "Location Pod"				},
+	{ 5188, false, "Location and Navigation Pod"		},
+	{ 5248, true,  "Undefined"				},
 	{ }
 };
 
@@ -1190,6 +1253,40 @@ static void print_air_mode(uint8_t mode)
 	}
 
 	print_field("Air mode: %s (0x%2.2x)", str, mode);
+}
+
+static void print_codec(const char *label, uint8_t codec)
+{
+	const char *str;
+
+	switch (codec) {
+	case 0x00:
+		str = "u-law log";
+		break;
+	case 0x01:
+		str = "A-law log";
+		break;
+	case 0x02:
+		str = "CVSD";
+		break;
+	case 0x03:
+		str = "Transparent";
+		break;
+	case 0x04:
+		str = "Linear PCM";
+		break;
+	case 0x05:
+		str = "mSBC";
+		break;
+	case 0xff:
+		str = "Vendor specific";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("%s: %s (0x%2.2x)", label, str, codec);
 }
 
 static void print_inquiry_mode(uint8_t mode)
@@ -1704,6 +1801,16 @@ static void print_randomizer_p256(const uint8_t *randomizer)
 	print_key("Randomizer R with P-256", randomizer);
 }
 
+static void print_pk256(const char *label, const uint8_t *key)
+{
+	print_hex_field(label, key, 64);
+}
+
+static void print_dhkey(const uint8_t *dhkey)
+{
+	print_hex_field("Diffie-Hellman key", dhkey, 32);
+}
+
 static void print_passkey(uint32_t passkey)
 {
 	print_field("Passkey: %06d", le32_to_cpu(passkey));
@@ -1985,6 +2092,34 @@ static void print_num_reports(uint8_t num_reports)
 	print_field("Num reports: %d", num_reports);
 }
 
+static void print_adv_event_type(uint8_t type)
+{
+	const char *str;
+
+	switch (type) {
+	case 0x00:
+		str = "Connectable undirected - ADV_IND";
+		break;
+	case 0x01:
+		str = "Connectable directed - ADV_DIRECT_IND";
+		break;
+	case 0x02:
+		str = "Scannable undirected - ADV_SCAN_IND";
+		break;
+	case 0x03:
+		str = "Non connectable undirected - ADV_NONCONN_IND";
+		break;
+	case 0x04:
+		str = "Scan response - SCAN_RSP";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Event type: %s (0x%2.2x)", str, type);
+}
+
 static void print_rssi(int8_t rssi)
 {
 	if ((uint8_t) rssi == 0x99 || rssi == 127)
@@ -2148,6 +2283,9 @@ void packet_print_version(const char *label, uint8_t version,
 		break;
 	case 0x07:
 		str = "Bluetooth 4.1";
+		break;
+	case 0x08:
+		str = "Bluetooth 4.2";
 		break;
 	default:
 		str = "Reserved";
@@ -2326,6 +2464,9 @@ static const struct features_data features_le[] = {
 	{  2, "Extended Reject Indication"		},
 	{  3, "Slave-initiated Features Exchange"	},
 	{  4, "LE Ping"					},
+	{  5, "LE Data Packet Length Extension"		},
+	{  6, "LL Privacy"				},
+	{  7, "Extended Scanner Filter Policies"	},
 	{ }
 };
 
@@ -2394,60 +2535,104 @@ void packet_print_features_ll(const uint8_t *features)
 	print_features(0, features, 0x01);
 }
 
+#define LE_STATE_SCAN_ADV		0x0001
+#define LE_STATE_CONN_ADV		0x0002
+#define LE_STATE_NONCONN_ADV		0x0004
+#define LE_STATE_HIGH_DIRECT_ADV	0x0008
+#define LE_STATE_LOW_DIRECT_ADV		0x0010
+#define LE_STATE_ACTIVE_SCAN		0x0020
+#define LE_STATE_PASSIVE_SCAN		0x0040
+#define LE_STATE_INITIATING		0x0080
+#define LE_STATE_CONN_MASTER		0x0100
+#define LE_STATE_CONN_SLAVE		0x0200
+#define LE_STATE_MASTER_MASTER		0x0400
+#define LE_STATE_SLAVE_SLAVE		0x0800
+#define LE_STATE_MASTER_SLAVE		0x1000
+
 static const struct {
 	uint8_t bit;
 	const char *str;
-} le_states_table[] = {
-	{  0, "Non-connectable Advertising State"			},
-	{  1, "Scannable Advertising State"				},
-	{  2, "Connectable Advertising State"				},
-	{  3, "Directed Advertising State"				},
-	{  4, "Passive Scanning State"					},
-	{  5, "Active Scanning State"					},
-	{  6, "Initiating State and Connection State in Master Role"	},
-	{  7, "Connection State in Slave Role"				},
-	{  8, "Non-connectable Advertising State and "
-				"Passive Scanning State combination"	},
-	{  9, "Scannable Advertising State and "
-				"Passive Scanning State combination"	},
-	{ 10, "Connectable Advertising State and "
-				"Passive Scanning State combination"	},
-	{ 11, "Directed Advertising State and "
-				"Passive Scanning State combination"	},
-	{ 12, "Non-connectable Advertising State and "
-				"Active Scanning State combination"	},
-	{ 13, "Scannable Advertising State and "
-				"Active Scanning State combination"	},
-	{ 14, "Connectable Advertising State and "
-				"Active Scanning State combination"	},
-	{ 15, "Directed Advertising State and "
-				"Active Scanning State combination"	},
-	{ 16, "Non-connectable Advertising State and "
-				"Initiating State combination"		},
-	{ 17, "Scannable Advertising State and "
-				"Initiating State combination"		},
-	{ 18, "Non-connectable Advertising State and "
-				"Mater Role combination"		},
-	{ 19, "Scannable Advertising State and "
-				"Master Role combination"		},
-	{ 20, "Non-connectable Advertising State and "
-				"Slave Role combination"		},
-	{ 21, "Scannable Advertising State and "
-				"Slave Role combination"		},
-	{ 22, "Passive Scanning State and Initiating State combination"	},
-	{ 23, "Active Scanning State and Initiating State combination"	},
-	{ 24, "Passive Scanning State and Master Role combination"	},
-	{ 25, "Active Scanning State and Master Role combination"	},
-	{ 26, "Passive Scanning State and Slave Role combination"	},
-	{ 27, "Active Scanning State and Slave Role combination"	},
-	{ 28, "Initiating State and Master Role combination"		},
+} le_states_desc_table[] = {
+	{  0, "Scannable Advertising State"			},
+	{  1, "Connectable Advertising State"			},
+	{  2, "Non-connectable Advertising State"		},
+	{  3, "High Duty Cycle Directed Advertising State"	},
+	{  4, "Low Duty Cycle Directed Advertising State"	},
+	{  5, "Active Scanning State"				},
+	{  6, "Passive Scanning State"				},
+	{  7, "Initiating State"				},
+	{  8, "Connection State (Master Role)"			},
+	{  9, "Connection State (Slave Role)"			},
+	{ 10, "Master Role & Master Role"			},
+	{ 11, "Slave Role & Slave Role"				},
+	{ 12, "Master Role & Slave Role"			},
+	{ }
+};
+
+static const struct {
+	uint8_t bit;
+	uint16_t states;
+} le_states_comb_table[] = {
+	{  0, LE_STATE_NONCONN_ADV				},
+	{  1, LE_STATE_SCAN_ADV					},
+	{  2, LE_STATE_CONN_ADV					},
+	{  3, LE_STATE_HIGH_DIRECT_ADV				},
+	{  4, LE_STATE_PASSIVE_SCAN				},
+	{  5, LE_STATE_ACTIVE_SCAN				},
+	{  6, LE_STATE_INITIATING | LE_STATE_CONN_MASTER	},
+	{  7, LE_STATE_CONN_SLAVE				},
+	{  8, LE_STATE_PASSIVE_SCAN | LE_STATE_NONCONN_ADV	},
+	{  9, LE_STATE_PASSIVE_SCAN | LE_STATE_SCAN_ADV		},
+	{ 10, LE_STATE_PASSIVE_SCAN | LE_STATE_CONN_ADV		},
+	{ 11, LE_STATE_PASSIVE_SCAN | LE_STATE_HIGH_DIRECT_ADV	},
+	{ 12, LE_STATE_ACTIVE_SCAN | LE_STATE_NONCONN_ADV	},
+	{ 13, LE_STATE_ACTIVE_SCAN | LE_STATE_SCAN_ADV		},
+	{ 14, LE_STATE_ACTIVE_SCAN | LE_STATE_CONN_ADV		},
+	{ 15, LE_STATE_ACTIVE_SCAN | LE_STATE_HIGH_DIRECT_ADV	},
+	{ 16, LE_STATE_INITIATING | LE_STATE_NONCONN_ADV	},
+	{ 17, LE_STATE_INITIATING | LE_STATE_SCAN_ADV		},
+	{ 18, LE_STATE_CONN_MASTER | LE_STATE_NONCONN_ADV	},
+	{ 19, LE_STATE_CONN_MASTER | LE_STATE_SCAN_ADV		},
+	{ 20, LE_STATE_CONN_SLAVE | LE_STATE_NONCONN_ADV	},
+	{ 21, LE_STATE_CONN_SLAVE | LE_STATE_SCAN_ADV		},
+	{ 22, LE_STATE_INITIATING | LE_STATE_PASSIVE_SCAN	},
+	{ 23, LE_STATE_INITIATING | LE_STATE_ACTIVE_SCAN	},
+	{ 24, LE_STATE_CONN_MASTER | LE_STATE_PASSIVE_SCAN	},
+	{ 25, LE_STATE_CONN_MASTER | LE_STATE_ACTIVE_SCAN	},
+	{ 26, LE_STATE_CONN_SLAVE | LE_STATE_PASSIVE_SCAN	},
+	{ 27, LE_STATE_CONN_SLAVE | LE_STATE_ACTIVE_SCAN	},
+	{ 28, LE_STATE_INITIATING | LE_STATE_CONN_MASTER |
+					LE_STATE_MASTER_MASTER	},
+	{ 29, LE_STATE_LOW_DIRECT_ADV				},
+	{ 30, LE_STATE_LOW_DIRECT_ADV | LE_STATE_PASSIVE_SCAN	},
+	{ 31, LE_STATE_LOW_DIRECT_ADV | LE_STATE_ACTIVE_SCAN	},
+	{ 32, LE_STATE_INITIATING | LE_STATE_CONN_ADV |
+					LE_STATE_MASTER_SLAVE	},
+	{ 33, LE_STATE_INITIATING | LE_STATE_HIGH_DIRECT_ADV |
+					LE_STATE_MASTER_SLAVE	},
+	{ 34, LE_STATE_INITIATING | LE_STATE_LOW_DIRECT_ADV |
+					LE_STATE_MASTER_SLAVE	},
+	{ 35, LE_STATE_CONN_MASTER | LE_STATE_CONN_ADV |
+					LE_STATE_MASTER_SLAVE	},
+	{ 36, LE_STATE_CONN_MASTER | LE_STATE_HIGH_DIRECT_ADV |
+					LE_STATE_MASTER_SLAVE	},
+	{ 37, LE_STATE_CONN_MASTER | LE_STATE_LOW_DIRECT_ADV |
+					LE_STATE_MASTER_SLAVE	},
+	{ 38, LE_STATE_CONN_SLAVE | LE_STATE_CONN_ADV |
+					LE_STATE_MASTER_SLAVE	},
+	{ 39, LE_STATE_CONN_SLAVE | LE_STATE_HIGH_DIRECT_ADV |
+					LE_STATE_SLAVE_SLAVE	},
+	{ 40, LE_STATE_CONN_SLAVE| LE_STATE_LOW_DIRECT_ADV |
+					LE_STATE_SLAVE_SLAVE	},
+	{ 41, LE_STATE_INITIATING | LE_STATE_CONN_SLAVE |
+					LE_STATE_MASTER_SLAVE	},
 	{ }
 };
 
 static void print_le_states(const uint8_t *states_array)
 {
 	uint64_t mask, states = 0;
-	int i;
+	int i, n;
 
 	for (i = 0; i < 8; i++)
 		states |= ((uint64_t) states_array[i]) << (i * 8);
@@ -2456,11 +2641,26 @@ static void print_le_states(const uint8_t *states_array)
 
 	mask = states;
 
-	for (i = 0; le_states_table[i].str; i++) {
-		if (states & (((uint64_t) 1) << le_states_table[i].bit)) {
-			print_field("  %s", le_states_table[i].str);
-			mask &= ~(((uint64_t) 1) << le_states_table[i].bit);
+	for (i = 0; le_states_comb_table[i].states; i++) {
+		uint64_t val = (((uint64_t) 1) << le_states_comb_table[i].bit);
+		const char *str[3] = { NULL, };
+		int num = 0;
+
+		if (!(states & val))
+			continue;
+
+		for (n = 0; n < 16; n++) {
+			if (le_states_comb_table[i].states & (1 << n))
+				str[num++] = le_states_desc_table[n].str;
 		}
+
+		if (num > 0) {
+			print_field("  %s", str[0]);
+			for (n = 1; n < num; n++)
+				print_field("    and %s", str[n]);
+		}
+
+		mask &= ~val;
 	}
 
 	if (mask)
@@ -2660,9 +2860,14 @@ static const struct {
 	{  0, "LE Connection Complete"			},
 	{  1, "LE Advertising Report"			},
 	{  2, "LE Connection Update Complete"		},
-	{  3, "LE Read Remote Used Features"		},
+	{  3, "LE Read Remote Used Features Complete"	},
 	{  4, "LE Long Term Key Request"		},
 	{  5, "LE Remote Connection Parameter Request"	},
+	{  6, "LE Data Length Change"			},
+	{  7, "LE Read Local P-256 Public Key Complete"	},
+	{  8, "LE Generate DHKey Complete"		},
+	{  9, "LE Enhanced Connection Complete"		},
+	{ 10, "LE Direct Advertising Report"		},
 	{ }
 };
 
@@ -4873,7 +5078,7 @@ static void read_sync_train_params_rsp(const void *data, uint8_t size)
 	print_field("Timeout: %.3f msec (0x%8.8x)",
 					le32_to_cpu(rsp->timeout) * 0.625,
 					le32_to_cpu(rsp->timeout));
-	print_field("Service Data: 0x%2.2x", rsp->service_data);
+	print_field("Service data: 0x%2.2x", rsp->service_data);
 }
 
 static void write_sync_train_params_cmd(const void *data, uint8_t size)
@@ -4885,7 +5090,7 @@ static void write_sync_train_params_cmd(const void *data, uint8_t size)
 	print_field("Timeout: %.3f msec (0x%8.8x)",
 					le32_to_cpu(cmd->timeout) * 0.625,
 					le32_to_cpu(cmd->timeout));
-	print_field("Service Data: 0x%2.2x", cmd->service_data);
+	print_field("Service data: 0x%2.2x", cmd->service_data);
 }
 
 static void write_sync_train_params_rsp(const void *data, uint8_t size)
@@ -5056,6 +5261,25 @@ static void read_data_block_size_rsp(const void *data, uint8_t size)
 	print_field("Max ACL length: %d", le16_to_cpu(rsp->max_acl_len));
 	print_field("Block length: %d", le16_to_cpu(rsp->block_len));
 	print_field("Num blocks: %d", le16_to_cpu(rsp->num_blocks));
+}
+
+static void read_local_codecs_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_read_local_codecs *rsp = data;
+	uint8_t i, num_vnd_codecs;
+
+	print_status(rsp->status);
+	print_field("Number of supported codecs: %d", rsp->num_codecs);
+
+	for (i = 0; i < rsp->num_codecs; i++)
+		print_codec("  Codec", rsp->codec[i]);
+
+	num_vnd_codecs = rsp->codec[rsp->num_codecs];
+
+	print_field("Number of vendor codecs: %d", num_vnd_codecs);
+
+	packet_hexdump(data + rsp->num_codecs + 3,
+					size - rsp->num_codecs - 3);
 }
 
 static void read_failed_contact_counter_cmd(const void *data, uint8_t size)
@@ -5248,6 +5472,61 @@ static void write_remote_amp_assoc_rsp(const void *data, uint8_t size)
 	print_phy_handle(rsp->phy_handle);
 }
 
+static void get_mws_transport_config_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_get_mws_transport_config *rsp = data;
+	uint8_t sum_baud_rates = 0;
+	int i;
+
+	print_status(rsp->status);
+	print_field("Number of transports: %d", rsp->num_transports);
+
+	for (i = 0; i < rsp->num_transports; i++) {
+		uint8_t transport = rsp->transport[0];
+		uint8_t num_baud_rates = rsp->transport[1];
+		const char *str;
+
+		switch (transport) {
+		case 0x00:
+			str = "Disbabled";
+			break;
+		case 0x01:
+			str = "WCI-1";
+			break;
+		case 0x02:
+			str = "WCI-2";
+			break;
+		default:
+			str = "Reserved";
+			break;
+		}
+
+		print_field("  Transport layer: %s (0x%2.2x)", str, transport);
+		print_field("  Number of baud rates: %d", num_baud_rates);
+
+		sum_baud_rates += num_baud_rates;
+	}
+
+	print_field("Baud rate list: %u entr%s", sum_baud_rates,
+					sum_baud_rates == 1 ? "y" : "ies");
+
+	for (i = 0; i < sum_baud_rates; i++) {
+		uint32_t to_baud_rate, from_baud_rate;
+
+		to_baud_rate = get_le32(data + 2 +
+					rsp->num_transports * 2 + i * 4);
+		from_baud_rate = get_le32(data + 2 +
+						rsp->num_transports * 2 +
+						sum_baud_rates * 4 + i * 4);
+
+		print_field("  Bluetooth to MWS: %d", to_baud_rate);
+		print_field("  MWS to Bluetooth: %d", from_baud_rate);
+	}
+
+	packet_hexdump(data + 2 + rsp->num_transports * 2 + sum_baud_rates * 8,
+		size - 2 - rsp->num_transports * 2 - sum_baud_rates * 8);
+}
+
 static void set_triggered_clock_capture_cmd(const void *data, uint8_t size)
 {
 	const struct bt_hci_cmd_set_triggered_clock_capture *cmd = data;
@@ -5343,7 +5622,7 @@ static void le_set_adv_parameters_cmd(const void *data, uint8_t size)
 
 	print_field("Type: %s (0x%2.2x)", str, cmd->type);
 
-	print_addr_type("Own address type", cmd->own_addr_type);
+	print_own_addr_type(cmd->own_addr_type);
 	print_addr_type("Direct address type", cmd->direct_addr_type);
 	print_addr("Direct address", cmd->direct_addr, cmd->direct_addr_type);
 
@@ -5466,7 +5745,7 @@ static void le_set_scan_parameters_cmd(const void *data, uint8_t size)
 
 	print_interval(cmd->interval);
 	print_window(cmd->window);
-	print_addr_type("Own address type", cmd->own_addr_type);
+	print_own_addr_type(cmd->own_addr_type);
 
 	switch (cmd->filter_policy) {
 	case 0x00:
@@ -5539,9 +5818,9 @@ static void le_create_conn_cmd(const void *data, uint8_t size)
 
 	print_field("Filter policy: %s (0x%2.2x)", str, cmd->filter_policy);
 
-	print_addr_type("Peer address type", cmd->peer_addr_type);
+	print_peer_addr_type("Peer address type", cmd->peer_addr_type);
 	print_addr("Peer address", cmd->peer_addr, cmd->peer_addr_type);
-	print_addr_type("Own address type", cmd->own_addr_type);
+	print_own_addr_type(cmd->own_addr_type);
 
 	print_slot_125("Min connection interval", cmd->min_interval);
 	print_slot_125("Max connection interval", cmd->max_interval);
@@ -5719,6 +5998,182 @@ static void le_test_end_rsp(const void *data, uint8_t size)
 
 	print_status(rsp->status);
 	print_field("Number of packets: %d", le16_to_cpu(rsp->num_packets));
+}
+
+static void le_conn_param_req_reply_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_conn_param_req_reply *cmd = data;
+
+	print_handle(cmd->handle);
+	print_slot_125("Min connection interval", cmd->min_interval);
+	print_slot_125("Max connection interval", cmd->max_interval);
+	print_field("Connection latency: 0x%4.4x", le16_to_cpu(cmd->latency));
+	print_field("Supervision timeout: %d msec (0x%4.4x)",
+					le16_to_cpu(cmd->supv_timeout) * 10,
+					le16_to_cpu(cmd->supv_timeout));
+	print_slot_625("Min connection length", cmd->min_length);
+	print_slot_625("Max connection length", cmd->max_length);
+}
+
+static void le_conn_param_req_reply_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_le_conn_param_req_reply *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+}
+
+static void le_conn_param_req_neg_reply_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_conn_param_req_neg_reply *cmd = data;
+
+	print_handle(cmd->handle);
+	print_reason(cmd->reason);
+}
+
+static void le_conn_param_req_neg_reply_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_le_conn_param_req_neg_reply *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+}
+
+static void le_set_data_length_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_set_data_length *cmd = data;
+
+	print_handle(cmd->handle);
+	print_field("TX octets: %d", le16_to_cpu(cmd->tx_len));
+	print_field("TX time: %d", le16_to_cpu(cmd->tx_time));
+}
+
+static void le_set_data_length_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_le_set_data_length *rsp = data;
+
+	print_status(rsp->status);
+	print_handle(rsp->handle);
+}
+
+static void le_read_default_data_length_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_le_read_default_data_length *rsp = data;
+
+	print_status(rsp->status);
+	print_field("TX octets: %d", le16_to_cpu(rsp->tx_len));
+	print_field("TX time: %d", le16_to_cpu(rsp->tx_time));
+}
+
+static void le_write_default_data_length_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_write_default_data_length *cmd = data;
+
+	print_field("TX octets: %d", le16_to_cpu(cmd->tx_len));
+	print_field("TX time: %d", le16_to_cpu(cmd->tx_time));
+}
+
+static void le_generate_dhkey_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_generate_dhkey *cmd = data;
+
+	print_pk256("Remote P-256 public key", cmd->remote_pk256);
+}
+
+static void le_add_to_resolv_list_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_add_to_resolv_list *cmd = data;
+
+	print_addr_type("Address type", cmd->addr_type);
+	print_addr("Address", cmd->addr, cmd->addr_type);
+	print_key("Peer identity resolving key", cmd->peer_irk);
+	print_key("Local identity resolving key", cmd->local_irk);
+}
+
+static void le_remove_from_resolv_list_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_remove_from_resolv_list *cmd = data;
+
+	print_addr_type("Address type", cmd->addr_type);
+	print_addr("Address", cmd->addr, cmd->addr_type);
+}
+
+static void le_read_resolv_list_size_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_le_read_resolv_list_size *rsp = data;
+
+	print_status(rsp->status);
+	print_field("Size: %u", rsp->size);
+}
+
+static void le_read_peer_resolv_addr_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_read_peer_resolv_addr *cmd = data;
+
+	print_addr_type("Address type", cmd->addr_type);
+	print_addr("Address", cmd->addr, cmd->addr_type);
+}
+
+static void le_read_peer_resolv_addr_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_le_read_peer_resolv_addr *rsp = data;
+
+	print_status(rsp->status);
+	print_addr("Address", rsp->addr, 0x01);
+}
+
+static void le_read_local_resolv_addr_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_read_local_resolv_addr *cmd = data;
+
+	print_addr_type("Address type", cmd->addr_type);
+	print_addr("Address", cmd->addr, cmd->addr_type);
+}
+
+static void le_read_local_resolv_addr_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_le_read_local_resolv_addr *rsp = data;
+
+	print_status(rsp->status);
+	print_addr("Address", rsp->addr, 0x01);
+}
+
+static void le_set_resolv_enable_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_set_resolv_enable *cmd = data;
+	const char *str;
+
+	switch (cmd->enable) {
+	case 0x00:
+		str = "Disabled";
+		break;
+	case 0x01:
+		str = "Enabled";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Address resolution: %s (0x%2.2x)", str, cmd->enable);
+}
+
+static void le_set_resolv_timeout_cmd(const void *data, uint8_t size)
+{
+	const struct bt_hci_cmd_le_set_resolv_timeout *cmd = data;
+
+	print_field("Timeout: %u seconds", le16_to_cpu(cmd->timeout));
+}
+
+static void le_read_max_data_length_rsp(const void *data, uint8_t size)
+{
+	const struct bt_hci_rsp_le_read_max_data_length *rsp = data;
+
+	print_status(rsp->status);
+	print_field("Max TX octets: %d", le16_to_cpu(rsp->max_tx_len));
+	print_field("Max TX time: %d", le16_to_cpu(rsp->max_tx_time));
+	print_field("Max RX octets: %d", le16_to_cpu(rsp->max_rx_len));
+	print_field("Max RX time: %d", le16_to_cpu(rsp->max_rx_time));
 }
 
 struct opcode_data {
@@ -6205,7 +6660,9 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x100a, 186, "Read Data Block Size",
 				null_cmd, 0, true,
 				read_data_block_size_rsp, 7, true },
-	{ 0x100b, 237, "Read Local Supported Codecs" },
+	{ 0x100b, 237, "Read Local Supported Codecs",
+				null_cmd, 0, true,
+				read_local_codecs_rsp, 3, false },
 
 	/* OGF 5 - Status Parameter */
 	{ 0x1401, 122, "Read Failed Contact Counter",
@@ -6238,7 +6695,9 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x140b, 183, "Write Remote AMP ASSOC",
 				write_remote_amp_assoc_cmd, 6, false,
 				write_remote_amp_assoc_rsp, 2, true },
-	{ 0x140c, 243, "Get MWS Transport Layer Configuration" },
+	{ 0x140c, 243, "Get MWS Transport Layer Configuration",
+				null_cmd, 0, true,
+				get_mws_transport_config_rsp, 2, false },
 	{ 0x140d, 245, "Set Triggered Clock Capture",
 				set_triggered_clock_capture_cmd, 6, true,
 				status_rsp, 1, true },
@@ -6344,8 +6803,52 @@ static const struct opcode_data opcode_table[] = {
 	{ 0x201f, 230, "LE Test End",
 				null_cmd, 0, true,
 				le_test_end_rsp, 3, true },
-	{ 0x2020, 268, "LE Remote Connection Parameter Request Reply" },
-	{ 0x2021, 269, "LE Remote Connection Parameter Request Negative Reply" },
+	{ 0x2020, 268, "LE Remote Connection Parameter Request Reply",
+				le_conn_param_req_reply_cmd, 14, true,
+				le_conn_param_req_reply_rsp, 3, true },
+	{ 0x2021, 269, "LE Remote Connection Parameter Request Negative Reply",
+				le_conn_param_req_neg_reply_cmd, 3, true,
+				le_conn_param_req_neg_reply_rsp, 3, true },
+	{ 0x2022, 270, "LE Set Data Length",
+				le_set_data_length_cmd, 6, true,
+				le_set_data_length_rsp, 3, true },
+	{ 0x2023, 271, "LE Read Suggested Default Data Length",
+				null_cmd, 0, true,
+				le_read_default_data_length_rsp, 5, true },
+	{ 0x2024, 272, "LE Write Suggested Default Data Length",
+				le_write_default_data_length_cmd, 4, true,
+				status_rsp, 1, true },
+	{ 0x2025, 273, "LE Read Local P-256 Public Key",
+				null_cmd, 0, true },
+	{ 0x2026, 274, "LE Generate DHKey",
+				le_generate_dhkey_cmd, 64, true },
+	{ 0x2027, 275, "LE Add Device To Resolving List",
+				le_add_to_resolv_list_cmd, 39, true,
+				status_rsp, 1, true },
+	{ 0x2028, 276, "LE Remove Device From Resolving List",
+				le_remove_from_resolv_list_cmd, 7, true,
+				status_rsp, 1, true },
+	{ 0x2029, 277, "LE Clear Resolving List",
+				null_cmd, 0, true,
+				status_rsp, 1, true },
+	{ 0x202a, 278, "LE Read Resolving List Size",
+				null_cmd, 0, true,
+				le_read_resolv_list_size_rsp, 2, true },
+	{ 0x202b, 279, "LE Read Peer Resolvable Address",
+				le_read_peer_resolv_addr_cmd, 7, true,
+				le_read_peer_resolv_addr_rsp, 7, true },
+	{ 0x202c, 280, "LE Read Local Resolvable Address",
+				le_read_local_resolv_addr_cmd, 7, true,
+				le_read_local_resolv_addr_rsp, 7, true },
+	{ 0x202d, 281, "LE Set Address Resolution Enable",
+				le_set_resolv_enable_cmd, 1, true,
+				status_rsp, 1, true },
+	{ 0x202e, 282, "LE Set Resolvable Private Address Timeout",
+				le_set_resolv_timeout_cmd, 2, true,
+				status_rsp, 1, true },
+	{ 0x202f, 283, "LE Read Maximum Data Length",
+				null_cmd, 0, true,
+				le_read_max_data_length_rsp, 9, true },
 	{ }
 };
 
@@ -7166,7 +7669,7 @@ static void le_conn_complete_evt(const void *data, uint8_t size)
 	print_status(evt->status);
 	print_handle(evt->handle);
 	print_role(evt->role);
-	print_addr_type("Peer address type", evt->peer_addr_type);
+	print_peer_addr_type("Peer address type", evt->peer_addr_type);
 	print_addr("Peer address", evt->peer_addr, evt->peer_addr_type);
 	print_slot_125("Connection interval", evt->interval);
 	print_slot_125("Connection latency", evt->latency);
@@ -7182,36 +7685,14 @@ static void le_conn_complete_evt(const void *data, uint8_t size)
 static void le_adv_report_evt(const void *data, uint8_t size)
 {
 	const struct bt_hci_evt_le_adv_report *evt = data;
-	const char *str;
 	uint8_t evt_len;
 	int8_t *rssi;
 
 	print_num_reports(evt->num_reports);
 
 report:
-	switch (evt->event_type) {
-	case 0x00:
-		str = "Connectable undirected - ADV_IND";
-		break;
-	case 0x01:
-		str = "Connectable directed - ADV_DIRECT_IND";
-		break;
-	case 0x02:
-		str = "Scannable undirected - ADV_SCAN_IND";
-		break;
-	case 0x03:
-		str = "Non connectable undirected - ADV_NONCONN_IND";
-		break;
-	case 0x04:
-		str = "Scan response - SCAN_RSP";
-		break;
-	default:
-		str = "Reserved";
-		break;
-	}
-
-	print_field("Event type: %s (0x%2.2x)", str, evt->event_type);
-	print_addr_type("Address type", evt->addr_type);
+	print_adv_event_type(evt->event_type);
+	print_peer_addr_type("Address type", evt->addr_type);
 	print_addr("Address", evt->addr, evt->addr_type);
 	print_field("Data length: %d", evt->data_len);
 	print_eir(evt->data, evt->data_len, true);
@@ -7260,6 +7741,85 @@ static void le_long_term_key_request_evt(const void *data, uint8_t size)
 	print_encrypted_diversifier(evt->ediv);
 }
 
+static void le_conn_param_request_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_le_conn_param_request *evt = data;
+
+	print_handle(evt->handle);
+	print_slot_125("Min connection interval", evt->min_interval);
+	print_slot_125("Max connection interval", evt->max_interval);
+	print_field("Connection latency: 0x%4.4x", le16_to_cpu(evt->latency));
+	print_field("Supervision timeout: %d msec (0x%4.4x)",
+					le16_to_cpu(evt->supv_timeout) * 10,
+					le16_to_cpu(evt->supv_timeout));
+}
+
+static void le_data_length_change_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_le_data_length_change *evt = data;
+
+	print_handle(evt->handle);
+	print_field("Max TX octets: %d", le16_to_cpu(evt->max_tx_len));
+	print_field("Max TX time: %d", le16_to_cpu(evt->max_tx_time));
+	print_field("Max RX octets: %d", le16_to_cpu(evt->max_rx_len));
+	print_field("Max RX time: %d", le16_to_cpu(evt->max_rx_time));
+}
+
+static void le_read_local_pk256_complete_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_le_read_local_pk256_complete *evt = data;
+
+	print_status(evt->status);
+	print_pk256("Local P-256 public key", evt->local_pk256);
+}
+
+static void le_generate_dhkey_complete_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_le_generate_dhkey_complete *evt = data;
+
+	print_status(evt->status);
+	print_dhkey(evt->dhkey);
+}
+
+static void le_enhanced_conn_complete_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_le_enhanced_conn_complete *evt = data;
+
+	print_status(evt->status);
+	print_handle(evt->handle);
+	print_role(evt->role);
+	print_peer_addr_type("Peer address type", evt->peer_addr_type);
+	print_addr("Peer address", evt->peer_addr, evt->peer_addr_type);
+	print_addr("Local resolvable private address", evt->local_rpa, 0x01);
+	print_addr("Peer resolvable private address", evt->peer_rpa, 0x01);
+	print_slot_125("Connection interval", evt->interval);
+	print_slot_125("Connection latency", evt->latency);
+	print_field("Supervision timeout: %d msec (0x%4.4x)",
+					le16_to_cpu(evt->supv_timeout) * 10,
+					le16_to_cpu(evt->supv_timeout));
+	print_field("Master clock accuracy: 0x%2.2x", evt->clock_accuracy);
+
+	if (evt->status == 0x00)
+		assign_handle(le16_to_cpu(evt->handle), 0x01);
+}
+
+static void le_direct_adv_report_evt(const void *data, uint8_t size)
+{
+	const struct bt_hci_evt_le_direct_adv_report *evt = data;
+
+	print_num_reports(evt->num_reports);
+
+	print_adv_event_type(evt->event_type);
+	print_peer_addr_type("Address type", evt->addr_type);
+	print_addr("Address", evt->addr, evt->addr_type);
+	print_addr_type("Direct address type", evt->direct_addr_type);
+	print_addr("Direct address", evt->direct_addr, evt->direct_addr_type);
+	print_rssi(evt->rssi);
+
+	if (size > sizeof(*evt))
+		packet_hexdump(data + sizeof(*evt), size - sizeof(*evt));
+}
+
 struct subevent_data {
 	uint8_t subevent;
 	const char *str;
@@ -7279,7 +7839,18 @@ static const struct subevent_data subevent_table[] = {
 				le_remote_features_complete_evt, 11, true },
 	{ 0x05, "LE Long Term Key Request",
 				le_long_term_key_request_evt, 12, true },
-	{ 0x06, "LE Remote Connection Parameter Request" },
+	{ 0x06, "LE Remote Connection Parameter Request",
+				le_conn_param_request_evt, 10, true },
+	{ 0x07, "LE Data Length Change",
+				le_data_length_change_evt, 10, true },
+	{ 0x08, "LE Read Local P-256 Public Key Complete",
+				le_read_local_pk256_complete_evt, 65, true },
+	{ 0x09, "LE Generate DHKey Complete",
+				le_generate_dhkey_complete_evt, 33, true },
+	{ 0x0a, "LE Enhanced Connection Complete",
+				le_enhanced_conn_complete_evt, 30, true },
+	{ 0x0b, "LE Direct Advertising Report",
+				le_direct_adv_report_evt, 1, false },
 	{ }
 };
 

@@ -35,8 +35,6 @@
 #include "monitor/bt.h"
 #include "analyze.h"
 
-#define MAX_PACKET_SIZE		(1486 + 4)
-
 struct hci_dev {
 	uint16_t index;
 	uint8_t type;
@@ -272,7 +270,7 @@ void analyze_trace(const char *path)
 		break;
 	default:
 		fprintf(stderr, "Unsupported packet format\n");
-		return;
+		goto done;
 	}
 
 	dev_list = queue_new();
@@ -282,12 +280,12 @@ void analyze_trace(const char *path)
 	}
 
 	while (1) {
-		unsigned char buf[MAX_PACKET_SIZE];
+		unsigned char buf[BTSNOOP_MAX_PACKET_SIZE];
 		struct timeval tv;
 		uint16_t index, opcode, pktlen;
 
-		if (btsnoop_read_hci(btsnoop_file, &tv, &index, &opcode,
-							buf, &pktlen) < 0)
+		if (!btsnoop_read_hci(btsnoop_file, &tv, &index, &opcode,
+								buf, &pktlen))
 			break;
 
 		switch (opcode) {
@@ -311,6 +309,9 @@ void analyze_trace(const char *path)
 		case BTSNOOP_OPCODE_SCO_RX_PKT:
 			sco_pkt(&tv, index, buf, pktlen);
 			break;
+		default:
+			fprintf(stderr, "Wrong opcode %u\n", opcode);
+			goto done;
 		}
 
 		num_packets++;

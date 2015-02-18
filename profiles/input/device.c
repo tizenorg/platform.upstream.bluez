@@ -52,14 +52,12 @@
 #include "src/dbus-common.h"
 #include "src/error.h"
 #include "src/sdp-client.h"
+#include "src/shared/uhid.h"
 
 #include "device.h"
 #include "hidp_defs.h"
-#include "uhid_copy.h"
 
 #define INPUT_INTERFACE "org.bluez.Input1"
-
-#define UHID_DEVICE_FILE "/dev/uhid"
 
 enum reconnect_mode_t {
 	RECONNECT_NONE = 0,
@@ -81,14 +79,11 @@ struct input_device {
 	guint			intr_watch;
 	guint			sec_watch;
 	struct hidp_connadd_req *req;
-	guint			dc_id;
 	bool			disable_sdp;
 	enum reconnect_mode_t	reconnect_mode;
 	guint			reconnect_timer;
 	uint32_t		reconnect_attempt;
-	bool			uhid_enabled;
-	int			uhid_fd;
-	guint			uhid_watch;
+	struct bt_uhid		*uhid;
 	bool			uhid_created;
 	uint8_t			report_req_pending;
 	guint			report_req_timer;
@@ -113,9 +108,7 @@ static int connection_disconnect(struct input_device *idev, uint32_t flags);
 
 static void input_device_free(struct input_device *idev)
 {
-	if (idev->dc_id)
-		device_remove_disconnect_watch(idev->device, idev->dc_id);
-
+	bt_uhid_unref(idev->uhid);
 	btd_service_unref(idev->service);
 	btd_device_unref(idev->device);
 	g_free(idev->path);
@@ -155,6 +148,11 @@ static bool hidp_send_message(GIOChannel *chan, uint8_t hdr,
 	int fd;
 	ssize_t len;
 	uint8_t msg[size + 1];
+
+	if (!chan) {
+		error("BT socket not connected");
+		return false;
+	}
 
 	if (data == NULL)
 		size = 0;
@@ -198,7 +196,7 @@ static bool uhid_send_feature_answer(struct input_device *idev,
 					uint32_t id, uint16_t err)
 {
 	struct uhid_event ev;
-	ssize_t len;
+	int ret;
 
 	if (data == NULL)
 		size = 0;
@@ -220,20 +218,13 @@ static bool uhid_send_feature_answer(struct input_device *idev,
 	if (size > 0)
 		memcpy(ev.u.feature_answer.data, data, size);
 
-	len = write(idev->uhid_fd, &ev, sizeof(ev));
-	if (len < 0) {
-		error("uHID dev write error: %s (%d)", strerror(errno), errno);
+	ret = bt_uhid_send(idev->uhid, &ev);
+	if (ret < 0) {
+		error("bt_uhid_send: %s (%d)", strerror(-ret), -ret);
 		return false;
 	}
 
-	/* uHID kernel driver does not handle partial writes */
-	if ((size_t) len < sizeof(ev)) {
-		error("uHID dev write error: partial write (%zd of %zu bytes)",
-							len, sizeof(ev));
-		return false;
-	}
-
-	DBG("HID report (%zu bytes) -> uHID fd %d", size, idev->uhid_fd);
+	DBG("HID report (%zu bytes)", size);
 
 	return true;
 }
@@ -242,7 +233,7 @@ static bool uhid_send_input_report(struct input_device *idev,
 					const uint8_t *data, size_t size)
 {
 	struct uhid_event ev;
-	ssize_t len;
+	int err;
 
 	if (data == NULL)
 		size = 0;
@@ -262,20 +253,13 @@ static bool uhid_send_input_report(struct input_device *idev,
 	if (size > 0)
 		memcpy(ev.u.input.data, data, size);
 
-	len = write(idev->uhid_fd, &ev, sizeof(ev));
-	if (len < 0) {
-		error("uHID dev write error: %s (%d)", strerror(errno), errno);
+	err = bt_uhid_send(idev->uhid, &ev);
+	if (err < 0) {
+		error("bt_uhid_send: %s (%d)", strerror(-err), -err);
 		return false;
 	}
 
-	/* uHID kernel driver does not handle partial writes */
-	if ((size_t) len < sizeof(ev)) {
-		error("uHID dev write error: partial write (%zd of %zu bytes)",
-							len, sizeof(ev));
-		return false;
-	}
-
-	DBG("HID report (%zu bytes) -> uHID fd %d", size, idev->uhid_fd);
+	DBG("HID report (%zu bytes)", size);
 
 	return true;
 }
@@ -335,9 +319,6 @@ static gboolean intr_watch_cb(GIOChannel *chan, GIOCondition cond, gpointer data
 	 * this mainloop iteration */
 	if ((cond & (G_IO_HUP | G_IO_ERR)) && idev->ctrl_watch)
 		g_io_channel_shutdown(chan, TRUE, NULL);
-
-	device_remove_disconnect_watch(idev->device, idev->dc_id);
-	idev->dc_id = 0;
 
 	idev->intr_watch = 0;
 
@@ -580,9 +561,9 @@ static gboolean hidp_report_req_timeout(gpointer data)
 	return FALSE;
 }
 
-static void hidp_send_set_report(struct input_device *idev,
-							struct uhid_event *ev)
+static void hidp_send_set_report(struct uhid_event *ev, void *user_data)
 {
+	struct input_device *idev = user_data;
 	uint8_t hdr;
 	bool sent;
 
@@ -618,9 +599,9 @@ static void hidp_send_set_report(struct input_device *idev,
 	}
 }
 
-static void hidp_send_get_report(struct input_device *idev,
-							struct uhid_event *ev)
+static void hidp_send_get_report(struct uhid_event *ev, void *user_data)
 {
+	struct input_device *idev = user_data;
 	uint8_t hdr;
 	bool sent;
 
@@ -658,91 +639,6 @@ static void hidp_send_get_report(struct input_device *idev,
 						hidp_report_req_timeout, idev);
 		idev->report_rsp_id = ev->u.feature.id;
 	}
-}
-
-static gboolean uhid_watch_cb(GIOChannel *chan, GIOCondition cond,
-							gpointer user_data)
-{
-	struct input_device *idev = user_data;
-	int fd;
-	ssize_t len;
-	struct uhid_event ev;
-
-	if (cond & (G_IO_ERR | G_IO_NVAL))
-		goto failed;
-
-	fd = g_io_channel_unix_get_fd(chan);
-	memset(&ev, 0, sizeof(ev));
-
-	len = read(fd, &ev, sizeof(ev));
-	if (len < 0) {
-		error("uHID dev read error: %s (%d)", strerror(errno), errno);
-		goto failed;
-	}
-
-	if ((size_t) len < sizeof(ev.type)) {
-		error("uHID dev read returned too few bytes");
-		goto failed;
-	}
-
-	DBG("uHID event type %u received (%zd bytes)", ev.type, len);
-
-	switch (ev.type) {
-	case UHID_START:
-	case UHID_STOP:
-		/* These are called to start and stop the underlying hardware.
-		 * For HID we open the channels before creating the device so
-		 * the hardware is always ready. No need to handle these.
-		 * Note that these are also called when the kernel switches
-		 * between device-drivers loaded on the HID device. But we can
-		 * simply keep the hardware alive during transitions and it
-		 * works just fine.
-		 * The kernel never destroys a device itself! Only an explicit
-		 * UHID_DESTROY request can remove a device.
-		 */
-		break;
-	case UHID_OPEN:
-	case UHID_CLOSE:
-		/* OPEN/CLOSE are sent whenever user-space opens any interface
-		 * provided by the kernel HID device. Whenever the open-count
-		 * is non-zero we must be ready for I/O. As long as it is zero,
-		 * we can decide to drop all I/O and put the device
-		 * asleep This is optional, though. Moreover, some
-		 * special device drivers are buggy in that regard, so
-		 * maybe we just keep I/O always awake like HIDP in the
-		 * kernel does.
-		 */
-		break;
-	case UHID_OUTPUT:
-		hidp_send_set_report(idev, &ev);
-		break;
-	case UHID_FEATURE:
-		hidp_send_get_report(idev, &ev);
-		break;
-	case UHID_OUTPUT_EV:
-		/* This is only sent by kernels prior to linux-3.11. It
-		 * requires us to parse HID-descriptors in user-space to
-		 * properly handle it. This is redundant as the kernel
-		 * does it already. That's why newer kernels assemble
-		 * the output-reports and send it to us via UHID_OUTPUT.
-		 * We never implemented this, so we rely on users to use
-		 * recent-enough kernels if they want this feature. No reason
-		 * to implement this for older kernels.
-		 */
-		DBG("Unsupported uHID output event: type %u code %u value %d",
-				ev.u.output_ev.type, ev.u.output_ev.code,
-				ev.u.output_ev.value);
-		break;
-	default:
-		warn("unexpected uHID event");
-		break;
-	}
-
-	return TRUE;
-
-failed:
-	idev->uhid_watch = 0;
-	return FALSE;
 }
 
 static void epox_endian_quirk(unsigned char *data, int size)
@@ -949,32 +845,37 @@ static int ioctl_disconnect(struct input_device *idev, uint32_t flags)
 
 static int uhid_connadd(struct input_device *idev, struct hidp_connadd_req *req)
 {
-	int err = 0;
+	int err;
 	struct uhid_event ev;
 
-	if (!idev->uhid_created) {
-		/* create uHID device */
-		memset(&ev, 0, sizeof(ev));
-		ev.type = UHID_CREATE;
-		strncpy((char *) ev.u.create.name, req->name,
-						sizeof(ev.u.create.name) - 1);
-		ba2str(&idev->src, (char *) ev.u.create.phys);
-		ba2str(&idev->dst, (char *) ev.u.create.uniq);
-		ev.u.create.vendor = req->vendor;
-		ev.u.create.product = req->product;
-		ev.u.create.version = req->version;
-		ev.u.create.country = req->country;
-		ev.u.create.bus = BUS_BLUETOOTH;
-		ev.u.create.rd_data = req->rd_data;
-		ev.u.create.rd_size = req->rd_size;
+	if (idev->uhid_created)
+		return 0;
 
-		if (write(idev->uhid_fd, &ev, sizeof(ev)) < 0) {
-			err = -errno;
-			error("Failed to create uHID device: %s (%d)",
-							strerror(-err), -err);
-		} else
-			idev->uhid_created = true;
+	/* create uHID device */
+	memset(&ev, 0, sizeof(ev));
+	ev.type = UHID_CREATE;
+	strncpy((char *) ev.u.create.name, req->name,
+						sizeof(ev.u.create.name) - 1);
+	ba2str(&idev->src, (char *) ev.u.create.phys);
+	ba2str(&idev->dst, (char *) ev.u.create.uniq);
+	ev.u.create.vendor = req->vendor;
+	ev.u.create.product = req->product;
+	ev.u.create.version = req->version;
+	ev.u.create.country = req->country;
+	ev.u.create.bus = BUS_BLUETOOTH;
+	ev.u.create.rd_data = req->rd_data;
+	ev.u.create.rd_size = req->rd_size;
+
+	err = bt_uhid_send(idev->uhid, &ev);
+	if (err < 0) {
+		error("bt_uhid_send: %s", strerror(-err));
+		return err;
 	}
+
+	bt_uhid_register(idev->uhid, UHID_OUTPUT, hidp_send_set_report, idev);
+	bt_uhid_register(idev->uhid, UHID_FEATURE, hidp_send_get_report, idev);
+
+	idev->uhid_created = true;
 
 	return err;
 }
@@ -987,7 +888,7 @@ static gboolean encrypt_notify(GIOChannel *io, GIOCondition condition,
 
 	DBG("");
 
-	if (idev->uhid_enabled)
+	if (idev->uhid)
 		err = uhid_connadd(idev, idev->req);
 	else
 		err = ioctl_connadd(idev->req);
@@ -1022,7 +923,7 @@ static int hidp_add_connection(struct input_device *idev)
 	struct hidp_connadd_req *req;
 	sdp_record_t *rec;
 	char src_addr[18], dst_addr[18];
-	char filename[PATH_MAX + 1];
+	char filename[PATH_MAX];
 	GKeyFile *key_file;
 	char handle[11], *str;
 	GError *gerr = NULL;
@@ -1039,7 +940,6 @@ static int hidp_add_connection(struct input_device *idev)
 
 	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/cache/%s", src_addr,
 								dst_addr);
-	filename[PATH_MAX] = '\0';
 	sprintf(handle, "0x%8.8X", idev->handle);
 
 	key_file = g_key_file_new();
@@ -1089,7 +989,7 @@ static int hidp_add_connection(struct input_device *idev)
 		return 0;
 	}
 
-	if (idev->uhid_enabled)
+	if (idev->uhid)
 		err = uhid_connadd(idev, req);
 	else
 		err = ioctl_connadd(req);
@@ -1103,7 +1003,7 @@ cleanup:
 
 static bool is_connected(struct input_device *idev)
 {
-	if (idev->uhid_enabled)
+	if (idev->uhid)
 		return (idev->intr_io != NULL && idev->ctrl_io != NULL);
 	else
 		return ioctl_is_connected(idev);
@@ -1120,23 +1020,10 @@ static int connection_disconnect(struct input_device *idev, uint32_t flags)
 	if (idev->ctrl_io)
 		g_io_channel_shutdown(idev->ctrl_io, TRUE, NULL);
 
-	if (idev->uhid_enabled)
+	if (idev->uhid)
 		return 0;
 	else
 		return ioctl_disconnect(idev, flags);
-}
-
-static void disconnect_cb(struct btd_device *device, gboolean removal,
-				void *user_data)
-{
-	struct input_device *idev = user_data;
-	int flags;
-
-	info("Input: disconnect %s", idev->path);
-
-	flags = removal ? (1 << HIDP_VIRTUAL_CABLE_UNPLUG) : 0;
-
-	connection_disconnect(idev, flags);
 }
 
 static int input_device_connected(struct input_device *idev)
@@ -1150,13 +1037,7 @@ static int input_device_connected(struct input_device *idev)
 	if (err < 0)
 		return err;
 
-	idev->dc_id = device_add_disconnect_watch(idev->device, disconnect_cb,
-							idev, NULL);
-
 	btd_service_connecting_complete(idev->service, 0);
-
-	g_dbus_emit_property_changed(btd_get_dbus_connection(), idev->path,
-				INPUT_INTERFACE, "Connected");
 
 	return 0;
 }
@@ -1177,7 +1058,7 @@ static void interrupt_connect_cb(GIOChannel *chan, GError *conn_err,
 	if (err < 0)
 		goto failed;
 
-	if (idev->uhid_enabled)
+	if (idev->uhid)
 		cond |= G_IO_IN;
 
 	idev->intr_watch = g_io_add_watch(idev->intr_io, cond, intr_watch_cb,
@@ -1232,7 +1113,7 @@ static void control_connect_cb(GIOChannel *chan, GError *conn_err,
 
 	idev->intr_io = io;
 
-	if (idev->uhid_enabled)
+	if (idev->uhid)
 		cond |= G_IO_IN;
 
 	idev->ctrl_watch = g_io_add_watch(idev->ctrl_io, cond, ctrl_watch_cb,
@@ -1363,18 +1244,18 @@ int input_device_connect(struct btd_service *service)
 int input_device_disconnect(struct btd_service *service)
 {
 	struct input_device *idev;
-	int err;
+	int err, flags;
 
 	DBG("");
 
 	idev = btd_service_get_user_data(service);
 
-	err = connection_disconnect(idev, 0);
+	flags = device_is_temporary(idev->device) ?
+					(1 << HIDP_VIRTUAL_CABLE_UNPLUG) : 0;
+
+	err = connection_disconnect(idev, flags);
 	if (err < 0)
 		return err;
-
-	g_dbus_emit_property_changed(btd_get_dbus_connection(), idev->path,
-				INPUT_INTERFACE, "Connected");
 
 	return 0;
 }
@@ -1425,7 +1306,7 @@ static struct input_device *input_device_new(struct btd_service *service)
 {
 	struct btd_device *device = btd_service_get_device(service);
 	struct btd_profile *p = btd_service_get_profile(service);
-	const char *path = btd_device_get_path(device);
+	const char *path = device_get_path(device);
 	const sdp_record_t *rec = btd_device_get_record(device, p->remote_uuid);
 	struct btd_adapter *adapter = device_get_adapter(device);
 	struct input_device *idev;
@@ -1441,7 +1322,6 @@ static struct input_device *input_device_new(struct btd_service *service)
 	idev->path = g_strdup(path);
 	idev->handle = rec->handle;
 	idev->disable_sdp = is_device_sdp_disable(rec);
-	idev->uhid_enabled = uhid_enabled;
 
 	/* Initialize device properties */
 	extract_hid_props(idev, rec);
@@ -1461,39 +1341,16 @@ static gboolean property_get_reconnect_mode(
 	return TRUE;
 }
 
-static gboolean property_get_connected(const GDBusPropertyTable *property,
-					DBusMessageIter *iter, void *data)
-{
-	struct input_device *idev = data;
-	dbus_bool_t connected;
-
-	if (idev->service == NULL)
-		return FALSE;
-
-	if (btd_service_get_state(idev->service)
-				== BTD_SERVICE_STATE_CONNECTED) {
-		connected = true;
-	} else
-		connected = false;
-
-	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &connected);
-
-	return TRUE;
-}
-
 static const GDBusPropertyTable input_properties[] = {
 	{ "ReconnectMode", "s", property_get_reconnect_mode },
-	{ "Connected", "b", property_get_connected },
 	{ }
 };
 
 int input_device_register(struct btd_service *service)
 {
 	struct btd_device *device = btd_service_get_device(service);
-	const char *path = btd_device_get_path(device);
+	const char *path = device_get_path(device);
 	struct input_device *idev;
-	int err;
-	GIOChannel *io;
 
 	DBG("%s", path);
 
@@ -1501,22 +1358,13 @@ int input_device_register(struct btd_service *service)
 	if (!idev)
 		return -EINVAL;
 
-	if (idev->uhid_enabled) {
-		idev->uhid_fd = open(UHID_DEVICE_FILE, O_RDWR | O_CLOEXEC);
-		if (idev->uhid_fd < 0) {
-			err = errno;
-			error("Failed to open uHID device: %s (%d)",
-							strerror(err), err);
+	if (uhid_enabled) {
+		idev->uhid = bt_uhid_new_default();
+		if (!idev->uhid) {
+			error("bt_uhid_new_default: failed");
 			input_device_free(idev);
-			return -err;
+			return -EIO;
 		}
-
-		io = g_io_channel_unix_new(idev->uhid_fd);
-		g_io_channel_set_encoding(io, NULL, NULL);
-		idev->uhid_watch = g_io_add_watch(io,
-						G_IO_IN | G_IO_ERR | G_IO_NVAL,
-						uhid_watch_cb, idev);
-		g_io_channel_unref(io);
 	}
 
 	if (g_dbus_register_interface(btd_get_dbus_connection(),
@@ -1554,32 +1402,13 @@ static struct input_device *find_device(const bdaddr_t *src,
 void input_device_unregister(struct btd_service *service)
 {
 	struct btd_device *device = btd_service_get_device(service);
-	const char *path = btd_device_get_path(device);
+	const char *path = device_get_path(device);
 	struct input_device *idev = btd_service_get_user_data(service);
-	struct uhid_event ev;
 
 	DBG("%s", path);
 
 	g_dbus_unregister_interface(btd_get_dbus_connection(),
 						idev->path, INPUT_INTERFACE);
-
-	if (idev->uhid_enabled) {
-		if (idev->uhid_watch) {
-			g_source_remove(idev->uhid_watch);
-			idev->uhid_watch = 0;
-		}
-
-		if (idev->uhid_created) {
-			memset(&ev, 0, sizeof(ev));
-			ev.type = UHID_DESTROY;
-			if (write(idev->uhid_fd, &ev, sizeof(ev)) < 0)
-				error("Failed to destroy uHID device: %s (%d)",
-							strerror(errno), errno);
-		}
-
-		close(idev->uhid_fd);
-		idev->uhid_fd = -1;
-	}
 
 	input_device_free(idev);
 }
@@ -1626,7 +1455,7 @@ int input_device_set_channel(const bdaddr_t *src, const bdaddr_t *dst, int psm,
 	if (!idev)
 		return -ENOENT;
 
-	if (idev->uhid_enabled)
+	if (uhid_enabled)
 		cond |= G_IO_IN;
 
 	switch (psm) {

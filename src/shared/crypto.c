@@ -66,10 +66,14 @@ struct af_alg_iv {
 #define SOL_ALG		279
 #endif
 
+/* Maximum message length that can be passed to aes_cmac */
+#define CMAC_MSG_MAX	80
+
 struct bt_crypto {
 	int ref_count;
 	int ecb_aes;
 	int urandom;
+	int cmac_aes;
 };
 
 static int urandom_setup(void)
@@ -105,6 +109,28 @@ static int ecb_aes_setup(void)
 	return fd;
 }
 
+static int cmac_aes_setup(void)
+{
+	struct sockaddr_alg salg;
+	int fd;
+
+	fd = socket(PF_ALG, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+	if (fd < 0)
+		return -1;
+
+	memset(&salg, 0, sizeof(salg));
+	salg.salg_family = AF_ALG;
+	strcpy((char *) salg.salg_type, "hash");
+	strcpy((char *) salg.salg_name, "cmac(aes)");
+
+	if (bind(fd, (struct sockaddr *) &salg, sizeof(salg)) < 0) {
+		close(fd);
+		return -1;
+	}
+
+	return fd;
+}
+
 struct bt_crypto *bt_crypto_new(void)
 {
 	struct bt_crypto *crypto;
@@ -121,6 +147,14 @@ struct bt_crypto *bt_crypto_new(void)
 
 	crypto->urandom = urandom_setup();
 	if (crypto->urandom < 0) {
+		close(crypto->ecb_aes);
+		free(crypto);
+		return NULL;
+	}
+
+	crypto->cmac_aes = cmac_aes_setup();
+	if (crypto->cmac_aes < 0) {
+		close(crypto->urandom);
 		close(crypto->ecb_aes);
 		free(crypto);
 		return NULL;
@@ -149,6 +183,7 @@ void bt_crypto_unref(struct bt_crypto *crypto)
 
 	close(crypto->urandom);
 	close(crypto->ecb_aes);
+	close(crypto->cmac_aes);
 
 	free(crypto);
 }
@@ -216,14 +251,74 @@ static bool alg_encrypt(int fd, const void *inbuf, size_t inlen,
 	return true;
 }
 
-static inline void swap128(const uint8_t src[16], uint8_t dst[16])
+static inline void swap_buf(const uint8_t *src, uint8_t *dst, uint16_t len)
 {
 	int i;
 
-	for (i = 0; i < 16; i++)
-		dst[15 - i] = src[i];
+	for (i = 0; i < len; i++)
+		dst[len - 1 - i] = src[i];
 }
 
+bool bt_crypto_sign_att(struct bt_crypto *crypto, const uint8_t key[16],
+				const uint8_t *m, uint16_t m_len,
+				uint32_t sign_cnt, uint8_t signature[12])
+{
+	int fd;
+	int len;
+	uint8_t tmp[16], out[16];
+	uint16_t msg_len = m_len + sizeof(uint32_t);
+	uint8_t msg[msg_len];
+	uint8_t msg_s[msg_len];
+
+	if (!crypto)
+		return false;
+
+	memset(msg, 0, msg_len);
+	memcpy(msg, m, m_len);
+
+	/* Add sign_counter to the message */
+	put_le32(sign_cnt, msg + m_len);
+
+	/* The most significant octet of key corresponds to key[0] */
+	swap_buf(key, tmp, 16);
+
+	fd = alg_new(crypto->cmac_aes, tmp, 16);
+	if (fd < 0)
+		return false;
+
+	/* Swap msg before signing */
+	swap_buf(msg, msg_s, msg_len);
+
+	len = send(fd, msg_s, msg_len, 0);
+	if (len < 0) {
+		close(fd);
+		return false;
+	}
+
+	len = read(fd, out, 16);
+	if (len < 0) {
+		close(fd);
+		return false;
+	}
+
+	close(fd);
+
+	/*
+	 * As to BT spec. 4.1 Vol[3], Part C, chapter 10.4.1 sign counter should
+	 * be placed in the signature
+	 */
+	put_be32(sign_cnt, out + 8);
+
+	/*
+	 * The most significant octet of hash corresponds to out[0]  - swap it.
+	 * Then truncate in most significant bit first order to a length of
+	 * 12 octets
+	 */
+	swap_buf(out, tmp, 16);
+	memcpy(signature, tmp + 4, 12);
+
+	return true;
+}
 /*
  * Security function e
  *
@@ -247,7 +342,7 @@ bool bt_crypto_e(struct bt_crypto *crypto, const uint8_t key[16],
 		return false;
 
 	/* The most significant octet of key corresponds to key[0] */
-	swap128(key, tmp);
+	swap_buf(key, tmp, 16);
 
 	fd = alg_new(crypto->ecb_aes, tmp, 16);
 	if (fd < 0)
@@ -255,7 +350,7 @@ bool bt_crypto_e(struct bt_crypto *crypto, const uint8_t key[16],
 
 
 	/* Most significant octet of plaintextData corresponds to in[0] */
-	swap128(plaintext, in);
+	swap_buf(plaintext, in, 16);
 
 	if (!alg_encrypt(fd, in, 16, out, 16)) {
 		close(fd);
@@ -263,7 +358,7 @@ bool bt_crypto_e(struct bt_crypto *crypto, const uint8_t key[16],
 	}
 
 	/* Most significant octet of encryptedData corresponds to out[0] */
-	swap128(out, encrypted);
+	swap_buf(out, encrypted, 16);
 
 	close(fd);
 
@@ -467,4 +562,116 @@ bool bt_crypto_s1(struct bt_crypto *crypto, const uint8_t k[16],
 	memcpy(res + 8, r1, 8);
 
 	return bt_crypto_e(crypto, k, res, res);
+}
+
+static bool aes_cmac(struct bt_crypto *crypto, uint8_t key[16], uint8_t *msg,
+					size_t msg_len, uint8_t res[16])
+{
+	uint8_t key_msb[16], out[16], msg_msb[CMAC_MSG_MAX];
+	ssize_t len;
+	int fd;
+
+	if (msg_len > CMAC_MSG_MAX)
+		return false;
+
+	swap_buf(key, key_msb, 16);
+	fd = alg_new(crypto->cmac_aes, key_msb, 16);
+	if (fd < 0)
+		return false;
+
+	swap_buf(msg, msg_msb, msg_len);
+	len = send(fd, msg_msb, msg_len, 0);
+	if (len < 0) {
+		close(fd);
+		return false;
+	}
+
+	len = read(fd, out, 16);
+	if (len < 0) {
+		close(fd);
+		return false;
+	}
+
+	swap_buf(out, res, 16);
+
+	close(fd);
+
+	return true;
+}
+
+bool bt_crypto_f4(struct bt_crypto *crypto, uint8_t u[32], uint8_t v[32],
+				uint8_t x[16], uint8_t z, uint8_t res[16])
+{
+	uint8_t m[65];
+
+	if (!crypto)
+		return false;
+
+	m[0] = z;
+	memcpy(&m[1], v, 32);
+	memcpy(&m[33], u, 32);
+
+	return aes_cmac(crypto, x, m, sizeof(m), res);
+}
+
+bool bt_crypto_f5(struct bt_crypto *crypto, uint8_t w[32], uint8_t n1[16],
+				uint8_t n2[16], uint8_t a1[7], uint8_t a2[7],
+				uint8_t mackey[16], uint8_t ltk[16])
+{
+	uint8_t btle[4] = { 0x65, 0x6c, 0x74, 0x62 };
+	uint8_t salt[16] = { 0xbe, 0x83, 0x60, 0x5a, 0xdb, 0x0b, 0x37, 0x60,
+			     0x38, 0xa5, 0xf5, 0xaa, 0x91, 0x83, 0x88, 0x6c };
+	uint8_t length[2] = { 0x00, 0x01 };
+	uint8_t m[53], t[16];
+
+	if (!aes_cmac(crypto, salt, w, 32, t))
+		return false;
+
+	memcpy(&m[0], length, 2);
+	memcpy(&m[2], a2, 7);
+	memcpy(&m[9], a1, 7);
+	memcpy(&m[16], n2, 16);
+	memcpy(&m[32], n1, 16);
+	memcpy(&m[48], btle, 4);
+
+	m[52] = 0; /* Counter */
+	if (!aes_cmac(crypto, t, m, sizeof(m), mackey))
+		return false;
+
+	m[52] = 1; /* Counter */
+	return aes_cmac(crypto, t, m, sizeof(m), ltk);
+}
+
+bool bt_crypto_f6(struct bt_crypto *crypto, uint8_t w[16], uint8_t n1[16],
+			uint8_t n2[16], uint8_t r[16], uint8_t io_cap[3],
+			uint8_t a1[7], uint8_t a2[7], uint8_t res[16])
+{
+	uint8_t m[65];
+
+	memcpy(&m[0], a2, 7);
+	memcpy(&m[7], a1, 7);
+	memcpy(&m[14], io_cap, 3);
+	memcpy(&m[17], r, 16);
+	memcpy(&m[33], n2, 16);
+	memcpy(&m[49], n1, 16);
+
+	return aes_cmac(crypto, w, m, sizeof(m), res);
+}
+
+bool bt_crypto_g2(struct bt_crypto *crypto, uint8_t u[32], uint8_t v[32],
+				uint8_t x[16], uint8_t y[16], uint32_t *val)
+{
+	uint8_t m[80], tmp[16];
+
+	memcpy(&m[0], y, 16);
+	memcpy(&m[16], v, 32);
+	memcpy(&m[48], u, 32);
+
+	if (!aes_cmac(crypto, x, m, sizeof(m), tmp))
+		return false;
+
+	*val = get_le32(tmp);
+	*val %= 1000000;
+
+	return true;
 }

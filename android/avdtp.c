@@ -39,10 +39,10 @@
 
 #include <glib.h>
 
+#include "lib/bluetooth.h"
 #include "src/log.h"
 #include "avdtp.h"
-
-#define AVDTP_PSM 25
+#include "../profiles/audio/a2dp-codecs.h"
 
 #define MAX_SEID 0x3E
 
@@ -317,6 +317,8 @@ struct avdtp_local_sep {
 	struct avdtp_stream *stream;
 	struct seid_info info;
 	uint8_t codec;
+	uint32_t vndcodec_vendor;
+	uint16_t vndcodec_codec;
 	gboolean delay_reporting;
 	GSList *caps;
 	struct avdtp_sep_ind *ind;
@@ -1089,6 +1091,18 @@ struct avdtp_remote_sep *avdtp_find_remote_sep(struct avdtp *session,
 		if (codec_data->media_codec_type != lsep->codec)
 			continue;
 
+		/* FIXME: Add Vendor Specific Codec match to SEP callback */
+		if (lsep->codec == A2DP_CODEC_VENDOR) {
+			a2dp_vendor_codec_t *vndcodec =
+						(void *) codec_data->data;
+
+			if (btohl(vndcodec->vendor_id) != lsep->vndcodec_vendor)
+				continue;
+
+			if (btohs(vndcodec->codec_id) != lsep->vndcodec_codec)
+				continue;
+		}
+
 		if (sep->stream == NULL)
 			return sep;
 	}
@@ -1751,6 +1765,9 @@ static gboolean avdtp_delayreport_cmd(struct avdtp *session,
 	case AVDTP_STATE_CLOSING:
 		err = AVDTP_BAD_STATE;
 		goto failed;
+	case AVDTP_STATE_CONFIGURED:
+	case AVDTP_STATE_OPEN:
+	case AVDTP_STATE_STREAMING:
 	default:
 		break;
 	}
@@ -1960,8 +1977,11 @@ static gboolean session_cb(GIOChannel *chan, GIOCondition cond,
 
 	DBG("");
 
-	if (cond & G_IO_NVAL)
+	if (cond & G_IO_NVAL) {
+		session->io_id = 0;
+
 		return FALSE;
+	}
 
 	header = (void *) session->buf;
 
@@ -2062,6 +2082,7 @@ next:
 	return TRUE;
 
 failed:
+	session->io_id = 0;
 	connection_lost(session, EIO);
 
 	return FALSE;
@@ -2164,7 +2185,8 @@ void avdtp_shutdown(struct avdtp *session)
 	for (l = session->streams; l; l = g_slist_next(l)) {
 		struct avdtp_stream *stream = l->data;
 
-		if (stream->abort_int || avdtp_abort(session, stream) == 0)
+		if (stream->abort_int ||
+					avdtp_close(session, stream, TRUE) == 0)
 			aborting = true;
 	}
 
@@ -2943,7 +2965,8 @@ struct avdtp_service_capability *avdtp_get_codec(struct avdtp_remote_sep *sep)
 }
 
 struct avdtp_service_capability *avdtp_service_cap_new(uint8_t category,
-							void *data, int length)
+							const void *data,
+							int length)
 {
 	struct avdtp_service_capability *cap;
 
@@ -3228,13 +3251,14 @@ int avdtp_close(struct avdtp *session, struct avdtp_stream *stream,
 	if (!g_slist_find(session->streams, stream))
 		return -EINVAL;
 
-	if (stream->lsep->state < AVDTP_STATE_OPEN)
-		return -EINVAL;
-
 	if (stream->close_int == TRUE) {
 		error("avdtp_close: rejecting since close is already initiated");
 		return -EINVAL;
 	}
+
+	/* If stream is not yet in the OPEN state, let's use ABORT_CMD */
+	if (stream->lsep->state < AVDTP_STATE_OPEN)
+		return avdtp_abort(session, stream);
 
 	if (immediate && session->req && stream == session->req->stream)
 		return avdtp_abort(session, stream);
@@ -3347,6 +3371,13 @@ struct avdtp_local_sep *avdtp_register_sep(uint8_t type, uint8_t media_type,
 	lseps = g_slist_append(lseps, sep);
 
 	return sep;
+}
+
+void avdtp_sep_set_vendor_codec(struct avdtp_local_sep *sep, uint32_t vendor_id,
+							uint16_t codec_id)
+{
+	sep->vndcodec_vendor = vendor_id;
+	sep->vndcodec_codec = codec_id;
 }
 
 int avdtp_unregister_sep(struct avdtp_local_sep *sep)

@@ -34,6 +34,8 @@ struct avdtp_error {
 	} err;
 };
 
+#define AVDTP_PSM 25
+
 /* SEP capability categories */
 #define AVDTP_MEDIA_TRANSPORT			0x01
 #define AVDTP_REPORTING				0x02
@@ -216,7 +218,8 @@ void avdtp_unref(struct avdtp *session);
 struct avdtp *avdtp_ref(struct avdtp *session);
 
 struct avdtp_service_capability *avdtp_service_cap_new(uint8_t category,
-							void *data, int size);
+							const void *data,
+							int size);
 
 struct avdtp_service_capability *avdtp_get_codec(struct avdtp_remote_sep *sep);
 
@@ -268,6 +271,8 @@ struct avdtp_local_sep *avdtp_register_sep(uint8_t type, uint8_t media_type,
 						struct avdtp_sep_ind *ind,
 						struct avdtp_sep_cfm *cfm,
 						void *user_data);
+void avdtp_sep_set_vendor_codec(struct avdtp_local_sep *sep, uint32_t vendor_id,
+							uint16_t codec_id);
 
 /* Find a matching pair of local and remote SEP ID's */
 struct avdtp_remote_sep *avdtp_find_remote_sep(struct avdtp *session,

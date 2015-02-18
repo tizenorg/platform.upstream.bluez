@@ -81,13 +81,23 @@ Settings file contains one [General] group with adapter info like:
 					0 = disable timer, i.e. stay
 					discoverable forever
 
+#ifdef __TIZEN_PATCH__
+  LocalIrk		String		Identity resolving key for local
+					adapter. This key value is used to
+					generate the RPA to suport privacy feature.
+					If value is NULL, i.e IRK to be generated
+					for this adapter.
+#endif
+
 Sample:
   [General]
   Name=My PC
   Discoverable=false
   Pairable=true
   DiscoverableTimeout=0
-
+#ifdef __TIZEN_PATCH__
+  LocalIrk=""
+#endif
 
 Attributes file format
 ======================
@@ -226,3 +236,23 @@ Long term key) related to a remote device.
 [SlaveLongTermKey] group contains:
 
   Same as the [LongTermKey] group, except for slave keys.
+
+[ConnectionParameters] group contains:
+
+  MinInterval		Integer		Minimum Connection Interval
+
+  MaxInterval		Integer		Maximum Connection Interval
+
+  Latency		Integer		Connection Latency
+
+  Timeout		Integer		Supervision Timeout
+
+#ifdef __TIZEN_PATCH__
+[IdentityResolvingKey] group contains:
+
+  Key			String		Identity Resolving key in hexadecimal format
+
+  IdentityAddress	String		Identity Address of the device
+
+  IdentityAddressType	String		Type of Identity Address of the device
+#endif

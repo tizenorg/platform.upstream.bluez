@@ -228,6 +228,10 @@ int avdtp_discover(struct avdtp *session, avdtp_discover_cb_t cb,
 
 gboolean avdtp_has_stream(struct avdtp *session, struct avdtp_stream *stream);
 
+#ifdef __TIZEN_PATCH__
+void finalize_discovery(struct avdtp *session, int err);
+#endif
+
 unsigned int avdtp_stream_add_cb(struct avdtp *session,
 					struct avdtp_stream *stream,
 					avdtp_stream_state_cb cb, void *data);

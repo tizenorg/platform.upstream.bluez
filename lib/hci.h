@@ -1706,8 +1706,52 @@ typedef struct {
 } __attribute__ ((packed)) le_test_end_rp;
 #define LE_TEST_END_RP_SIZE 3
 
+#define OCF_LE_ADD_DEVICE_TO_RESOLV_LIST	0x0027
+typedef struct {
+	uint8_t		bdaddr_type;
+	bdaddr_t	bdaddr;
+	uint8_t		peer_irk[16];
+	uint8_t		local_irk[16];
+} __attribute__ ((packed)) le_add_device_to_resolv_list_cp;
+#define LE_ADD_DEVICE_TO_RESOLV_LIST_CP_SIZE 39
+
+#define OCF_LE_REMOVE_DEVICE_FROM_RESOLV_LIST	0x0028
+typedef struct {
+	uint8_t		bdaddr_type;
+	bdaddr_t	bdaddr;
+} __attribute__ ((packed)) le_remove_device_from_resolv_list_cp;
+#define LE_REMOVE_DEVICE_FROM_RESOLV_LIST_CP_SIZE 7
+
+#define OCF_LE_CLEAR_RESOLV_LIST		0x0029
+
+#define OCF_LE_READ_RESOLV_LIST_SIZE		0x002A
+typedef struct {
+	uint8_t		status;
+	uint8_t		size;
+} __attribute__ ((packed)) le_read_resolv_list_size_rp;
+#define LE_READ_RESOLV_LIST_SIZE_RP_SIZE 2
+
+#define OCF_LE_SET_ADDRESS_RESOLUTION_ENABLE	0x002D
+typedef struct {
+	uint8_t		enable;
+} __attribute__ ((packed)) le_set_address_resolution_enable_cp;
+#define LE_SET_ADDRESS_RESOLUTION_ENABLE_CP_SIZE 1
+
 /* Vendor specific commands */
 #define OGF_VENDOR_CMD		0x3f
+
+#ifdef __TIZEN_PATCH__
+#ifdef __BROADCOM_QOS_PATCH__
+#define BRCM_QOS_PRIORITY_NORMAL	0x00
+#define BRCM_QOS_PRIORITY_HIGH		0xFF
+#define BROADCOM_QOS_CMD	0xFC57	/* Only for bcm4329/bcm4330/bcm4334 chipsets */
+typedef struct {
+        uint16_t handle;
+        uint8_t priority;
+} __attribute__ ((__packed__)) broadcom_qos_cp;
+#define BROADCOM_QOS_CP_SIZE 3
+#endif	/* __BROADCOM_QOS_PATCH__ */
+#endif	/* __TIZEN_PATCH__ */
 
 /* ---- HCI Events ---- */
 

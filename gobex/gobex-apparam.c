@@ -104,8 +104,10 @@ GObexApparam *g_obex_apparam_decode(const void *data, gsize size)
 	GHashTable *tags;
 	gsize count = 0;
 
+#ifndef __TIZEN_PATCH__
 	if (size < 2)
 		return NULL;
+#endif /* __TIZEN_PATCH__ */
 
 	apparam = g_obex_apparam_new();
 
@@ -152,6 +154,9 @@ gssize g_obex_apparam_encode(GObexApparam *apparam, void *buf, gsize len)
 	GHashTableIter iter;
 	gpointer key, value;
 
+#ifdef __TIZEN_PATCH__
+	if(g_hash_table_size(apparam->tags) > 0) {
+#endif
 	g_hash_table_iter_init(&iter, apparam->tags);
 	while (g_hash_table_iter_next(&iter, &key, &value)) {
 		struct apparam_tag *tag = value;
@@ -161,7 +166,19 @@ gssize g_obex_apparam_encode(GObexApparam *apparam, void *buf, gsize len)
 			return ret;
 
 		count += ret;
+#ifdef __TIZEN_PATCH__
+		count += ret;
+		/* Now remove this key as we have processed it
+		 * If we don't remove this key then obexd process will get into
+		 * infinite loop because this has been called from
+		 * vcard_list_get_next_header which in-turn called
+		 * from driver_get_header */
+		g_hash_table_remove(apparam->tags, key);
+#endif
 	}
+#ifdef __TIZEN_PATCH__
+	}
+#endif
 
 	return count;
 }

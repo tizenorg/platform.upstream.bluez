@@ -227,15 +227,32 @@ static struct attrib_def audio_attrib_names[] = {
 	{ 0x302, "Remote audio volume control", NULL, 0 },
 };
 
+/* Name of the various IrMCSync attributes. See BT assigned numbers */
+static struct attrib_def irmc_attrib_names[] = {
+	{ 0x0301, "SupportedDataStoresList", NULL, 0 },
+};
+
 /* Name of the various GOEP attributes. See BT assigned numbers */
 static struct attrib_def goep_attrib_names[] = {
 	{ 0x200, "GoepL2capPsm", NULL, 0 },
+};
+
+/* Name of the various PBAP attributes. See BT assigned numbers */
+static struct attrib_def pbap_attrib_names[] = {
+	{ 0x0314, "SupportedRepositories", NULL, 0 },
+	{ 0x0317, "PbapSupportedFeatures", NULL, 0 },
 };
 
 /* Name of the various MAS attributes. See BT assigned numbers */
 static struct attrib_def mas_attrib_names[] = {
 	{ 0x0315, "MASInstanceID", NULL, 0 },
 	{ 0x0316, "SupportedMessageTypes", NULL, 0 },
+	{ 0x0317, "MapSupportedFeatures", NULL, 0 },
+};
+
+/* Name of the various MNS attributes. See BT assigned numbers */
+static struct attrib_def mns_attrib_names[] = {
+	{ 0x0317, "MapSupportedFeatures", NULL, 0 },
 };
 
 /* Same for the UUIDs. See BT assigned numbers */
@@ -272,7 +289,8 @@ static struct uuid_def uuid16_names[] = {
 	{ 0x1101, "SerialPort", NULL, 0 },
 	{ 0x1102, "LANAccessUsingPPP", NULL, 0 },
 	{ 0x1103, "DialupNetworking (DUN)", NULL, 0 },
-	{ 0x1104, "IrMCSync", NULL, 0 },
+	{ 0x1104, "IrMCSync",
+		irmc_attrib_names, N_ELEMENTS(irmc_attrib_names) },
 	{ 0x1105, "OBEXObjectPush",
 		goep_attrib_names, N_ELEMENTS(goep_attrib_names) },
 	{ 0x1106, "OBEXFileTransfer",
@@ -321,12 +339,14 @@ static struct uuid_def uuid16_names[] = {
 	{ 0x112c, "Audio/Video", NULL, 0 },
 	{ 0x112d, "SIM Access (SAP)", NULL, 0 },
 	{ 0x112e, "Phonebook Access (PBAP) - PCE", NULL, 0 },
-	{ 0x112f, "Phonebook Access (PBAP) - PSE", NULL, 0 },
+	{ 0x112f, "Phonebook Access (PBAP) - PSE",
+		pbap_attrib_names, N_ELEMENTS(pbap_attrib_names) },
 	{ 0x1130, "Phonebook Access (PBAP)", NULL, 0 },
 	{ 0x1131, "Headset (HSP)", NULL, 0 },
 	{ 0x1132, "Message Access (MAP) - MAS",
 		mas_attrib_names, N_ELEMENTS(mas_attrib_names) },
-	{ 0x1133, "Message Access (MAP) - MNS", NULL, 0 },
+	{ 0x1133, "Message Access (MAP) - MNS",
+		mns_attrib_names, N_ELEMENTS(mns_attrib_names) },
 	{ 0x1134, "Message Access (MAP)", NULL, 0 },
 	/* ... */
 	{ 0x1200, "PnPInformation",
@@ -1180,7 +1200,11 @@ static int add_sp(sdp_session_t *session, svc_info_t *si)
 	sdp_set_service_classes(&record, svclass_id);
 
 	sdp_uuid16_create(&profile.uuid, SERIAL_PORT_PROFILE_ID);
+#ifdef __TIZEN_PATCH__
+	profile.version = 0x0102;
+#else
 	profile.version = 0x0100;
+#endif
 	profiles = sdp_list_append(0, &profile);
 	sdp_set_profile_descs(&record, profiles);
 

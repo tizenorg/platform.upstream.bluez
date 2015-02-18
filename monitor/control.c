@@ -52,12 +52,10 @@
 static struct btsnoop *btsnoop_file = NULL;
 static bool hcidump_fallback = false;
 
-#define MAX_PACKET_SIZE		(1486 + 4)
-
 struct control_data {
 	uint16_t channel;
 	int fd;
-	unsigned char buf[MAX_PACKET_SIZE];
+	unsigned char buf[BTSNOOP_MAX_PACKET_SIZE];
 	uint16_t offset;
 };
 
@@ -84,6 +82,20 @@ static void mgmt_index_removed(uint16_t len, const void *buf)
 	packet_hexdump(buf, len);
 }
 
+static void mgmt_unconf_index_added(uint16_t len, const void *buf)
+{
+	printf("@ Unconfigured Index Added\n");
+
+	packet_hexdump(buf, len);
+}
+
+static void mgmt_unconf_index_removed(uint16_t len, const void *buf)
+{
+	printf("@ Unconfigured Index Removed\n");
+
+	packet_hexdump(buf, len);
+}
+
 static void mgmt_controller_error(uint16_t len, const void *buf)
 {
 	const struct mgmt_ev_controller_error *ev = buf;
@@ -105,9 +117,42 @@ static void mgmt_controller_error(uint16_t len, const void *buf)
 #define NELEM(x) (sizeof(x) / sizeof((x)[0]))
 #endif
 
+static const char *config_options_str[] = {
+	"external", "public-address",
+};
+
+static void mgmt_new_config_options(uint16_t len, const void *buf)
+{
+	uint32_t options;
+	unsigned int i;
+
+	if (len < 4) {
+		printf("* Malformed New Configuration Options control\n");
+		return;
+	}
+
+	options = get_le32(buf);
+
+	printf("@ New Configuration Options: 0x%4.4x\n", options);
+
+	if (options) {
+		printf("%-12c", ' ');
+		for (i = 0; i < NELEM(config_options_str); i++) {
+			if (options & (1 << i))
+				printf("%s ", config_options_str[i]);
+		}
+		printf("\n");
+	}
+
+	buf += 4;
+	len -= 4;
+
+	packet_hexdump(buf, len);
+}
+
 static const char *settings_str[] = {
 	"powered", "connectable", "fast-connectable", "discoverable",
-	"pairable", "link-security", "ssp", "br/edr", "hs", "le",
+	"bondable", "link-security", "ssp", "br/edr", "hs", "le",
 	"advertising", "secure-conn", "debug-keys", "privacy",
 };
 
@@ -125,12 +170,14 @@ static void mgmt_new_settings(uint16_t len, const void *buf)
 
 	printf("@ New Settings: 0x%4.4x\n", settings);
 
-	printf("%-12c", ' ');
-	for (i = 0; i < NELEM(settings_str); i++) {
-		if (settings & (1 << i))
-			printf("%s ", settings_str[i]);
+	if (settings) {
+		printf("%-12c", ' ');
+		for (i = 0; i < NELEM(settings_str); i++) {
+			if (settings & (1 << i))
+				printf("%s ", settings_str[i]);
+		}
+		printf("\n");
 	}
-	printf("\n");
 
 	buf += 4;
 	len -= 4;
@@ -198,6 +245,7 @@ static void mgmt_new_link_key(uint16_t len, const void *buf)
 static void mgmt_new_long_term_key(uint16_t len, const void *buf)
 {
 	const struct mgmt_ev_new_long_term_key *ev = buf;
+	const char *type;
 	char str[18];
 
 	if (len < sizeof(*ev)) {
@@ -205,10 +253,38 @@ static void mgmt_new_long_term_key(uint16_t len, const void *buf)
 		return;
 	}
 
+	/* LE SC keys are both for master and slave */
+	switch (ev->key.type) {
+	case 0x00:
+		if (ev->key.master)
+			type = "Master (Unauthenticated)";
+		else
+			type = "Slave (Unauthenticated)";
+		break;
+	case 0x01:
+		if (ev->key.master)
+			type = "Master (Authenticated)";
+		else
+			type = "Slave (Authenticated)";
+		break;
+	case 0x02:
+		type = "SC (Unauthenticated)";
+		break;
+	case 0x03:
+		type = "SC (Authenticated)";
+		break;
+	case 0x04:
+		type = "SC (Debug)";
+		break;
+	default:
+		type = "<unknown>";
+		break;
+	}
+
 	ba2str(&ev->key.addr.bdaddr, str);
 
-	printf("@ New Long Term Key: %s (%d) %s\n", str, ev->key.addr.type,
-					ev->key.master ? "Master" : "Slave");
+	printf("@ New Long Term Key: %s (%d) %s 0x%02x\n", str,
+			ev->key.addr.type, type, ev->key.type);
 
 	buf += sizeof(*ev);
 	len -= sizeof(*ev);
@@ -345,7 +421,7 @@ static void mgmt_user_passkey_request(uint16_t len, const void *buf)
 
 	ba2str(&ev->addr.bdaddr, str);
 
-	printf("@ PIN User Passkey Request: %s (%d)\n", str, ev->addr.type);
+	printf("@ User Passkey Request: %s (%d)\n", str, ev->addr.type);
 
 	buf += sizeof(*ev);
 	len -= sizeof(*ev);
@@ -540,6 +616,73 @@ static void mgmt_new_csrk(uint16_t len, const void *buf)
 	packet_hexdump(buf, len);
 }
 
+static void mgmt_device_added(uint16_t len, const void *buf)
+{
+	const struct mgmt_ev_device_added *ev = buf;
+	char str[18];
+
+	if (len < sizeof(*ev)) {
+		printf("* Malformed Device Added control\n");
+		return;
+	}
+
+	ba2str(&ev->addr.bdaddr, str);
+
+	printf("@ Device Added: %s (%d) %d\n", str, ev->addr.type, ev->action);
+
+	buf += sizeof(*ev);
+	len -= sizeof(*ev);
+
+	packet_hexdump(buf, len);
+}
+
+static void mgmt_device_removed(uint16_t len, const void *buf)
+{
+	const struct mgmt_ev_device_removed *ev = buf;
+	char str[18];
+
+	if (len < sizeof(*ev)) {
+		printf("* Malformed Device Removed control\n");
+		return;
+	}
+
+	ba2str(&ev->addr.bdaddr, str);
+
+	printf("@ Device Removed: %s (%d)\n", str, ev->addr.type);
+
+	buf += sizeof(*ev);
+	len -= sizeof(*ev);
+
+	packet_hexdump(buf, len);
+}
+
+static void mgmt_new_conn_param(uint16_t len, const void *buf)
+{
+	const struct mgmt_ev_new_conn_param *ev = buf;
+	char addr[18];
+	uint16_t min, max, latency, timeout;
+
+	if (len < sizeof(*ev)) {
+		printf("* Malformed New Connection Parameter control\n");
+		return;
+	}
+
+	ba2str(&ev->addr.bdaddr, addr);
+	min = le16_to_cpu(ev->min_interval);
+	max = le16_to_cpu(ev->max_interval);
+	latency = le16_to_cpu(ev->latency);
+	timeout = le16_to_cpu(ev->timeout);
+
+	printf("@ New Conn Param: %s (%d) hint %d min 0x%4.4x max 0x%4.4x "
+		"latency 0x%4.4x timeout 0x%4.4x\n", addr, ev->addr.type,
+		ev->store_hint, min, max, latency, timeout);
+
+	buf += sizeof(*ev);
+	len -= sizeof(*ev);
+
+	packet_hexdump(buf, len);
+}
+
 void control_message(uint16_t opcode, const void *data, uint16_t size)
 {
 	switch (opcode) {
@@ -612,6 +755,24 @@ void control_message(uint16_t opcode, const void *data, uint16_t size)
 	case MGMT_EV_NEW_CSRK:
 		mgmt_new_csrk(size, data);
 		break;
+	case MGMT_EV_DEVICE_ADDED:
+		mgmt_device_added(size, data);
+		break;
+	case MGMT_EV_DEVICE_REMOVED:
+		mgmt_device_removed(size, data);
+		break;
+	case MGMT_EV_NEW_CONN_PARAM:
+		mgmt_new_conn_param(size, data);
+		break;
+	case MGMT_EV_UNCONF_INDEX_ADDED:
+		mgmt_unconf_index_added(size, data);
+		break;
+	case MGMT_EV_UNCONF_INDEX_REMOVED:
+		mgmt_unconf_index_removed(size, data);
+		break;
+	case MGMT_EV_NEW_CONFIG_OPTIONS:
+		mgmt_new_config_options(size, data);
+		break;
 	default:
 		printf("* Unknown control (code %d len %d)\n", opcode, size);
 		packet_hexdump(data, size);
@@ -677,11 +838,11 @@ static void data_callback(int fd, uint32_t events, void *user_data)
 			packet_control(tv, index, opcode, data->buf, pktlen);
 			break;
 		case HCI_CHANNEL_MONITOR:
-			packet_monitor(tv, index, opcode, data->buf, pktlen);
 			btsnoop_write_hci(btsnoop_file, tv, index, opcode,
 							data->buf, pktlen);
 			ellisys_inject_hci(tv, index, opcode,
 							data->buf, pktlen);
+			packet_monitor(tv, index, opcode, data->buf, pktlen);
 			break;
 		}
 	}
@@ -862,14 +1023,16 @@ void control_server(const char *path)
 	server_fd = fd;
 }
 
-void control_writer(const char *path)
+bool control_writer(const char *path)
 {
 	btsnoop_file = btsnoop_create(path, BTSNOOP_TYPE_MONITOR);
+
+	return !!btsnoop_file;
 }
 
 void control_reader(const char *path)
 {
-	unsigned char buf[MAX_PACKET_SIZE];
+	unsigned char buf[BTSNOOP_MAX_PACKET_SIZE];
 	uint16_t pktlen;
 	uint32_t type;
 	struct timeval tv;

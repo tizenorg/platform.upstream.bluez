@@ -61,6 +61,7 @@ static GPtrArray *folder_list = NULL;
 struct phonebook_data {
 	phonebook_cb cb;
 	DBusPendingCallNotifyFunction reply_cb;
+	DBusPendingCall *call;
 	void *user_data;
 	const struct apparam_field *params;
 
@@ -114,7 +115,7 @@ static gboolean folder_is_valid(const gchar *folder,
 	return FALSE;
 }
 
-static gboolean phonebook_request(struct phonebook_data *data,
+static DBusPendingCall* phonebook_request(struct phonebook_data *data,
 				const gchar *method,
 				DBusPendingCallNotifyFunction function,
 				int first_arg_type,
@@ -130,13 +131,13 @@ static gboolean phonebook_request(struct phonebook_data *data,
 
 	if (!method) {
 		error("Can't get method name");
-		return FALSE;
+		return NULL;
 	}
 
 	connection = g_dbus_setup_bus(DBUS_BUS_SYSTEM, NULL, NULL);
 	if (!connection) {
 		error("Can't get on session bus");
-		return FALSE;
+		return NULL;
 	}
 
 	message = dbus_message_new_method_call(PHONEBOOK_DESTINATION,
@@ -146,7 +147,7 @@ static gboolean phonebook_request(struct phonebook_data *data,
 	if (!message) {
 		dbus_connection_unref(connection);
 		error("Can't Allocate new message");
-		return FALSE;
+		return NULL;
 	}
 
 	va_start(args, first_arg_type);
@@ -156,15 +157,16 @@ static gboolean phonebook_request(struct phonebook_data *data,
 	if (dbus_connection_send_with_reply(connection, message, &call, -1) == FALSE) {
 		dbus_message_unref(message);
 		dbus_connection_unref(connection);
-		return FALSE;
+		DBG("-");
+		return NULL;
 	}
 	dbus_pending_call_set_notify(call, function, data, NULL);
 
-	dbus_pending_call_unref(call);
 	dbus_message_unref(message);
 	dbus_connection_unref(connection);
 
-	return TRUE;
+	DBG("-");
+	return call;
 }
 
 static void get_phonebook_size_reply(DBusPendingCall *call, void *user_data)
@@ -177,6 +179,8 @@ static void get_phonebook_size_reply(DBusPendingCall *call, void *user_data)
 	unsigned int new_missed_call = 0;
 
 	DBG("");
+	dbus_pending_call_unref(s_data->call);
+	s_data->call = NULL;
 
 	if (!reply) {
 		DBG("Reply Error\n");
@@ -213,6 +217,8 @@ static void get_phonebook_reply(DBusPendingCall *call, void *user_data)
 	uint32_t count = 0;
 
 	DBG("");
+	dbus_pending_call_unref(s_data->call);
+	s_data->call = NULL;
 
 	if (!reply) {
 		DBG("Reply Error\n");
@@ -272,7 +278,10 @@ static void get_phonebook_list_reply(DBusPendingCall *call, void *user_data)
 	const char *name = NULL;
 	const char *tel = NULL;
 	char id[10];
+	unsigned int new_missed_call = 0;
 
+	dbus_pending_call_unref(data->call);
+	data->call = NULL;
 	if (!reply) {
 		DBG("Reply Error\n");
 		return;
@@ -309,9 +318,19 @@ static void get_phonebook_list_reply(DBusPendingCall *call, void *user_data)
 
 			dbus_message_iter_next(&iter_struct);
 		}
-	}
 
+		dbus_message_iter_next(&iter);
+		if (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_UINT32) {
+			dbus_message_iter_get_basic(&iter, &new_missed_call);
+		}
+
+		DBG("new_missed_call %d\n", new_missed_call);
+	}
+#ifdef __TIZEN_PATCH__
+	data->ready_cb(data->user_data, new_missed_call);
+#else
 	data->ready_cb(data->user_data);
+#endif /* __TIZEN_PATCH__ */
 
 	dbus_message_unref(reply);
 }
@@ -324,6 +343,8 @@ static void get_phonebook_entry_reply(DBusPendingCall *call, void *user_data)
 	const char *phonebook_entry;
 
 	DBG("");
+	dbus_pending_call_unref(s_data->call);
+	s_data->call = NULL;
 
 	if (!reply) {
 		DBG("Reply Error\n");
@@ -597,6 +618,10 @@ void phonebook_req_finalize(void *request)
 	if (!data)
 		return;
 
+	if (data->call) {
+		dbus_pending_call_cancel(data->call);
+		dbus_pending_call_unref(data->call);
+	}
 	g_free(data->req_name);
 	g_free(data);
 }
@@ -647,7 +672,7 @@ int phonebook_pull_read(void *request)
 	DBG("name %s", data->req_name);
 
 	if (data->params->maxlistcount == 0) {
-		phonebook_request(data,
+		data->call = phonebook_request(data,
 				QUERY_GET_PHONEBOOK_SIZE,
 				get_phonebook_size_reply,
 				DBUS_TYPE_STRING, &data->req_name,
@@ -655,7 +680,7 @@ int phonebook_pull_read(void *request)
 		return 0;
 	}
 
-	phonebook_request(data,
+	data->call = phonebook_request(data,
 			QUERY_GET_PHONEBOOK,
 			get_phonebook_reply,
 			DBUS_TYPE_STRING, &data->req_name,
@@ -673,8 +698,8 @@ void *phonebook_get_entry(const char *folder, const char *id,
 			void *user_data, int *err)
 {
 	struct phonebook_data *data;
-	gboolean req = FALSE;
 
+	DBG("");
 	if (!g_str_has_suffix(id, ".vcf")) {
 		if (err)
 			*err = -ENOENT;
@@ -696,7 +721,7 @@ void *phonebook_get_entry(const char *folder, const char *id,
 	data->user_data = user_data;
 	data->cb = cb;
 
-	req = phonebook_request(data,
+	data->call = phonebook_request(data,
 			QUERY_GET_PHONEBOOK_ENTRY,
 			get_phonebook_entry_reply,
 			DBUS_TYPE_STRING, &folder,
@@ -706,7 +731,7 @@ void *phonebook_get_entry(const char *folder, const char *id,
 			DBUS_TYPE_INVALID);
 
 	if (*err) {
-		if (req)
+		if (data->call)
 			*err = 0;
 		else {
 			*err = -ENOENT;
@@ -722,7 +747,6 @@ void *phonebook_create_cache(const char *name, phonebook_entry_cb entry_cb,
 		phonebook_cache_ready_cb ready_cb, void *user_data, int *err)
 {
 	struct phonebook_data *data;
-	gboolean req = FALSE;
 
 	if (!folder_is_valid(name, TRUE)) {
 		if (err)
@@ -738,14 +762,14 @@ void *phonebook_create_cache(const char *name, phonebook_entry_cb entry_cb,
 	data->entry_cb = entry_cb;
 	data->ready_cb = ready_cb;
 
-	req = phonebook_request(data,
+	data->call = phonebook_request(data,
 				QUERY_GET_PHONEBOOK_LIST,
 				get_phonebook_list_reply,
 				DBUS_TYPE_STRING, &name,
 				DBUS_TYPE_INVALID);
 
 	if (*err) {
-		if (req)
+		if (data->call)
 			*err = 0;
 		else {
 			*err = -ENOENT;

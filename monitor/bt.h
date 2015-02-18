@@ -1485,6 +1485,11 @@ struct bt_hci_rsp_read_data_block_size {
 } __attribute__ ((packed));
 
 #define BT_HCI_CMD_READ_LOCAL_CODECS		0x100b
+struct bt_hci_rsp_read_local_codecs {
+	uint8_t  status;
+	uint8_t  num_codecs;
+	uint8_t  codec[0];
+} __attribute__ ((packed));
 
 #define BT_HCI_CMD_READ_FAILED_CONTACT_COUNTER	0x1401
 struct bt_hci_cmd_read_failed_contact_counter {
@@ -1596,6 +1601,13 @@ struct bt_hci_cmd_write_remote_amp_assoc {
 struct bt_hci_rsp_write_remote_amp_assoc {
 	uint8_t  status;
 	uint8_t  phy_handle;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_GET_MWS_TRANSPORT_CONFIG	0x140c
+struct bt_hci_rsp_get_mws_transport_config {
+	uint8_t  status;
+	uint8_t  num_transports;
+	uint8_t  transport[0];
 } __attribute__ ((packed));
 
 #define BT_HCI_CMD_SET_TRIGGERED_CLOCK_CAPTURE	0x140d
@@ -1821,6 +1833,123 @@ struct bt_hci_cmd_le_transmitter_test {
 struct bt_hci_rsp_le_test_end {
 	uint8_t  status;
 	uint16_t num_packets;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_CONN_PARAM_REQ_REPLY	0x2020
+struct bt_hci_cmd_le_conn_param_req_reply {
+	uint16_t handle;
+	uint16_t min_interval;
+	uint16_t max_interval;
+	uint16_t latency;
+	uint16_t supv_timeout;
+	uint16_t min_length;
+	uint16_t max_length;
+} __attribute__ ((packed));
+struct bt_hci_rsp_le_conn_param_req_reply {
+	uint8_t  status;
+	uint16_t handle;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_CONN_PARAM_REQ_NEG_REPLY	0x2021
+struct bt_hci_cmd_le_conn_param_req_neg_reply {
+	uint16_t handle;
+	uint8_t  reason;
+} __attribute__ ((packed));
+struct bt_hci_rsp_le_conn_param_req_neg_reply {
+	uint8_t  status;
+	uint16_t handle;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_SET_DATA_LENGTH		0x2022
+struct bt_hci_cmd_le_set_data_length {
+	uint16_t handle;
+	uint16_t tx_len;
+	uint16_t tx_time;
+} __attribute__ ((packed));
+struct bt_hci_rsp_le_set_data_length {
+	uint8_t  status;
+	uint16_t handle;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_READ_DEFAULT_DATA_LENGTH	0x2023
+struct bt_hci_rsp_le_read_default_data_length {
+	uint8_t  status;
+	uint16_t tx_len;
+	uint16_t tx_time;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_WRITE_DEFAULT_DATA_LENGTH	0x2024
+struct bt_hci_cmd_le_write_default_data_length {
+	uint16_t tx_len;
+	uint16_t tx_time;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_READ_LOCAL_PK256		0x2025
+
+#define BT_HCI_CMD_LE_GENERATE_DHKEY		0x2026
+struct bt_hci_cmd_le_generate_dhkey {
+	uint8_t  remote_pk256[64];
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_ADD_TO_RESOLV_LIST	0x2027
+struct bt_hci_cmd_le_add_to_resolv_list {
+	uint8_t  addr_type;
+	uint8_t  addr[6];
+	uint8_t  peer_irk[16];
+	uint8_t  local_irk[16];
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_REMOVE_FROM_RESOLV_LIST	0x2028
+struct bt_hci_cmd_le_remove_from_resolv_list {
+	uint8_t  addr_type;
+	uint8_t  addr[6];
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_CLEAR_RESOLV_LIST		0x2029
+
+#define BT_HCI_CMD_LE_READ_RESOLV_LIST_SIZE	0x202a
+struct bt_hci_rsp_le_read_resolv_list_size {
+	uint8_t  status;
+	uint8_t  size;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_READ_PEER_RESOLV_ADDR	0x202b
+struct bt_hci_cmd_le_read_peer_resolv_addr {
+	uint8_t  addr_type;
+	uint8_t  addr[6];
+} __attribute__ ((packed));
+struct bt_hci_rsp_le_read_peer_resolv_addr {
+	uint8_t  status;
+	uint8_t  addr[6];
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_READ_LOCAL_RESOLV_ADDR	0x202c
+struct bt_hci_cmd_le_read_local_resolv_addr {
+	uint8_t  addr_type;
+	uint8_t  addr[6];
+} __attribute__ ((packed));
+struct bt_hci_rsp_le_read_local_resolv_addr {
+	uint8_t  status;
+	uint8_t  addr[6];
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_SET_RESOLV_ENABLE		0x202d
+struct bt_hci_cmd_le_set_resolv_enable {
+	uint8_t  enable;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_SET_RESOLV_TIMEOUT	0x202e
+struct bt_hci_cmd_le_set_resolv_timeout {
+	uint16_t timeout;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_LE_READ_MAX_DATA_LENGTH	0x202f
+struct bt_hci_rsp_le_read_max_data_length {
+	uint8_t  status;
+	uint16_t max_tx_len;
+	uint16_t max_tx_time;
+	uint16_t max_rx_len;
+	uint16_t max_rx_time;
 } __attribute__ ((packed));
 
 #define BT_HCI_EVT_INQUIRY_COMPLETE		0x01
@@ -2357,13 +2486,60 @@ struct bt_hci_evt_le_long_term_key_request {
 	uint16_t ediv;
 } __attribute__ ((packed));
 
-#define BT_HCI_EVT_LE_REMOTE_CONN_PARAM_REQUEST	0x06
-struct bt_hci_evt_le_remote_conn_param_request {
+#define BT_HCI_EVT_LE_CONN_PARAM_REQUEST	0x06
+struct bt_hci_evt_le_conn_param_request {
 	uint16_t handle;
 	uint16_t min_interval;
 	uint16_t max_interval;
 	uint16_t latency;
 	uint16_t supv_timeout;
+} __attribute__ ((packed));
+
+#define BT_HCI_EVT_LE_DATA_LENGTH_CHANGE	0x07
+struct bt_hci_evt_le_data_length_change {
+	uint16_t handle;
+	uint16_t max_tx_len;
+	uint16_t max_tx_time;
+	uint16_t max_rx_len;
+	uint16_t max_rx_time;
+} __attribute__ ((packed));
+
+#define BT_HCI_EVT_LE_READ_LOCAL_PK256_COMPLETE	0x08
+struct bt_hci_evt_le_read_local_pk256_complete {
+	uint8_t  status;
+	uint8_t  local_pk256[64];
+} __attribute__ ((packed));
+
+#define BT_HCI_EVT_LE_GENERATE_DHKEY_COMPLETE	0x09
+struct bt_hci_evt_le_generate_dhkey_complete {
+	uint8_t  status;
+	uint8_t  dhkey[32];
+} __attribute__ ((packed));
+
+#define BT_HCI_EVT_LE_ENHANCED_CONN_COMPLETE	0x0a
+struct bt_hci_evt_le_enhanced_conn_complete {
+	uint8_t  status;
+	uint16_t handle;
+	uint8_t  role;
+	uint8_t  peer_addr_type;
+	uint8_t  peer_addr[6];
+	uint8_t  local_rpa[6];
+	uint8_t  peer_rpa[6];
+	uint16_t interval;
+	uint16_t latency;
+	uint16_t supv_timeout;
+	uint8_t  clock_accuracy;
+} __attribute__ ((packed));
+
+#define BT_HCI_EVT_LE_DIRECT_ADV_REPORT		0x0b
+struct bt_hci_evt_le_direct_adv_report {
+	uint8_t  num_reports;
+	uint8_t  event_type;
+	uint8_t  addr_type;
+	uint8_t  addr[6];
+	uint8_t  direct_addr_type;
+	uint8_t  direct_addr[6];
+	int8_t   rssi;
 } __attribute__ ((packed));
 
 #define BT_HCI_ERR_SUCCESS			0x00
@@ -2448,6 +2624,7 @@ struct bt_l2cap_pdu_info_req {
 struct bt_l2cap_pdu_info_rsp {
 	uint16_t type;
 	uint16_t result;
+	uint8_t  data[0];
 } __attribute__ ((packed));
 
 #define BT_L2CAP_PDU_CREATE_CHAN_REQ	0x0c
@@ -2740,6 +2917,22 @@ struct bt_l2cap_smp_signing_info {
 #define BT_L2CAP_SMP_SECURITY_REQUEST	0x0b
 struct bt_l2cap_smp_security_request {
 	uint8_t  auth_req;
+} __attribute__ ((packed));
+
+#define BT_L2CAP_SMP_PUBLIC_KEY		0x0c
+struct bt_l2cap_smp_public_key {
+	uint8_t  x[32];
+	uint8_t  y[32];
+} __attribute__ ((packed));
+
+#define BT_L2CAP_SMP_DHKEY_CHECK	0x0d
+struct bt_l2cap_smp_dhkey_check {
+	uint8_t  e[16];
+} __attribute__ ((packed));
+
+#define BT_L2CAP_SMP_KEYPRESS_NOTIFY	0x0e
+struct bt_l2cap_smp_keypress_notify {
+	uint8_t  type;
 } __attribute__ ((packed));
 
 struct bt_sdp_hdr {

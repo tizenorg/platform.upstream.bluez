@@ -38,6 +38,13 @@
 #include <bluetooth/sdp.h>
 #include <bluetooth/sdp_lib.h>
 
+#ifdef __TIZEN_PATCH__
+#ifdef __BROADCOM_QOS_PATCH__
+#include <sys/ioctl.h>
+#include <bluetooth/hci.h>
+#endif	/* __BROADCOM_QOS_PATCH__ */
+#endif	/* __TIZEN_PATCH__ */
+
 #include <glib.h>
 
 #include "src/log.h"
@@ -83,10 +90,18 @@
 #define AVDTP_MSG_TYPE_ACCEPT			0x02
 #define AVDTP_MSG_TYPE_REJECT			0x03
 
+#ifdef __TIZEN_PATCH__
+#define REQ_TIMEOUT 10
+#else
 #define REQ_TIMEOUT 6
+#endif
 #define ABORT_TIMEOUT 2
 #define DISCONNECT_TIMEOUT 1
+#ifdef __TIZEN_PATCH__
+#define START_TIMEOUT 2
+#else
 #define START_TIMEOUT 1
+#endif
 
 #if __BYTE_ORDER == __LITTLE_ENDIAN
 
@@ -960,11 +975,124 @@ static void handle_unanswered_req(struct avdtp *session,
 	pending_req_free(req);
 }
 
+#ifdef __TIZEN_PATCH__
+#ifdef __BROADCOM_QOS_PATCH__
+static gboolean send_broadcom_a2dp_qos(bdaddr_t *dst, gboolean qos_high)
+{
+	int dd;
+	int err = 0;
+	struct hci_conn_info_req *cr;
+	broadcom_qos_cp cp;
+
+	dd = hci_open_dev(0);
+
+	cr = g_malloc0(sizeof(*cr) + sizeof(struct hci_conn_info));
+
+	cr->type = ACL_LINK;
+	bacpy(&cr->bdaddr, dst);
+
+	err = ioctl(dd, HCIGETCONNINFO, cr);
+	if (err < 0) {
+		error("Fail to get HCIGETCOINFO");
+		g_free(cr);
+		hci_close_dev(dd);
+		return FALSE;
+	}
+
+	cp.handle = cr->conn_info->handle;
+	DBG("Handle %d", cp.handle);
+	g_free(cr);
+
+	if (qos_high)
+		cp.priority = BRCM_QOS_PRIORITY_HIGH;
+	else
+		cp.priority = BRCM_QOS_PRIORITY_NORMAL;
+
+	if (hci_send_cmd(dd, OGF_VENDOR_CMD, BROADCOM_QOS_CMD,
+				BROADCOM_QOS_CP_SIZE, &cp) < 0) {
+		hci_close_dev(dd);
+		return FALSE;
+	}
+	DBG("Send Broadcom Qos Patch %s", qos_high ? "High" : "Low");
+
+	hci_close_dev(dd);
+
+	return TRUE;
+}
+#endif	/* __BROADCOM_QOS_PATCH__ */
+#ifdef TIZEN_WEARABLE
+static gboolean fix_role_to_master(bdaddr_t *dst, gboolean fix_to_master)
+{
+	int dd;
+	int err = 0;
+	struct hci_conn_info_req *cr;
+	switch_role_cp sr_cp;
+	write_link_policy_cp lp_cp;
+
+	dd = hci_open_dev(0);
+	if (dd < 0) {
+		error("hci_open_dev is failed");
+		return FALSE;
+	}
+
+	cr = g_malloc0(sizeof(*cr) + sizeof(struct hci_conn_info));
+
+	cr->type = ACL_LINK;
+	bacpy(&cr->bdaddr, dst);
+	err = ioctl(dd, HCIGETCONNINFO, cr);
+	if (err < 0) {
+		error("Fail to get HCIGETCOINFO : %d", err);
+		g_free(cr);
+		hci_close_dev(dd);
+		return FALSE;
+	}
+
+	if (!(cr->conn_info->link_mode & HCI_LM_MASTER) && fix_to_master) {
+		DBG("Need to role switch");
+
+		bacpy(&sr_cp.bdaddr, dst);
+		sr_cp.role = 0x00;	/* 0x00 : Master, 0x01 : Slave */
+		if (hci_send_cmd(dd, OGF_LINK_POLICY, OCF_SWITCH_ROLE,
+					SWITCH_ROLE_CP_SIZE, &sr_cp) < 0) {
+			error("switch role is failed");
+			g_free(cr);
+			hci_close_dev(dd);
+			return FALSE;
+		}
+	}
+
+	lp_cp.handle = cr->conn_info->handle;
+	DBG("Handle %d", lp_cp.handle);
+	g_free(cr);
+
+	lp_cp.policy = fix_to_master ? 0x00 : HCI_LP_SNIFF | HCI_LP_RSWITCH;
+	DBG("Request link policy : 0x%X", lp_cp.policy);
+
+	if (hci_send_cmd(dd, OGF_LINK_POLICY, OCF_WRITE_LINK_POLICY,
+				WRITE_LINK_POLICY_CP_SIZE, &lp_cp) < 0) {
+		error("write link policy is failed : %d", lp_cp.policy);
+		hci_close_dev(dd);
+		return FALSE;
+	}
+
+	hci_close_dev(dd);
+
+	return TRUE;
+}
+#endif	/* TIZEN_WEARABLE */
+#endif	/* __TIZEN_PATCH__ */
+
 static void avdtp_sep_set_state(struct avdtp *session,
 				struct avdtp_local_sep *sep,
 				avdtp_state_t state)
 {
 	struct avdtp_stream *stream = sep->stream;
+	bdaddr_t *dst;
+#ifdef __TIZEN_PATCH__
+	dst = (bdaddr_t*)device_get_address(session->device);
+#else
+	dst = device_get_address(session->device);
+#endif
 	avdtp_state_t old_state;
 	struct avdtp_error err, *err_ptr = NULL;
 	GSList *l;
@@ -995,12 +1123,30 @@ static void avdtp_sep_set_state(struct avdtp *session,
 		break;
 	case AVDTP_STATE_OPEN:
 		stream->starting = FALSE;
+#ifdef __TIZEN_PATCH__
+#ifdef __BROADCOM_QOS_PATCH__
+		send_broadcom_a2dp_qos(dst, FALSE);
+#endif	/* __BROADCOM_QOS_PATCH__ */
+#ifdef TIZEN_WEARABLE
+		fix_role_to_master(dst, FALSE);
+#endif /* TIZEN_WEARABLE */
+#endif	/* __TIZEN_PATCH__ */
+
 		break;
 	case AVDTP_STATE_STREAMING:
 		if (stream->start_timer) {
 			g_source_remove(stream->start_timer);
 			stream->start_timer = 0;
 		}
+
+#ifdef __TIZEN_PATCH__
+#ifdef __BROADCOM_QOS_PATCH__
+		send_broadcom_a2dp_qos(dst, TRUE);
+#endif	/* __BROADCOM_QOS_PATCH__ */
+#ifdef TIZEN_WEARABLE
+		fix_role_to_master(dst, TRUE);
+#endif	/* TIZEN_WEARABLE */
+#endif	/* __TIZEN_PATCH__ */
 		stream->open_acp = FALSE;
 		break;
 	case AVDTP_STATE_CLOSING:
@@ -1040,7 +1186,11 @@ static void avdtp_sep_set_state(struct avdtp *session,
 	}
 }
 
+#ifdef __TIZEN_PATCH__
+void finalize_discovery(struct avdtp *session, int err)
+#else
 static void finalize_discovery(struct avdtp *session, int err)
+#endif
 {
 	struct discover_callback *discover = session->discover;
 	struct avdtp_error avdtp_err;
@@ -1135,6 +1285,7 @@ static void avdtp_free(void *data)
 
 	g_free(session->buf);
 
+	btd_device_unref(session->device);
 	g_free(session);
 }
 
@@ -1142,12 +1293,21 @@ static void connection_lost(struct avdtp *session, int err)
 {
 	struct avdtp_server *server = session->server;
 	char address[18];
+#ifdef __TIZEN_PATCH__
+	struct btd_service *service;
+#endif
 
 	ba2str(device_get_address(session->device), address);
 	DBG("Disconnected from %s", address);
 
 	if (err != EACCES)
 		avdtp_cancel_authorization(session);
+
+#ifdef __TIZEN_PATCH__
+	service = btd_device_get_service(session->device, A2DP_SINK_UUID);
+	if (service)
+		btd_service_connecting_complete(service, -err);
+#endif
 
 	g_slist_foreach(session->streams, (GFunc) release_stream, session);
 	session->streams = NULL;
@@ -1156,19 +1316,44 @@ static void connection_lost(struct avdtp *session, int err)
 
 	avdtp_set_state(session, AVDTP_SESSION_STATE_DISCONNECTED);
 
+#ifdef __TIZEN_PATCH__
+	DBG("%p: ref=%d", session, session->ref);
+	if (err != EIO && session->ref > 0) /* link loss*/
+		return;
+#else
 	if (session->ref > 0)
 		return;
+#endif
 
 	server->sessions = g_slist_remove(server->sessions, session);
-	btd_device_unref(session->device);
 	avdtp_free(session);
 }
+
+#ifdef __TIZEN_PATCH__
+static gboolean disconnect_acl_timeout(gpointer user_data)
+{
+	struct btd_device *device = user_data;
+
+	DBG("");
+
+	btd_device_disconnect(device);
+
+	return FALSE;
+}
+#endif
 
 static gboolean disconnect_timeout(gpointer user_data)
 {
 	struct avdtp *session = user_data;
 	struct btd_service *service;
 	gboolean stream_setup;
+#ifdef __TIZEN_PATCH__
+	struct btd_device *device = NULL;
+	struct btd_adapter *adapter = NULL;
+	struct bdaddr_t *bdaddr = NULL;
+#endif
+
+	DBG("");
 
 	session->dc_timer = 0;
 
@@ -1187,19 +1372,48 @@ static gboolean disconnect_timeout(gpointer user_data)
 		return FALSE;
 	}
 
+#ifdef __TIZEN_PATCH__
+	if (session->device) {
+		adapter = device_get_adapter(session->device);
+		bdaddr = device_get_address(session->device);
+		if (adapter && bdaddr)
+			device = btd_adapter_find_device(adapter, bdaddr, BDADDR_BREDR);
+		if (!device)
+			error("device is NOT found");
+	}
+#endif
+
 	connection_lost(session, ETIMEDOUT);
+
+#ifdef __TIZEN_PATCH__
+	if (device)
+		g_timeout_add(100,
+			disconnect_acl_timeout,
+			device);
+#endif
 
 	return FALSE;
 }
 
 static void set_disconnect_timer(struct avdtp *session)
 {
+#ifdef __TIZEN_PATCH__
+	char name[6];
+#endif
 	if (session->dc_timer)
 		remove_disconnect_timer(session);
 
-	session->dc_timer = g_timeout_add_seconds(DISCONNECT_TIMEOUT,
-						disconnect_timeout,
-						session);
+#ifdef __TIZEN_PATCH__
+	device_get_name(session->device, name, sizeof(name));
+	DBG("name : %s", name);
+	if (g_str_equal(name, "VW BT"))
+		session->dc_timer = g_timeout_add_seconds(3, disconnect_timeout,
+				session);
+	else
+#endif
+		session->dc_timer = g_timeout_add_seconds(DISCONNECT_TIMEOUT,
+				disconnect_timeout,
+				session);
 }
 
 void avdtp_unref(struct avdtp *session)
@@ -2507,8 +2721,8 @@ static void avdtp_confirm_cb(GIOChannel *chan, gpointer data)
 					(GIOFunc) session_cb, session);
 
 	session->auth_id = btd_request_authorization(&src, &dst,
-						ADVANCED_AUDIO_UUID,
-						auth_cb, session, 0);
+							ADVANCED_AUDIO_UUID,
+							auth_cb, session);
 	if (session->auth_id == 0) {
 		avdtp_set_state(session, AVDTP_SESSION_STATE_DISCONNECTED);
 		goto drop;
@@ -2922,6 +3136,12 @@ static gboolean avdtp_abort_resp(struct avdtp *session,
 					struct seid_rej *resp, int size)
 {
 	struct avdtp_local_sep *sep = stream->lsep;
+#ifdef __TIZEN_PATCH__
+	if (!sep) {
+		error("Error in getting sep");
+		return FALSE;
+	}
+#endif
 
 	avdtp_sep_set_state(session, sep, AVDTP_STATE_ABORTING);
 

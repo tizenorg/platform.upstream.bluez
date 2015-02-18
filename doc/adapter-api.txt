@@ -35,6 +35,150 @@ Methods		void StartDiscovery()
 					 org.bluez.Error.Failed
 					 org.bluez.Error.NotAuthorized
 
+#ifdef __TIZEN_PATCH__
+		void StartCustomDiscovery(string pattern)
+
+			This method starts the device discovery session with
+			parameter. The valid paramter strings are "BREDR",
+			"LE" or "LE_BREDR" which will perform the inquiry for
+			appropriate types. This includes an inquiry procedure
+			and remote device name resolving. Use StopDiscovery
+			to release the sessions acquired.
+
+			This process will start creating Device objects as
+			new devices are discovered.
+
+			Possible errors: org.bluez.Error.NotReady
+					 org.bluez.Error.Failed
+
+		void StartLEDiscovery()
+
+			This method starts the LE device discovery session.
+			General discovery and active scan is default.
+			Use StopLEDiscovery to release the sessions
+			acquired.
+
+			This process will start emitting DeviceFound and
+			PropertyChanged "LEDiscovering" signals.
+
+			Possible errors: org.bluez.Error.NotReady
+					 org.bluez.Error.Failed
+
+		void StopLEDiscovery()
+
+			This method will cancel any previous StartLEDiscovery
+			transaction.
+
+			Note that a discovery procedure is shared between all
+			discovery sessions thus calling StopLEDiscovery will only
+			release a single session.
+
+			Possible errors: org.bluez.Error.NotReady
+					 org.bluez.Error.Failed
+					 org.bluez.Error.NotAuthorized
+
+		void SetAdvertising(boolean enable)
+
+			This method is used to set LE advertising on a
+			controller that supports it.
+
+			This process will emit PropertyChanged "Advertising"
+			signal.
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.InvalidArguments
+					org.bluez.Error.Failed
+
+		void SetAdvertisingParameters(uint32 interval_min,
+						uint32 interval_max, uint32 filter_policy,
+						uint32 type)
+
+			This method allows for setting the Low Energy
+			advertising interval and advertising filter policy.
+			It is only supported on controller with LE support.
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.Failed
+
+		void SetAdvertisingData(array{byte} value)
+
+			This method is used to set LE advertising data on a
+			controller that supports it.
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.InvalidArguments
+					org.bluez.Error.Failed
+
+		void SetScanParameters(uint32 type, uint32 interval, uint32 window)
+
+			This method allows for setting the Low Energy
+			scan interval and window.
+			It is only supported on controller with LE support.
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.Failed
+
+		void SetScanRespData(array{byte} value)
+
+			This method is used to set LE scan response data on
+			a controller that supports it.
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.InvalidArguments
+					org.bluez.Error.Failed
+
+		void AddDeviceWhiteList(string address, uint32 address_type)
+
+			This method is used to add LE device to White List for given
+			address.
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.InvalidArguments
+					org.bluez.Error.Failed
+
+		void RemoveDeviceWhiteList(string address, uint32 address_type)
+
+			This method is used to remove LE device to White List for given
+			address.
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.InvalidArguments
+					org.bluez.Error.Failed
+
+		void ClearDeviceWhiteList()
+
+			This method is used to clear LE device to White List
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.Failed
+
+		void SetLePrivacy(boolean enable_privacy)
+
+			This method is used to set/reset LE privacy feature for the local
+			adapter when it supports the feature.
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.InvalidArguments
+					org.bluez.Error.Failed
+
+		void SetManufacturerData(array{byte} value)
+
+			This method is used to set Manufacturer data on a
+			controller that supports it.
+
+			Possible errors: org.bluez.Error.NotReady
+					org.bluez.Error.InvalidArguments
+					org.bluez.Error.Failed
+
+		void CreateDevice(string address)
+
+			Creates a new object path for a remote device. This
+			method will connect to the remote device and retrieve
+			all SDP records.
+
+			Possible errors: org.bluez.Error.InvalidArguments
+#endif
+
 		void RemoveDevice(object device)
 
 			This removes the remote device object at the given
@@ -153,3 +297,16 @@ Properties	string Address [readonly]
 
 			Local Device ID information in modalias format
 			used by the kernel and udev.
+#ifdef __TIZEN_PATCH__
+		boolean LEDiscovering [readonly]
+
+			Indicates that a device LE discovery procedure is active.
+
+		boolean Advertising [readonly]
+
+			Indicates that a advertising procedure is active.
+
+		string Version [readonly]
+
+			 The Bluetooth version.
+#endif

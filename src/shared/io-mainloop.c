@@ -26,6 +26,7 @@
 #endif
 
 #include <unistd.h>
+#include <errno.h>
 #include <sys/socket.h>
 
 #include "monitor/mainloop.h"
@@ -92,12 +93,15 @@ static void io_callback(int fd, uint32_t events, void *user_data)
 {
 	struct io *io = user_data;
 
+	io_ref(io);
+
 	if ((events & (EPOLLRDHUP | EPOLLHUP | EPOLLERR))) {
 		io->read_callback = NULL;
 		io->write_callback = NULL;
 
 		if (!io->disconnect_callback) {
 			mainloop_remove_fd(io->fd);
+			io_unref(io);
 			return;
 		}
 
@@ -144,6 +148,8 @@ static void io_callback(int fd, uint32_t events, void *user_data)
 			mainloop_modify_fd(io->fd, io->events);
 		}
 	}
+
+	io_unref(io);
 }
 
 struct io *io_new(int fd)
@@ -187,7 +193,7 @@ void io_destroy(struct io *io)
 int io_get_fd(struct io *io)
 {
 	if (!io)
-		return -1;
+		return -ENOTCONN;
 
 	return io->fd;
 }
@@ -293,6 +299,23 @@ bool io_set_disconnect_handler(struct io *io, io_callback_func_t callback,
 	io->events = events;
 
 	return true;
+}
+
+ssize_t io_send(struct io *io, const struct iovec *iov, int iovcnt)
+{
+	ssize_t ret;
+
+	if (!io || io->fd < 0)
+		return -ENOTCONN;
+
+	do {
+		ret = writev(io->fd, iov, iovcnt);
+	} while (ret < 0 && errno == EINTR);
+
+	if (ret < 0)
+		return -errno;
+
+	return ret;
 }
 
 bool io_shutdown(struct io *io)

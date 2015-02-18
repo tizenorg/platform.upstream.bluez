@@ -41,6 +41,8 @@
 #include "uuid.h"
 #include "keys.h"
 #include "sdp.h"
+#include "avctp.h"
+#include "rfcomm.h"
 
 #define MAX_CHAN 64
 
@@ -262,14 +264,14 @@ struct index_data {
 	uint16_t frag_cid;
 };
 
-static struct index_data index_list[MAX_INDEX];
+static struct index_data index_list[MAX_INDEX][2];
 
-static void clear_fragment_buffer(uint16_t index)
+static void clear_fragment_buffer(uint16_t index, bool in)
 {
-	free(index_list[index].frag_buf);
-	index_list[index].frag_buf = NULL;
-	index_list[index].frag_pos = 0;
-	index_list[index].frag_len = 0;
+	free(index_list[index][in].frag_buf);
+	index_list[index][in].frag_buf = NULL;
+	index_list[index][in].frag_pos = 0;
+	index_list[index][in].frag_len = 0;
 }
 
 static void print_psm(uint16_t psm)
@@ -673,7 +675,8 @@ static struct {
 	{ 0x0003, "AMP Manager Protocol"	},
 	{ 0x0004, "Attribute Protocol"		},
 	{ 0x0005, "L2CAP Signaling (LE)"	},
-	{ 0x0006, "Security Manager"		},
+	{ 0x0006, "Security Manager (LE)"	},
+	{ 0x0007, "Security Manager (BR/EDR)"	},
 	{ 0x003f, "AMP Test Manager"		},
 	{ }
 };
@@ -1111,6 +1114,21 @@ static const struct sig_opcode_data le_sig_opcode_table[] = {
 			sig_le_flowctl_creds, 4, true },
 	{ },
 };
+
+static void l2cap_frame_init(struct l2cap_frame *frame,
+				uint16_t index, bool in, uint16_t handle,
+				uint16_t cid, const void *data, uint16_t size)
+{
+	frame->index  = index;
+	frame->in     = in;
+	frame->handle = handle;
+	frame->cid    = cid;
+	frame->data   = data;
+	frame->size   = size;
+	frame->psm    = get_psm(frame);
+	frame->mode   = get_mode(frame);
+	frame->chan   = get_chan(frame);
+}
 
 static void bredr_sig_packet(uint16_t index, bool in, uint16_t handle,
 				uint16_t cid, const void *data, uint16_t size)
@@ -1882,7 +1900,7 @@ static const char *att_format_str(uint8_t format)
 	}
 }
 
-static uint16_t print_info_data_16(const uint16_t *data, uint16_t len)
+static uint16_t print_info_data_16(const void *data, uint16_t len)
 {
 	while (len >= 4) {
 		print_field("Handle: 0x%4.4x", get_le16(data));
@@ -1894,7 +1912,7 @@ static uint16_t print_info_data_16(const uint16_t *data, uint16_t len)
 	return len;
 }
 
-static uint16_t print_info_data_128(const uint16_t *data, uint16_t len)
+static uint16_t print_info_data_128(const void *data, uint16_t len)
 {
 	while (len >= 18) {
 		print_field("Handle: 0x%4.4x", get_le16(data));
@@ -2326,27 +2344,42 @@ static void print_smp_oob_data(uint8_t oob_data)
 
 static void print_smp_auth_req(uint8_t auth_req)
 {
-	const char *str;
+	const char *bond, *mitm, *sc, *kp;
 
 	switch (auth_req & 0x03) {
 	case 0x00:
-		str = "No bonding";
+		bond = "No bonding";
 		break;
 	case 0x01:
-		str = "Bonding";
+		bond = "Bonding";
 		break;
 	default:
-		str = "Reserved";
+		bond = "Reserved";
 		break;
 	}
 
-	print_field("Authentication requirement: %s - %s (0x%2.2x)",
-			str, (auth_req & 0x04) ? "MITM" : "No MITM", auth_req);
+	if ((auth_req & 0x04))
+		mitm = "MITM";
+	else
+		mitm = "No MITM";
+
+	if ((auth_req & 0x08))
+		sc = "SC";
+	else
+		sc = "Legacy";
+
+	if ((auth_req & 0x10))
+		kp = "Keypresses";
+	else
+		kp = "No Keypresses";
+
+	print_field("Authentication requirement: %s, %s, %s, %s (0x%2.2x)",
+						bond, mitm, sc, kp, auth_req);
 }
 
 static void print_smp_key_dist(const char *label, uint8_t dist)
 {
-	char str[19];
+	char str[27];
 
 	if (!(dist & 0x07)) {
 		strcpy(str, "<none> ");
@@ -2358,6 +2391,8 @@ static void print_smp_key_dist(const char *label, uint8_t dist)
 			strcat(str, "IdKey ");
 		if (dist & 0x04)
 			strcat(str, "Sign ");
+		if (dist & 0x08)
+			strcat(str, "LinkKey ");
 	}
 
 	print_field("%s: %s(0x%2.2x)", label, str, dist);
@@ -2439,6 +2474,18 @@ static void smp_pairing_failed(const struct l2cap_frame *frame)
 	case 0x0a:
 		str = "Invalid parameters";
 		break;
+	case 0x0b:
+		str = "DHKey check failed";
+		break;
+	case 0x0c:
+		str = "Numeric comparison failed";
+		break;
+	case 0x0d:
+		str = "BR/EDR pairing in progress";
+		break;
+	case 0x0e:
+		str = "Cross-transport Key Derivation/Generation not allowed";
+		break;
 	default:
 		str = "Reserved";
 		break;
@@ -2495,6 +2542,50 @@ static void smp_security_request(const struct l2cap_frame *frame)
 	print_smp_auth_req(pdu->auth_req);
 }
 
+static void smp_pairing_public_key(const struct l2cap_frame *frame)
+{
+	const struct bt_l2cap_smp_public_key *pdu = frame->data;
+
+	print_hex_field("X", pdu->x, 32);
+	print_hex_field("Y", pdu->y, 32);
+}
+
+static void smp_pairing_dhkey_check(const struct l2cap_frame *frame)
+{
+	const struct bt_l2cap_smp_dhkey_check *pdu = frame->data;
+
+	print_hex_field("E", pdu->e, 16);
+}
+
+static void smp_pairing_keypress_notification(const struct l2cap_frame *frame)
+{
+	const struct bt_l2cap_smp_keypress_notify *pdu = frame->data;
+	const char *str;
+
+	switch (pdu->type) {
+	case 0x00:
+		str = "Passkey entry started";
+		break;
+	case 0x01:
+		str = "Passkey digit entered";
+		break;
+	case 0x02:
+		str = "Passkey digit erased";
+		break;
+	case 0x03:
+		str = "Passkey cleared";
+		break;
+	case 0x04:
+		str = "Passkey entry completed";
+		break;
+	default:
+		str = "Reserved";
+		break;
+	}
+
+	print_field("Type: %s (0x%2.2x)", str, pdu->type);
+}
+
 struct smp_opcode_data {
 	uint8_t opcode;
 	const char *str;
@@ -2526,6 +2617,12 @@ static const struct smp_opcode_data smp_opcode_table[] = {
 			smp_signing_info, 16, true },
 	{ 0x0b, "Security Request",
 			smp_security_request, 1, true },
+	{ 0x0c, "Pairing Public Key",
+			smp_pairing_public_key, 64, true },
+	{ 0x0d, "Pairing DHKey Check",
+			smp_pairing_dhkey_check, 16, true },
+	{ 0x0e, "Pairing Keypress Notification",
+			smp_pairing_keypress_notification, 1, true },
 	{ }
 };
 
@@ -2565,8 +2662,9 @@ static void smp_packet(uint16_t index, bool in, uint16_t handle,
 		opcode_str = "Unknown";
 	}
 
-	print_indent(6, opcode_color, "SMP: ", opcode_str, COLOR_OFF,
-				" (0x%2.2x) len %d", opcode, size - 1);
+	print_indent(6, opcode_color, cid == 0x0006 ? "SMP: " : "BR/EDR SMP: ",
+				opcode_str, COLOR_OFF, " (0x%2.2x) len %d",
+				opcode, size - 1);
 
 	if (!opcode_data || !opcode_data->func) {
 		packet_hexdump(data + 1, size - 1);
@@ -2595,8 +2693,6 @@ static void l2cap_frame(uint16_t index, bool in, uint16_t handle,
 			uint16_t cid, const void *data, uint16_t size)
 {
 	struct l2cap_frame frame;
-	uint16_t psm, chan;
-	uint8_t mode;
 
 	switch (cid) {
 	case 0x0001:
@@ -2615,24 +2711,30 @@ static void l2cap_frame(uint16_t index, bool in, uint16_t handle,
 		le_sig_packet(index, in, handle, cid, data, size);
 		break;
 	case 0x0006:
+	case 0x0007:
 		smp_packet(index, in, handle, cid, data, size);
 		break;
 	default:
 		l2cap_frame_init(&frame, index, in, handle, cid, data, size);
-		psm = get_psm(&frame);
-		mode = get_mode(&frame);
-		chan = get_chan(&frame);
 
 		print_indent(6, COLOR_CYAN, "Channel:", "", COLOR_OFF,
 				" %d len %d [PSM %d mode %d] {chan %d}",
-						cid, size, psm, mode, chan);
+						cid, size, frame.psm,
+						frame.mode, frame.chan);
 
-		switch (psm) {
+		switch (frame.psm) {
 		case 0x0001:
-			sdp_packet(&frame, chan);
+			sdp_packet(&frame);
+			break;
+		case 0x0003:
+			rfcomm_packet(&frame);
 			break;
 		case 0x001f:
 			att_packet(index, in, handle, cid, data, size);
+			break;
+		case 0x0017:
+		case 0x001B:
+			avctp_packet(&frame);
 			break;
 		default:
 			packet_hexdump(data, size);
@@ -2657,10 +2759,10 @@ void l2cap_packet(uint16_t index, bool in, uint16_t handle, uint8_t flags,
 	switch (flags) {
 	case 0x00:	/* start of a non-automatically-flushable PDU */
 	case 0x02:	/* start of an automatically-flushable PDU */
-		if (index_list[index].frag_len) {
+		if (index_list[index][in].frag_len) {
 			print_text(COLOR_ERROR, "unexpected start frame");
 			packet_hexdump(data, size);
-			clear_fragment_buffer(index);
+			clear_fragment_buffer(index, in);
 			return;
 		}
 
@@ -2688,54 +2790,54 @@ void l2cap_packet(uint16_t index, bool in, uint16_t handle, uint8_t flags,
 			return;
 		}
 
-		index_list[index].frag_buf = malloc(len);
-		if (!index_list[index].frag_buf) {
+		index_list[index][in].frag_buf = malloc(len);
+		if (!index_list[index][in].frag_buf) {
 			print_text(COLOR_ERROR, "failed buffer allocation");
 			packet_hexdump(data, size);
 			return;
 		}
 
-		memcpy(index_list[index].frag_buf, data, size);
-		index_list[index].frag_pos = size;
-		index_list[index].frag_len = len - size;
-		index_list[index].frag_cid = cid;
+		memcpy(index_list[index][in].frag_buf, data, size);
+		index_list[index][in].frag_pos = size;
+		index_list[index][in].frag_len = len - size;
+		index_list[index][in].frag_cid = cid;
 		break;
 
 	case 0x01:	/* continuing fragment */
-		if (!index_list[index].frag_len) {
+		if (!index_list[index][in].frag_len) {
 			print_text(COLOR_ERROR, "unexpected continuation");
 			packet_hexdump(data, size);
 			return;
 		}
 
-		if (size > index_list[index].frag_len) {
+		if (size > index_list[index][in].frag_len) {
 			print_text(COLOR_ERROR, "fragment too long");
 			packet_hexdump(data, size);
-			clear_fragment_buffer(index);
+			clear_fragment_buffer(index, in);
 			return;
 		}
 
-		memcpy(index_list[index].frag_buf +
-				index_list[index].frag_pos, data, size);
-		index_list[index].frag_pos += size;
-		index_list[index].frag_len -= size;
+		memcpy(index_list[index][in].frag_buf +
+				index_list[index][in].frag_pos, data, size);
+		index_list[index][in].frag_pos += size;
+		index_list[index][in].frag_len -= size;
 
-		if (!index_list[index].frag_len) {
+		if (!index_list[index][in].frag_len) {
 			/* complete frame */
 			l2cap_frame(index, in, handle,
-					index_list[index].frag_cid,
-					index_list[index].frag_buf,
-					index_list[index].frag_pos);
-			clear_fragment_buffer(index);
+					index_list[index][in].frag_cid,
+					index_list[index][in].frag_buf,
+					index_list[index][in].frag_pos);
+			clear_fragment_buffer(index, in);
 			return;
 		}
 		break;
 
 	case 0x03:	/* complete automatically-flushable PDU */
-		if (index_list[index].frag_len) {
+		if (index_list[index][in].frag_len) {
 			print_text(COLOR_ERROR, "unexpected complete frame");
 			packet_hexdump(data, size);
-			clear_fragment_buffer(index);
+			clear_fragment_buffer(index, in);
 			return;
 		}
 

@@ -153,6 +153,92 @@
 		</attribute>						\
 	</record>"
 
+#define HSP_AG_RECORD							\
+	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
+	<record>							\
+		<attribute id=\"0x0001\">				\
+			<sequence>					\
+				<uuid value=\"0x1112\" />		\
+				<uuid value=\"0x1203\" />		\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0004\">				\
+			<sequence>					\
+				<sequence>				\
+					<uuid value=\"0x0100\" />	\
+				</sequence>				\
+				<sequence>				\
+					<uuid value=\"0x0003\" />	\
+					<uint8 value=\"0x%02x\" />	\
+				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0005\">				\
+			<sequence>					\
+				<uuid value=\"0x1002\" />		\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0009\">				\
+			<sequence>					\
+				<sequence>				\
+					<uuid value=\"0x1108\" />	\
+					<uint16 value=\"0x%04x\" />	\
+				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0100\">				\
+			<text value=\"%s\" />				\
+		</attribute>						\
+	</record>"
+
+#ifdef __TIZEN_PATCH__
+#define SPP_RECORD							\
+	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
+	<record>							\
+		<attribute id=\"0x0001\">				\
+			<sequence>					\
+				%s					\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0004\">				\
+			<sequence>					\
+				<sequence>				\
+					<uuid value=\"0x0100\" />	\
+				</sequence>				\
+				<sequence>				\
+					<uuid value=\"0x0003\" />	\
+					<uint8 value=\"0x%02x\" />	\
+				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0005\">				\
+			<sequence>					\
+				<uuid value=\"0x1002\" />		\
+			</sequence>					\
+		</attribute>						\
+		%s								\
+		<attribute id=\"0x0009\">				\
+			<sequence>					\
+				<sequence>				\
+					<uuid value=\"0x1101\" />	\
+					<uint16 value=\"0x%04x\" />	\
+				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0100\">				\
+			<text value=\"%s\" />				\
+		</attribute>						\
+	</record>"
+
+#define LANG_SEQ								\
+			"<attribute id=\"0x0006\">				\
+				<sequence>					\
+					<uint16 value=\"0x%04x\" />	\
+					<uint16 value=\"0x%04x\" />	\
+					<uint16 value=\"0x%04x\" />	\
+				</sequence>				\
+			</attribute>"
+#else
 #define SPP_RECORD							\
 	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
 	<record>							\
@@ -190,6 +276,7 @@
 			<text value=\"%s\" />				\
 		</attribute>						\
 	</record>"
+#endif
 
 #define DUN_RECORD							\
 	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
@@ -229,6 +316,58 @@
 		</attribute>						\
 	</record>"
 
+#ifdef __TIZEN_PATCH__
+#define OPP_RECORD							\
+	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
+	<record>							\
+		<attribute id=\"0x0001\">				\
+			<sequence>					\
+				<uuid value=\"0x1105\" />		\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0004\">				\
+			<sequence>					\
+				<sequence>				\
+					<uuid value=\"0x0100\" />	\
+				</sequence>				\
+				<sequence>				\
+					<uuid value=\"0x0003\" />	\
+					<uint8 value=\"0x%02x\" />	\
+				</sequence>				\
+				<sequence>				\
+					<uuid value=\"0x0008\"/>	\
+				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0005\">				\
+			<sequence>					\
+				<uuid value=\"0x1002\" />		\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0009\">				\
+			<sequence>					\
+				<sequence>				\
+					<uuid value=\"0x1105\" />	\
+					<uint16 value=\"0x%04x\" />	\
+				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0303\">				\
+			<sequence>					\
+				<uint8 value=\"0x01\"/>			\
+				<uint8 value=\"0x02\"/>			\
+				<uint8 value=\"0x03\"/>			\
+				<uint8 value=\"0x04\"/>			\
+				<uint8 value=\"0x05\"/>			\
+				<uint8 value=\"0x06\"/>			\
+				<uint8 value=\"0xff\"/>			\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0100\">				\
+			<text value=\"%s\" />				\
+		</attribute>						\
+	</record>"
+#else
 #define OPP_RECORD							\
 	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
 	<record>							\
@@ -282,6 +421,7 @@
 			<text value=\"%s\" />				\
 		</attribute>						\
 	</record>"
+#endif
 
 #define FTP_RECORD							\
 	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
@@ -352,6 +492,13 @@
 		</attribute>						\
 	</record>"
 
+#ifdef PBAP_SIM_ENABLE
+#define PBAP_ACCESS "0x03"	/* Phone and SIM access support*/
+#else
+#define PBAP_ACCESS "0x01"	/* Phone access support only*/
+#endif
+
+
 #define PSE_RECORD							\
 	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
 	<record>							\
@@ -391,7 +538,10 @@
 			<text value=\"%s\" />				\
 		</attribute>						\
 		<attribute id=\"0x0314\">				\
-			<uint8 value=\"0x01\"/>				\
+			<uint8 value=\""PBAP_ACCESS"\"/>				\
+		</attribute>						\
+		<attribute id=\"0x0317\">				\
+			<uint32 value=\"0x00000003\"/>			\
 		</attribute>						\
 	</record>"
 
@@ -438,6 +588,9 @@
 		</attribute>						\
 		<attribute id=\"0x0316\">				\
 			<uint8 value=\"0x0F\"/>				\
+		</attribute>						\
+		<attribute id=\"0x0317\">				\
+			<uint32 value=\"0x0000007f\"/>			\
 		</attribute>						\
 	</record>"
 
@@ -922,7 +1075,7 @@ static bool send_new_connection(struct ext_profile *ext, struct ext_io *conn)
 
 	dbus_message_iter_init_append(msg, &iter);
 
-	path = btd_device_get_path(conn->device);
+	path = device_get_path(conn->device);
 	dbus_message_iter_append_basic(&iter, DBUS_TYPE_OBJECT_PATH, &path);
 
 	fd = g_io_channel_unix_get_fd(conn->io);
@@ -1100,7 +1253,6 @@ static void ext_confirm(GIOChannel *io, gpointer user_data)
 	GError *gerr = NULL;
 	bdaddr_t src, dst;
 	char addr[18];
-	int fd;
 
 	bt_io_get(io, &gerr,
 			BT_IO_OPT_SOURCE_BDADDR, &src,
@@ -1120,9 +1272,8 @@ static void ext_confirm(GIOChannel *io, gpointer user_data)
 	if (conn == NULL)
 		return;
 
-	fd = g_io_channel_unix_get_fd(conn->io);
 	conn->auth_id = btd_request_authorization(&src, &dst, uuid, ext_auth,
-								conn, fd);
+									conn);
 	if (conn->auth_id == 0) {
 		error("%s authorization failure", ext->name);
 		ext_io_destroy(conn);
@@ -1274,7 +1425,6 @@ static uint32_t ext_start_servers(struct ext_profile *ext,
 			error("RFCOMM server failed for %s: %s",
 						ext->name, err->message);
 			g_free(rfcomm);
-			rfcomm = NULL;
 			g_clear_error(&err);
 			goto failed;
 		} else {
@@ -1297,10 +1447,6 @@ failed:
 		ext->servers = g_slist_remove(ext->servers, l2cap);
 		ext_io_destroy(l2cap);
 	}
-	if (rfcomm) {
-		ext->servers = g_slist_remove(ext->servers, rfcomm);
-		ext_io_destroy(rfcomm);
-	}
 
 	return 0;
 }
@@ -1315,6 +1461,21 @@ static struct ext_profile *find_ext(struct btd_profile *p)
 
 	return l->data;
 }
+
+#ifdef __TIZEN_PATCH__
+gboolean ext_profile_is_registered_as_client_role(struct btd_profile *p)
+{
+	struct ext_profile *ext = find_ext(p);
+	if (ext && ext->role) {
+		if(strcasecmp(ext->role, "client") == 0) {
+			return TRUE;
+		} else {
+			return FALSE;
+		}
+	}
+	return FALSE;
+}
+#endif
 
 static int ext_adapter_probe(struct btd_profile *p,
 						struct btd_adapter *adapter)
@@ -1509,6 +1670,7 @@ static void record_cb(sdp_list_t *recs, int err, gpointer user_data)
 
 	if (!recs || !recs->data) {
 		error("No SDP records found for %s", ext->name);
+		err = -ENOTSUP;
 		goto failed;
 	}
 
@@ -1516,10 +1678,43 @@ static void record_cb(sdp_list_t *recs, int err, gpointer user_data)
 		sdp_record_t *rec = r->data;
 		sdp_list_t *protos;
 		int port;
+#ifdef __TIZEN_PATCH__
+		char *profile_uuid;
+		sdp_list_t *svcclass = NULL;
+
+		if (sdp_get_service_classes(rec, &svcclass) < 0)
+			continue;
+
+		/* Check for empty service classes list */
+		if (svcclass == NULL) {
+			DBG("Skipping record with no service classes");
+			continue;
+		}
+
+		/* Extract the first element and skip the remainning */
+		profile_uuid = bt_uuid2string(svcclass->data);
+		if (!profile_uuid) {
+			sdp_list_free(svcclass, free);
+			continue;
+		}
+
+		sdp_list_free(svcclass, free);
+
+		DBG("profile uuid %s port uuid %s", profile_uuid, ext->remote_uuid);
+
+		if (g_strncasecmp(profile_uuid, ext->remote_uuid,
+						strlen(profile_uuid)) != 0) {
+			free(profile_uuid);
+			continue;
+		}
+
+		free(profile_uuid);
+#endif
 
 		if (sdp_get_access_protos(rec, &protos) < 0) {
 			error("Unable to get proto list from %s record",
 								ext->name);
+			err = -ENOTSUP;
 			goto failed;
 		}
 
@@ -1548,6 +1743,7 @@ static void record_cb(sdp_list_t *recs, int err, gpointer user_data)
 	if (!conn->chan && !conn->psm) {
 		error("Failed to find L2CAP PSM or RFCOMM channel for %s",
 								ext->name);
+		err = -ENOTSUP;
 		goto failed;
 	}
 
@@ -1647,7 +1843,7 @@ static int send_disconn_req(struct ext_profile *ext, struct ext_io *conn)
 		return -ENOMEM;
 	}
 
-	path = btd_device_get_path(conn->device);
+	path = device_get_path(conn->device);
 	dbus_message_append_args(msg, DBUS_TYPE_OBJECT_PATH, &path,
 							DBUS_TYPE_INVALID);
 
@@ -1705,18 +1901,39 @@ static char *get_hfp_ag_record(struct ext_profile *ext, struct ext_io *l2cap,
 						ext->name, ext->features);
 }
 
+static char *get_hsp_ag_record(struct ext_profile *ext, struct ext_io *l2cap,
+							struct ext_io *rfcomm)
+{
+	return g_strdup_printf(HSP_AG_RECORD, rfcomm->chan, ext->version,
+						ext->name);
+}
+
 static char *get_spp_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
 {
 	char *svc, *rec;
+#ifdef __TIZEN_PATCH__
+	char *lan_seq;
+	uint16_t code_ISO639 = (0x65 << 8) | 0x6e;
+	uint16_t encoding = 106;
+	uint16_t base_offset = SDP_PRIMARY_LANG_BASE;
+#endif
 
 	if (ext->service)
 		svc = g_strdup_printf("<uuid value=\"%s\" />", ext->service);
 	else
 		svc = g_strdup("");
 
+#ifdef __TIZEN_PATCH__
+	lan_seq = g_strdup_printf(LANG_SEQ, code_ISO639, encoding,
+							base_offset);
+	rec = g_strdup_printf(SPP_RECORD, svc, rfcomm->chan, lan_seq, ext->version,
+								ext->name);
+	g_free(lan_seq);
+#else
 	rec = g_strdup_printf(SPP_RECORD, svc, rfcomm->chan, ext->version,
 								ext->name);
+#endif
 	g_free(svc);
 	return rec;
 }
@@ -1780,7 +1997,11 @@ static char *get_opp_record(struct ext_profile *ext, struct ext_io *l2cap,
 	if (rfcomm)
 		chan = rfcomm->chan;
 
+#ifdef __TIZEN_PATCH__
+	return g_strdup_printf(OPP_RECORD, chan, ext->version, ext->name);
+#else
 	return g_strdup_printf(OPP_RECORD, chan, ext->version, psm, ext->name);
+#endif
 }
 
 static char *get_ftp_record(struct ext_profile *ext, struct ext_io *l2cap,
@@ -1878,7 +2099,11 @@ static struct default_settings {
 		.channel	= SPP_DEFAULT_CHANNEL,
 		.authorize	= true,
 		.get_record	= get_spp_record,
+#ifdef __TIZEN_PATCH__
+		.version    	= 0x0100,
+#else
 		.version	= 0x0102,
+#endif
 	}, {
 		.uuid		= DUN_GW_UUID,
 		.name		= "Dial-Up Networking",
@@ -1914,6 +2139,8 @@ static struct default_settings {
 		.channel	= HSP_AG_DEFAULT_CHANNEL,
 		.authorize	= true,
 		.auto_connect	= true,
+		.get_record	= get_hsp_ag_record,
+		.version	= 0x0102,
 	}, {
 		.uuid		= OBEX_OPP_UUID,
 		.name		= "Object Push",
@@ -1921,9 +2148,17 @@ static struct default_settings {
 		.psm		= BTD_PROFILE_PSM_AUTO,
 		.mode		= BT_IO_MODE_ERTM,
 		.sec_level	= BT_IO_SEC_LOW,
+#ifdef __TIZEN_PATCH__
+		.authorize	= true,
+#else
 		.authorize	= false,
+#endif
 		.get_record	= get_opp_record,
-		.version	= 0x0102,
+#ifdef __TIZEN_PATCH__
+		.version    = 0x0100,
+#else
+		.version    = 0x0102,
+#endif
 	}, {
 		.uuid		= OBEX_FTP_UUID,
 		.name		= "File Transfer",
@@ -1953,7 +2188,7 @@ static struct default_settings {
 		.remote_uuid	= OBEX_PSE_UUID,
 		.authorize	= true,
 		.get_record	= get_pce_record,
-		.version	= 0x0101,
+		.version	= 0x0102,
 	}, {
 		.uuid		= OBEX_MAS_UUID,
 		.name		= "Message Access",
@@ -2333,6 +2568,14 @@ static const GDBusMethodTable methods[] = {
 			GDBUS_ARGS({ "profile", "o"}, { "UUID", "s" },
 						{ "options", "a{sv}" }),
 			NULL, register_profile) },
+#ifdef __TIZEN_PATCH__
+	/* For Dbus Smack devides dbus API, the functionality is same */
+	{ GDBUS_METHOD("RegisterProfile1",
+			GDBUS_ARGS({ "profile", "o"}, { "UUID", "s" },
+						{ "options", "a{sv}" }),
+			NULL, register_profile) },
+#endif
+
 	{ GDBUS_METHOD("UnregisterProfile", GDBUS_ARGS({ "profile", "o" }),
 			NULL, unregister_profile) },
 	{ }

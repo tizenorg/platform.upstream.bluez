@@ -65,7 +65,11 @@ Methods		void Connect()
 					 org.bluez.Error.NotConnected
 					 org.bluez.Error.NotSupported
 
+#ifdef __TIZEN_PATCH__
+		void Pair(uint8 conn_type)
+#else
 		void Pair()
+#endif
 
 			This method will connect to the remote device,
 			initiate pairing and then retrieve all SDP records
@@ -83,6 +87,14 @@ Methods		void Connect()
 			In case there is no application agent and also
 			no default agent present, this method will fail.
 
+#ifdef __TIZEN_PATCH__
+			conn_type represents the type of the connection to be
+			used for pairing.
+			0xFF -> BR/EDR and LE
+			0x00 -> BR/EDR only
+			0x01 -> LE only
+#endif
+
 			Possible errors: org.bluez.Error.InvalidArguments
 					 org.bluez.Error.Failed
 					 org.bluez.Error.AlreadyExists
@@ -99,6 +111,29 @@ Methods		void Connect()
 
 			Possible errors: org.bluez.Error.DoesNotExist
 					 org.bluez.Error.Failed
+
+#ifdef __TIZEN_PATCH__
+		void ConnectLe()
+
+			This is a generic method to connect GATT of
+			the remote device supporting LE and have been
+			flagged as auto-connectable on our side.
+
+			Possible errors: org.bluez.Error.NotReady
+					 org.bluez.Error.Failed
+					 org.bluez.Error.InProgress
+					 org.bluez.Error.AlreadyConnected
+
+
+		void DisconnectLe()
+
+			This method disconnects a specific remote device LE
+			connection by terminating the low-level ACL connection.
+			The use of this method should be restricted to administrator
+			use.
+
+			Possible errors: org.bluez.Error.NotConnected
+#endif
 
 Properties	string Address [readonly]
 
@@ -176,9 +211,9 @@ Properties	string Address [readonly]
 		boolean LegacyPairing [readonly]
 
 			Set to true if the device only supports the pre-2.1
-			pairing mechanism. This property is useful in the
-			Adapter.DeviceFound signal to anticipate whether
-			legacy or simple pairing will occur.
+			pairing mechanism. This property is useful during
+			device discovery to anticipate whether legacy or
+			simple pairing will occur if pairing is initiated.
 
 			Note that this property can exhibit false-positives
 			in the case of Bluetooth 2.1 (or newer) devices that
@@ -192,4 +227,12 @@ Properties	string Address [readonly]
 		int16 RSSI [readonly, optional]
 
 			Received Signal Strength Indicator of the remote
-			device.
+			device (inquiry or advertising).
+
+#ifdef __TIZEN_PATCH__
+		boolean GattConnected [readonly]
+
+			Indicates if the remote LE device is currently connected.
+			A PropertiesChanged signal indicate changes to this
+			status.
+#endif

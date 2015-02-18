@@ -270,7 +270,7 @@ static void change_property(struct thermometer *t, const char *name,
 	}
 
 	g_dbus_emit_property_changed(btd_get_dbus_connection(),
-						btd_device_get_path(t->dev),
+						device_get_path(t->dev),
 						THERMOMETER_INTERFACE, name);
 }
 
@@ -278,7 +278,7 @@ static void update_watcher(gpointer data, gpointer user_data)
 {
 	struct watcher *w = data;
 	struct measurement *m = user_data;
-	const char *path = btd_device_get_path(m->t->dev);
+	const char *path = device_get_path(m->t->dev);
 	DBusMessageIter iter;
 	DBusMessageIter dict;
 	DBusMessage *msg;
@@ -1147,7 +1147,7 @@ static void attio_disconnected_cb(gpointer user_data)
 static int thermometer_register(struct btd_device *device,
 						struct gatt_primary *tattr)
 {
-	const char *path = btd_device_get_path(device);
+	const char *path = device_get_path(device);
 	struct thermometer *t;
 	struct btd_adapter *adapter;
 	struct thermometer_adapter *tadapter;
@@ -1206,8 +1206,7 @@ static void thermometer_unregister(struct btd_device *device)
 	tadapter->devices = g_slist_remove(tadapter->devices, t);
 
 	g_dbus_unregister_interface(btd_get_dbus_connection(),
-					btd_device_get_path(t->dev),
-					THERMOMETER_INTERFACE);
+				device_get_path(t->dev), THERMOMETER_INTERFACE);
 }
 
 static const GDBusMethodTable thermometer_manager_methods[] = {

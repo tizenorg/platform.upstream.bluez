@@ -331,6 +331,10 @@ static gboolean auto_release(gpointer user_data)
 	return FALSE;
 }
 
+#ifdef __TIZEN_PATCH__
+extern void avrcp_stop_position_timer(void);
+#endif
+
 static size_t handle_panel_passthrough(struct avctp *session,
 					uint8_t transaction, uint8_t *code,
 					uint8_t *subunit, uint8_t *operands,
@@ -387,7 +391,9 @@ static size_t handle_panel_passthrough(struct avctp *session,
 		if (pressed) {
 			if (session->key.timer > 0) {
 				g_source_remove(session->key.timer);
+#ifndef __TIZEN_PATCH__
 				send_key(session->uinput, session->key.op, 0);
+#endif
 			}
 
 			session->key.op = key_map[i].uinput;
@@ -395,6 +401,10 @@ static size_t handle_panel_passthrough(struct avctp *session,
 							AVC_PRESS_TIMEOUT,
 							auto_release,
 							session);
+#ifdef __TIZEN_PATCH__
+			if (key_map[i].avc == AVC_REWIND)
+				avrcp_stop_position_timer();
+#endif
 		} else if (session->key.timer > 0) {
 			g_source_remove(session->key.timer);
 			session->key.timer = 0;
@@ -1338,9 +1348,15 @@ static void avctp_control_confirm(struct avctp *session, GIOChannel *chan,
 	src = btd_adapter_get_address(device_get_adapter(dev));
 	dst = device_get_address(dev);
 
+#ifdef __TIZEN_PATCH__
 	session->auth_id = btd_request_authorization(src, dst,
-						AVRCP_REMOTE_UUID,
-						auth_cb, session, 0);
+							AVRCP_TARGET_UUID,
+							auth_cb, session);
+#else
+	session->auth_id = btd_request_authorization(src, dst,
+							AVRCP_REMOTE_UUID,
+							auth_cb, session);
+#endif
 	if (session->auth_id == 0)
 		goto drop;
 

@@ -35,6 +35,13 @@
 /* Invalid SSP passkey value used to indicate negative replies */
 #define INVALID_PASSKEY		0xffffffff
 
+#ifdef __TIZEN_PATCH__
+#define BT_DISC_TYPE_DEFAULT    0
+#define BT_DISC_TYPE_BREDR_ONLY 1
+#define BT_DISC_TYPE_LE_ONLY    2
+#define BT_DISC_TYPE_LE_BREDR   3
+#endif
+
 struct btd_adapter;
 struct btd_device;
 
@@ -120,7 +127,7 @@ void adapter_remove_profile(struct btd_adapter *adapter, gpointer p);
 int btd_register_adapter_driver(struct btd_adapter_driver *driver);
 void btd_unregister_adapter_driver(struct btd_adapter_driver *driver);
 guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
-	const char *uuid, service_auth_cb cb, void *user_data, int fd);
+		const char *uuid, service_auth_cb cb, void *user_data);
 int btd_cancel_authorization(guint id);
 
 int btd_adapter_restore_powered(struct btd_adapter *adapter);
@@ -137,6 +144,16 @@ struct btd_adapter_pin_cb_iter *btd_adapter_pin_cb_iter_new(
 						struct btd_adapter *adapter);
 void btd_adapter_pin_cb_iter_free(struct btd_adapter_pin_cb_iter *iter);
 bool btd_adapter_pin_cb_iter_end(struct btd_adapter_pin_cb_iter *iter);
+
+typedef void (*btd_msd_cb_t) (struct btd_adapter *adapter,
+							struct btd_device *dev,
+							uint16_t company,
+							const uint8_t *data,
+							uint8_t data_len);
+void btd_adapter_register_msd_cb(struct btd_adapter *adapter,
+							btd_msd_cb_t cb);
+void btd_adapter_unregister_msd_cb(struct btd_adapter *adapter,
+							btd_msd_cb_t cb);
 
 /* If TRUE, enables fast connectabe, i.e. reduces page scan interval and changes
  * type. If FALSE, disables fast connectable, i.e. sets page scan interval and
@@ -199,6 +216,14 @@ int adapter_connect_list_add(struct btd_adapter *adapter,
 					struct btd_device *device);
 void adapter_connect_list_remove(struct btd_adapter *adapter,
 						struct btd_device *device);
+void adapter_auto_connect_add(struct btd_adapter *adapter,
+					struct btd_device *device);
+void adapter_auto_connect_remove(struct btd_adapter *adapter,
+					struct btd_device *device);
+void adapter_whitelist_add(struct btd_adapter *adapter,
+						struct btd_device *dev);
+void adapter_whitelist_remove(struct btd_adapter *adapter,
+						struct btd_device *dev);
 
 void btd_adapter_set_oob_handler(struct btd_adapter *adapter,
 						struct oob_handler *handler);
@@ -207,3 +232,30 @@ gboolean btd_adapter_check_oob_handler(struct btd_adapter *adapter);
 void btd_adapter_for_each_device(struct btd_adapter *adapter,
 			void (*cb)(struct btd_device *device, void *data),
 			void *data);
+
+bool btd_le_connect_before_pairing(void);
+
+#ifdef __TIZEN_PATCH__
+int btd_adapter_read_rssi(struct btd_adapter *adapter, bdaddr_t *bdaddr,
+			struct btd_device *device);
+int btd_adapter_l2cap_conn_param_update(struct btd_adapter *adapter,
+			bdaddr_t *bdaddr, uint16_t interval_min,
+			uint16_t interval_max, uint16_t latency,
+			uint16_t supervision_time_out);
+int btd_adapter_write_auth_payload_timeout(struct btd_adapter *adapter,
+				bdaddr_t *bdaddr, uint32_t payload_timeout,
+				struct btd_device *device);
+int btd_adapter_read_auth_payload_timeout(struct btd_adapter *adapter,
+				bdaddr_t *bdaddr, struct btd_device *device);
+int btd_adapter_le_conn_update(struct btd_adapter *adapter, bdaddr_t *bdaddr,
+			uint16_t interval_min, uint16_t interval_max,
+			uint16_t latency, uint16_t supervision_time_out);
+gboolean adapter_clear_le_white_list(struct btd_adapter *adapter);
+gboolean adapter_add_le_white_list(struct btd_adapter *adapter, struct btd_device *device);
+
+gboolean btd_adapter_is_le_auto_connect(struct btd_adapter *adapter);
+void btd_adapter_set_le_auto_connect(struct btd_adapter *adapter, gboolean auto_connect);
+gboolean btd_adapter_disable_le_auto_connect(struct btd_adapter *adapter);
+void adapter_check_version(struct btd_adapter *adapter, uint8_t hci_ver);
+GSList *btd_adapter_get_connections(struct btd_adapter *adapter);
+#endif
