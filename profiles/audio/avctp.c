@@ -1351,11 +1351,11 @@ static void avctp_control_confirm(struct avctp *session, GIOChannel *chan,
 #ifdef __TIZEN_PATCH__
 	session->auth_id = btd_request_authorization(src, dst,
 							AVRCP_TARGET_UUID,
-							auth_cb, session);
+							auth_cb, session, 0);
 #else
 	session->auth_id = btd_request_authorization(src, dst,
 							AVRCP_REMOTE_UUID,
-							auth_cb, session);
+							auth_cb, session, 0);
 #endif
 	if (session->auth_id == 0)
 		goto drop;

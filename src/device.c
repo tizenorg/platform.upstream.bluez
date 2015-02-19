@@ -383,7 +383,7 @@ static GSList *find_service_with_gatt_handles(GSList *list,
 
 static void update_technologies(GKeyFile *file, struct btd_device *dev)
 {
-	const char *list[2];
+	const char *list[2] = {NULL, NULL};
 	size_t len = 0;
 
 	if (dev->bredr)
@@ -808,6 +808,34 @@ bool device_is_bonded(struct btd_device *device, uint8_t bdaddr_type)
 gboolean device_is_trusted(struct btd_device *device)
 {
 	return device->trusted;
+}
+
+bool device_is_service_blocked(struct btd_device *device, const char *uuid)
+{
+	GSList *l;
+	bool block = false;
+
+	for (l = device->services; l; l = g_slist_next(l)) {
+		struct btd_service *service = l->data;
+		struct btd_profile *p = btd_service_get_profile(service);
+		const char *p_uuid;
+
+		p_uuid = p->auth_uuid ? p->auth_uuid : p->local_uuid;
+		if (!p_uuid)
+			continue;
+
+		if (strcasecmp(uuid, p_uuid))
+			continue;
+
+		if (!btd_service_is_blocked(service))
+			return false;
+
+		block = true;
+	}
+
+	/* Every service matching is blocked
+	 */
+	return block;
 }
 
 static gboolean dev_property_get_address(const GDBusPropertyTable *property,
@@ -1811,6 +1839,10 @@ static GSList *create_pending_list(struct btd_device *dev, const char *uuid)
 
 	for (l = dev->services; l != NULL; l = g_slist_next(l)) {
 		service = l->data;
+		
+		if (!btd_service_get_auto_connect(service))
+			continue;
+		
 		p = btd_service_get_profile(service);
 
 #ifdef __TIZEN_PATCH__

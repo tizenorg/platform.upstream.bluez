@@ -325,7 +325,7 @@ static gboolean server_disconnected_cb(GIOChannel *chan,
 {
 	struct network_server *ns = NULL;
 	struct network_session *session = NULL;
-	char address[20] = {0};
+	char address[24] = {0};
 	const char* paddr = address;
 	char *name_str = NULL;
 
@@ -373,7 +373,7 @@ static gboolean bnep_setup(GIOChannel *chan,
 			GIOCondition cond, gpointer user_data)
 {
 	struct network_adapter *na = user_data;
-	struct network_server *ns;
+	struct network_server *ns = NULL;
 	uint8_t packet[BNEP_MTU];
 	struct bnep_setup_conn_req *req = (void *) packet;
 	uint16_t src_role, dst_role, rsp = BNEP_CONN_NOT_ALLOWED;
@@ -564,7 +564,7 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 	na->setup->io = g_io_channel_ref(chan);
 
 	ret = btd_request_authorization(&src, &dst, BNEP_SVC_UUID,
-					auth_cb, na);
+					auth_cb, na, 0);
 	if (ret == 0) {
 		error("Refusing connect from %s", address);
 		setup_destroy(na);
@@ -611,11 +611,26 @@ static void server_remove_sessions(struct network_server *ns)
 
 	for (list = ns->sessions; list; list = list->next) {
 		struct network_session *session = list->data;
+		char address[24] = {0};
+		char *paddr = address;
+		const char *name_str = NULL;
 
 		if (*session->dev == '\0')
 			continue;
 
 		bnep_server_delete(ns->bridge, session->dev, &session->dst);
+
+		name_str = session->dev;
+		ba2str(&session->dst, paddr);
+
+		DBG("send peerdisconnected signal");
+
+		g_dbus_emit_signal(btd_get_dbus_connection(),
+			adapter_get_path(ns->na->adapter),
+			NETWORK_SERVER_INTERFACE, "PeerDisconnected",
+			DBUS_TYPE_STRING, &name_str,
+			DBUS_TYPE_STRING, &paddr,
+			DBUS_TYPE_INVALID);
 	}
 
 #ifndef __TIZEN_PATCH__

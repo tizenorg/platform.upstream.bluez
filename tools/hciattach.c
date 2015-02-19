@@ -1530,7 +1530,7 @@ int main(int argc, char *argv[])
 			dev[0] = 0;
 			if (!strchr(opt, '/'))
 				strcpy(dev, "/dev/");
-			strcat(dev, opt);
+			strncat(dev, opt, PATH_MAX);
 			break;
 
 		case 1:

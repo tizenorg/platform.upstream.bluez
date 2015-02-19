@@ -36,6 +36,8 @@
 #include <errno.h>
 
 #include <bluetooth/bluetooth.h>
+#include <bluetooth/sdp.h>
+#include <bluetooth/sdp_lib.h>
 
 #include <glib.h>
 
@@ -55,6 +57,8 @@ struct btd_service {
 	int			err;
 	uint16_t		start_handle;
 	uint16_t		end_handle;
+	bool			auto_connect;
+	bool			blocked;
 };
 
 struct service_state_callback {
@@ -146,6 +150,7 @@ struct btd_service *service_create(struct btd_device *device,
 	service->ref = 1;
 	service->device = device; /* Weak ref */
 	service->profile = profile;
+	service->auto_connect = profile->auto_connect;
 	service->state = BTD_SERVICE_STATE_UNAVAILABLE;
 
 	return service;
@@ -323,6 +328,51 @@ btd_service_state_t btd_service_get_state(const struct btd_service *service)
 int btd_service_get_error(const struct btd_service *service)
 {
 	return service->err;
+}
+
+uint16_t btd_service_get_version(const struct btd_service *service)
+{
+	const sdp_record_t *rec;
+	sdp_list_t *list;
+	sdp_profile_desc_t *desc;
+	uint16_t version;
+
+	if (!service->profile->version)
+		return 0;
+
+	rec = btd_device_get_record(service->device,
+					service->profile->remote_uuid);
+	if (rec == NULL)
+		return 0;
+
+	if (sdp_get_profile_descs(rec, &list) < 0)
+		return 0;
+
+	desc = list->data;
+	version = desc->version;
+	sdp_list_free(list, free);
+
+	return MIN(version, service->profile->version);
+}
+
+void btd_service_set_auto_connect(struct btd_service *service, bool value)
+{
+	service->auto_connect = value;
+}
+
+bool btd_service_get_auto_connect(const struct btd_service *service)
+{
+	return service->auto_connect;
+}
+
+void btd_service_set_blocked(struct btd_service *service, bool value)
+{
+	service->blocked = value;
+}
+
+bool btd_service_is_blocked(const struct btd_service *service)
+{
+	return service->blocked;
 }
 
 bool btd_service_get_gatt_handles(const struct btd_service *service,

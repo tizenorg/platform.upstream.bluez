@@ -270,7 +270,7 @@ static void confirm_event_cb(GIOChannel *chan, gpointer user_data)
 	bacpy(&server->confirm->dst, &dst);
 
 	ret = btd_request_authorization(&src, &dst, HID_UUID,
-					auth_callback, server);
+					auth_callback, server, 0);
 	if (ret != 0)
 		return;
 

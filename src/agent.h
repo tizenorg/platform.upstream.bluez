@@ -40,7 +40,7 @@ struct agent *agent_get(const char *owner);
 
 int agent_authorize_service(struct agent *agent, const char *path,
 				const char *uuid, agent_cb cb,
-				void *user_data, GDestroyNotify destroy);
+				void *user_data, GDestroyNotify destroy, int fd);
 
 int agent_request_pincode(struct agent *agent, struct btd_device *device,
 				agent_pincode_cb cb, gboolean secure,

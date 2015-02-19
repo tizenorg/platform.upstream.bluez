@@ -1253,6 +1253,7 @@ static void ext_confirm(GIOChannel *io, gpointer user_data)
 	GError *gerr = NULL;
 	bdaddr_t src, dst;
 	char addr[18];
+	int fd;
 
 	bt_io_get(io, &gerr,
 			BT_IO_OPT_SOURCE_BDADDR, &src,
@@ -1272,8 +1273,9 @@ static void ext_confirm(GIOChannel *io, gpointer user_data)
 	if (conn == NULL)
 		return;
 
+	fd = g_io_channel_unix_get_fd(conn->io);
 	conn->auth_id = btd_request_authorization(&src, &dst, uuid, ext_auth,
-									conn);
+									conn, fd);
 	if (conn->auth_id == 0) {
 		error("%s authorization failure", ext->name);
 		ext_io_destroy(conn);

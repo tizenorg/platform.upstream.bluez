@@ -2071,8 +2071,12 @@ static void media_server_remove(struct btd_adapter *adapter)
 static struct btd_profile a2dp_source_profile = {
 	.name		= "a2dp-source",
 	.priority	= BTD_PROFILE_PRIORITY_MEDIUM,
+	.version	= 0x0103,
 
 	.remote_uuid	= A2DP_SOURCE_UUID,
+	.local_uuid	= A2DP_SINK_UUID,
+	.auth_uuid	= ADVANCED_AUDIO_UUID,
+
 	.device_probe	= a2dp_source_probe,
 	.device_remove	= a2dp_source_remove,
 
@@ -2087,8 +2091,12 @@ static struct btd_profile a2dp_source_profile = {
 static struct btd_profile a2dp_sink_profile = {
 	.name		= "a2dp-sink",
 	.priority	= BTD_PROFILE_PRIORITY_MEDIUM,
+	.version	= 0x0103,
 
 	.remote_uuid	= A2DP_SINK_UUID,
+	.local_uuid	= A2DP_SOURCE_UUID,
+	.auth_uuid	= ADVANCED_AUDIO_UUID,
+
 	.device_probe	= a2dp_sink_probe,
 	.device_remove	= a2dp_sink_remove,
 
