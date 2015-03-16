@@ -43,13 +43,21 @@ endif
 
 if SYSTEMD
 systemdsystemunitdir = @SYSTEMD_SYSTEMUNITDIR@
+#if USBBT
+#systemdsystemunit_DATA = src/common/bluetooth.service
+#else
 systemdsystemunit_DATA = src/bluetooth.service
+#endif
 
 dbussystembusdir = @DBUS_SYSTEMBUSDIR@
 dbussystembus_DATA = src/org.bluez.service
 endif
 
+if USBBT
+#EXTRA_DIST += src/common/bluetooth.service.in src/org.bluez.service
+else
 EXTRA_DIST += src/bluetooth.service.in src/org.bluez.service
+endif
 
 plugindir = $(libdir)/bluetooth/plugins
 
@@ -192,10 +200,17 @@ src_bluetoothd_LDADD = lib/libbluetooth-internal.la \
 src_bluetoothd_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic \
 				-Wl,--version-script=$(srcdir)/src/bluetooth.ver
 
+if USBBT
+src_bluetoothd_DEPENDENCIES = lib/libbluetooth-internal.la \
+				gdbus/libgdbus-internal.la \
+				src/libshared-glib.la \
+				src/common/bluetooth.service
+else
 src_bluetoothd_DEPENDENCIES = lib/libbluetooth-internal.la \
 				gdbus/libgdbus-internal.la \
 				src/libshared-glib.la \
 				src/bluetooth.service
+endif
 
 src_bluetoothd_CFLAGS = $(AM_CFLAGS) -DBLUETOOTH_PLUGIN_BUILTIN \
 					-DPLUGINDIR=\""$(build_plugindir)"\"
