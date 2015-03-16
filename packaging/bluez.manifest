@@ -1,0 +1,9 @@
+<manifest>
+	<request>
+		<domain name="_"/>
+	</request>
+	<assign>
+		<filesystem path="/var/lib/bluetooth" label="User" />
+	</assign>
+</manifest>
+
