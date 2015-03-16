@@ -1,214 +1,324 @@
-Name:       bluez
-Summary:    Bluetooth utilities
-Version:    5.27
-Release:    1
-VCS:        framework/connectivity/bluez#bluez_4.101-slp2+22-132-g5d15421a5bd7101225aecd7c25b592b9a9ca218b
-Group:      Applications/System
-License:    GPLv2+
-URL:        http://www.bluez.org/
-Source0:    http://www.kernel.org/pub/linux/bluetooth/%{name}-%{version}.tar.gz
-Source101:    obex-root-setup
-Source102:    create-symlinks
-Patch1 :    bluez-ncurses.patch
-Patch2 :    disable-eir-unittest.patch
-Requires:   dbus >= 0.60
-BuildRequires:  pkgconfig(libudev)
+%define with_libcapng --enable-capng
+Name:       	bluez
+Summary:    	Bluetooth Stack for Linux
+Version:    	5.27
+Release:    	0
+Group:      	Network & Connectivity/Bluetooth
+License:    	GPL-2.0+
+URL:        	http://www.bluez.org/
+Source:         bluez-%{version}.tar.gz
+Source2:        bluez-coldplug.init
+Source3:        bluetooth.sysconfig
+Source4:        bluetooth.sh
+Source5:        baselibs.conf
+Source7:        bluetooth.modprobe
+Source101:    	obex-root-setup
+Source102:    	create-symlinks
+Source103:      obex.sh
+Source1001:     bluez.manifest
+#Patch1 :    bluez-ncurses.patch
+#Patch2 :    disable-eir-unittest.patch
+#Requires:   dbus >= 0.60
+#BuildRequires:  pkgconfig(libudev)
 BuildRequires:  pkgconfig(dbus-1)
-BuildRequires:  pkgconfig(glib-2.0)
-BuildRequires:  pkgconfig(ncurses)
+#BuildRequires:  pkgconfig(glib-2.0)
+#BuildRequires:  pkgconfig(ncurses)
+#BuildRequires:  flex
+#BuildRequires:  bison
+#BuildRequires:  readline-devel
+#BuildRequires:  openssl-devel
 BuildRequires:  flex
-BuildRequires:  bison
+BuildRequires:  libcap-ng-devel
+BuildRequires:  systemd
+%{?systemd_requires}
+BuildRequires:  pkgconfig(alsa)
+BuildRequires:  automake
+BuildRequires:  check-devel
+BuildRequires:  glib2-devel >= 2.16
+BuildRequires:  libsndfile-devel
+BuildRequires:  libtool
+BuildRequires:  libudev-devel
+BuildRequires:  libusb-devel
+BuildRequires:  pkg-config
 BuildRequires:  readline-devel
-BuildRequires:  openssl-devel
+BuildRequires:  udev
+BuildRequires:  pkgconfig(libnl-1)
+BuildRequires:  libical-devel
+BuildRequires:  pkgconfig(libtzplatform-config)
 
-%ifarch %{arm}
-BuildRequires:  kernel-headers
-#BuildRequires:  kernel-headers-tizen-dev
-%endif
+%define cups_lib_dir %{_prefix}/lib/cups
 
 %description
-Utilities for use in Bluetooth applications:
-	--dfutool
-	--hcitool
-	--l2ping
-	--rfcomm
-	--sdptool
-	--hciattach
-	--hciconfig
-	--hid2hci
+The Bluetooth stack for Linux.
 
-The BLUETOOTH trademarks are owned by Bluetooth SIG, Inc., U.S.A.
+%package devel
+Summary:        Files needed for BlueZ development
+License:        GPL-2.0+
+Group:          Development/Libraries
+Requires:       libbluetooth = %{version}
 
-%package -n libbluetooth3
-Summary:    Libraries for use in Bluetooth applications
-Group:      System/Libraries
-#Requires:   %{name} = %{version}-%{release}
-#Requires(post): eglibc
-#Requires(postun): eglibc
+%description devel
+Files needed to develop applications for the BlueZ Bluetooth protocol
+stack.
 
-%description -n libbluetooth3
-Libraries for use in Bluetooth applications.
+%package -n libbluetooth
+Summary:        Bluetooth Libraries
+License:        GPL-2.0+
+Group:          Network & Connectivity/Bluetooth
 
-%package -n libbluetooth-devel
-Summary:    Development libraries for Bluetooth applications
-Group:      Development/Libraries
-Requires:   %{name} = %{version}-%{release}
-Requires:   libbluetooth3 = %{version}
+%description -n libbluetooth
+Bluetooth protocol stack libraries.
 
-%description -n libbluetooth-devel
-bluez-libs-devel contains development libraries and headers for
-use in Bluetooth applications.
+%package -n libbluetooth-plugins-service
+Summary:        Bluetooth Plugins
+License:        GPL-2.0+
+Group:          Network & Connectivity/Bluetooth
+
+%description -n libbluetooth-plugins-service
+Bluetooth protocol stack plugins.
+
+%package cups
+Summary:        CUPS Driver for Bluetooth Printers
+License:        GPL-2.0+
+Group:          Network & Connectivity/Bluetooth
+Requires:       libbluetooth = %{version}
+
+%description cups
+Contains the files required by CUPS for printing to Bluetooth-connected
+printers.
 
 %package -n obexd
-Summary: OBEX Server A basic OBEX server implementation
-Group: Applications/System
+Summary:        OBEX Server A basic OBEX server implementation
+Group:          Network & Connectivity/Bluetooth
+Requires:       tizen-platform-config-tools
 
 %description -n obexd
 OBEX Server A basic OBEX server implementation.
 
-%package -n bluez-test
-Summary:    Test utilities for BlueZ
-Group:      Test Utilities
+%package test
+Summary:        Tools for testing of various Bluetooth-functions
+License:        GPL-2.0+ and MIT
+Group:          Development/Tools
+Requires:       dbus-python
+Requires:       libbluetooth = %{version}
+Requires:       python-gobject
 
-%description -n bluez-test
-bluez-test contains test utilities for BlueZ testing.
+%description test
+Contains a few tools for testing various bluetooth functions. The
+BLUETOOTH trademarks are owned by Bluetooth SIG, Inc., U.S.A.
 
 %prep
 %setup -q
-%patch1 -p1
+cp %{SOURCE1001} .
 
 %build
+autoreconf -fiv
+
 export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__"
-%if "%{?tizen_profile_name}" == "wearable"
-export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__ -D__BT_SCMST_FEATURE__ -DSUPPORT_SMS_ONLY -D__BROADCOM_QOS_PATCH__ -DTIZEN_WEARABLE"
-%else
-%if "%{?tizen_profile_name}" == "mobile"
-export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -DSUPPORT_SMS_ONLY"
-export CFLAGS="${CFLAGS} -D__BROADCOM_PATCH__"
-%endif
-%endif
 
 export LDFLAGS=" -lncurses -Wl,--as-needed "
 export CFLAGS+=" -DPBAP_SIM_ENABLE"
-%reconfigure --disable-static \
-			--sysconfdir=%{_sysconfdir} \
-			--localstatedir=%{_localstatedir} \
-			--disable-systemd \
-			--enable-debug \
-			--enable-pie \
-%if "%{?tizen_profile_name}" == "mobile"
-			--enable-network \
-%endif
-			--enable-serial \
-			--enable-input \
-			--enable-usb=no \
-			--enable-tools \
-			--disable-bccmd \
-			--enable-pcmcia=no \
-			--enable-hid2hci=no \
-			--enable-alsa=no \
-			--enable-gstreamer=no \
-			--disable-dfutool \
-			--disable-cups \
-			--enable-health \
-			--enable-dbusoob \
-			--enable-test \
-			--with-telephony=tizen \
-			--enable-obex \
+#%reconfigure --with-pic \
+%reconfigure --with-pic \
+		        --libexecdir=/lib \
+          		  --disable-usb	\
+           		 --enable-test	\
 			--enable-library \
-%if "%{?tizen_profile_name}" == "wearable"
-			--enable-gatt \
-			--enable-wearable \
-%endif
-			--enable-experimental \
-			--enable-autopair=no \
-			--enable-tizenunusedplugin=no
+		            --enable-experimental	\
+		            --enable-readline	\
+		            --enable-service \
+		            --with-systemdunitdir=%{_unitdir}	\
+		            %{?with_libcapng}
+			
+#			--disable-static \
+#			--sysconfdir=%{_sysconfdir} \
+#			--localstatedir=%{_localstatedir} \
+#			--disable-systemd \
+#			--enable-debug \
+#			--enable-pie \
+#%if "%{?tizen_profile_name}" == "mobile"
+#			--enable-network \
+#%endif
+#			--enable-serial \
+#			--enable-input \
+#			--disable-usb \
+#			--enable-tools \
+#			--disable-bccmd \
+#			--disable-pcmcia \
+#			--disable-hid2hci \
+#			--disable-alsa \
+#			--enable-gstreamer=no \
+#			--disable-dfutool \
+#			--disable-cups \
+#			--enable-health \
+#			--enable-dbusoob \
+#			--enable-test \
+#			--with-telephony=tizen \
+#			--enable-obex \
+#			--enable-library \
+#%if "%{?tizen_profile_name}" == "wearable"
+#			--enable-gatt \
+#			--enable-wearable \
+#%endif
+#%if "%{?tizen_profile_name}" == "common"
+#			--enable-usbbt \
+#%endif
+#			--enable-experimental \
+#			--enable-readline	\
+#3			--enable-service \
+#			--with-systemdunitdir=%{_unitdir} \
+#			%{?with_libcapng}
+#			--disable-autopair \
+#			--disable-tizenunusedplugin
+make %{?_smp_mflags} all V=1
 
-make %{?jobs:-j%jobs}
+%check
+make check
 
 %install
-rm -rf %{buildroot}
 %make_install
 
-%if "%{?tizen_profile_name}" == "wearable"
-install -D -m 0644 src/main_w.conf %{buildroot}%{_sysconfdir}/bluetooth/main.conf
-%else
-%if "%{?tizen_profile_name}" == "mobile"
-install -D -m 0644 src/main_m.conf %{buildroot}%{_sysconfdir}/bluetooth/main.conf
-%endif
-%endif
-install -D -m 0644 src/bluetooth.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/bluetooth.conf
-#install -D -m 0644 profiles/audio/audio.conf %{buildroot}%{_sysconfdir}/bluetooth/audio.conf
-install -D -m 0644 profiles/network/network.conf %{buildroot}%{_sysconfdir}/bluetooth/network.conf
+# bluez-test
+rm -rvf $RPM_BUILD_ROOT/%{_libdir}/gstreamer-*
+install --mode=0755 -D %{S:4} $RPM_BUILD_ROOT/usr/lib/udev/bluetooth.sh
+install --mode=0644 -D %{S:7} $RPM_BUILD_ROOT/%{_sysconfdir}/modprobe.d/50-bluetooth.conf
+if ! test -e %{buildroot}%{cups_lib_dir}/backend/bluetooth
+then if test -e %{buildroot}%{_libdir}/cups/backend/bluetooth
+     then mkdir -p %{buildroot}%{cups_lib_dir}/backend
+          mv %{buildroot}%{_libdir}/cups/backend/bluetooth %{buildroot}%{cups_lib_dir}/backend/bluetooth
+     fi
+fi
+# no idea why this is suddenly necessary...
+install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 
-install -D -m 0644 COPYING %{buildroot}%{_datadir}/license/bluez
-install -D -m 0644 COPYING %{buildroot}%{_datadir}/license/libbluetooth3
-install -D -m 0644 COPYING %{buildroot}%{_datadir}/license/libbluetooth-devel
+
+#install -D -m 0644 src/bluetooth.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/bluetooth.conf
+#install -D -m 0644 profiles/audio/audio.conf %{buildroot}%{_sysconfdir}/bluetooth/audio.conf
+#install -D -m 0644 profiles/network/network.conf %{buildroot}%{_sysconfdir}/bluetooth/network.conf
+
+#install -D -m 0644 COPYING %{buildroot}%{_datadir}/license/bluez
+#install -D -m 0644 COPYING %{buildroot}%{_datadir}/license/libbluetooth3
+#install -D -m 0644 COPYING %{buildroot}%{_datadir}/license/libbluetooth-devel
 
 install -D -m 0755 %SOURCE101 %{buildroot}%{_bindir}/obex-root-setup
 install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
+install -D -m 0755 %SOURCE103 %{buildroot}%{_bindir}/obex.sh
+install -D -m 0755 tools/btiotest $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/bluetooth-player $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/mpris-player $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/btmgmt $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/scotest $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 tools/bluemoon $RPM_BUILD_ROOT/%{_bindir}/
+install -D -m 0755 attrib/gatttool $RPM_BUILD_ROOT/%{_bindir}/
 
-%post -n libbluetooth3 -p /sbin/ldconfig
 
-%postun -n libbluetooth3 -p /sbin/ldconfig
+install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 
+#test
+ln -sf bluetooth.service %{buildroot}%{_libdir}/systemd/system/dbus-org.bluez.service
+
+%post -n libbluetooth -p /sbin/ldconfig
+
+%postun -n libbluetooth -p /sbin/ldconfig
+
+%post -n libbluetooth-plugins-service -p /sbin/ldconfig
+
+%postun -n libbluetooth-plugins-service -p /sbin/ldconfig
 
 %files
-%manifest bluez.manifest
-%defattr(-,root,root,-)
+%manifest %{name}.manifest
+%defattr(-, root, root)
+%license COPYING
 #%{_sysconfdir}/bluetooth/audio.conf
 #%{_sysconfdir}/bluetooth/main.conf
-%{_sysconfdir}/bluetooth/network.conf
+#%{_sysconfdir}/bluetooth/network.conf
 #%{_sysconfdir}/bluetooth/rfcomm.conf
-%{_sysconfdir}/dbus-1/system.d/bluetooth.conf
-%{_datadir}/man/*/*
-%{_libexecdir}/bluetooth/bluetoothd
-%{_bindir}/hciconfig
-%{_bindir}/hciattach
-%{_bindir}/ciptool
-%{_bindir}/l2ping
-%{_bindir}/sdptool
-#%{_bindir}/gatttool
-#%{_bindir}/btgatt-client
-%{_bindir}/mcaptest
-%{_bindir}/mpris-proxy
-%{_bindir}/rfcomm
+#%{_sysconfdir}/dbus-1/system.d/bluetooth.conf
+#%{_datadir}/man/*/*
 %{_bindir}/hcitool
-#%dir %{_libdir}/bluetooth/plugins
-#%dir %{_localstatedir}/lib/bluetooth
-%dir %{_libexecdir}/bluetooth
-%{_datadir}/license/bluez
-%{_libdir}/udev/hid2hci
-%{_libdir}/udev/rules.d/97-hid2hci.rules
+%{_bindir}/l2ping
+%{_bindir}/obexctl
+%{_bindir}/rfcomm
+%{_bindir}/sdptool
+%{_bindir}/ciptool
+#%{_bindir}/dfutool
+%{_bindir}/hciattach
+%{_bindir}/hciconfig
+/lib/bluetooth/bluetoothd
+%{_bindir}/bccmd
+#%{_sbindir}/hid2hci
+%dir /usr/lib/udev
+/usr/lib/udev/*
 
-%files -n libbluetooth3
-%defattr(-,root,root,-)
-%{_libdir}/libbluetooth.so.*
-%{_datadir}/license/libbluetooth3
+#test -2
+%{_libdir}/systemd/system/bluetooth.service
+%{_libdir}/systemd/system/dbus-org.bluez.service
 
-%files -n libbluetooth-devel
+%{_datadir}/dbus-1/system-services/org.bluez.service
+%config %{_sysconfdir}/dbus-1/system.d/bluetooth.conf
+%dir /var/lib/bluetooth
+%dir %{_sysconfdir}/modprobe.d
+%config(noreplace) %{_sysconfdir}/modprobe.d/50-bluetooth.conf
+%{_unitdir}/bluetooth.service
+
+
+
+
+%files devel
+%manifest %{name}.manifest
 %defattr(-, root, root)
-%{_includedir}/bluetooth/*
+/usr/include/bluetooth
 %{_libdir}/libbluetooth.so
 %{_libdir}/pkgconfig/bluez.pc
-%{_datadir}/license/libbluetooth-devel
+
+%files -n libbluetooth
+%manifest %{name}.manifest
+%defattr(-, root, root)
+%{_libdir}/libbluetooth.so.*
+%{_libdir}/bluetooth/plugins/*.so
+%license COPYING
+
+%files -n libbluetooth-plugins-service
+%manifest %{name}.manifest
+%defattr(-, root, root)
+%{_libdir}/bluetooth/plugins/*.so
+%license COPYING
+
+%files cups
+%manifest %{name}.manifest
+%defattr(-,root,root)
+%dir %{cups_lib_dir}
+%dir %{cups_lib_dir}/backend
+%{cups_lib_dir}/backend/bluetooth
 
 %files -n obexd
-#%dir %{_libdir}/obex/plugins
-%manifest obexd.manifest
 %defattr(-,root,root,-)
-%{_libexecdir}/bluetooth/obexd
+/lib/bluetooth/obexd
+%{_unitdir_user}/obex.service
 %{_datadir}/dbus-1/services/org.bluez.obex.service
 %{_sysconfdir}/obex/root-setup.d/000_create-symlinks
 %{_bindir}/obex-root-setup
+%{_bindir}/obex.sh
 
-%files -n bluez-test
-%defattr(-,root,root,-)
+
+%files test
+%manifest %{name}.manifest
+%defattr(-,root,root)
 %{_libdir}/bluez/test/*
 %{_bindir}/l2test
 %{_bindir}/rctest
-%{_bindir}/bccmd
 %{_bindir}/bluetoothctl
+%{_bindir}/btiotest
+%{_bindir}/mpris-player
+%{_bindir}/bluetooth-player
 %{_bindir}/btmon
 %{_bindir}/hcidump
+%{_bindir}/btmgmt
+%{_bindir}/scotest
 %{_bindir}/bluemoon
+%{_bindir}/gatttool
+
+
+%docs_package
+
+%changelog
