@@ -130,8 +130,8 @@ AM_CONDITIONAL(MONITOR, test "${enable_monitor}" != "no")
 AC_ARG_ENABLE(udev, AC_HELP_STRING([--disable-udev],
 		[disable udev device support]), [enable_udev=${enableval}])
 if (test "${enable_tools}" != "no" && test "${enable_udev}" != "no"); then
-	PKG_CHECK_MODULES(UDEV, libudev >= 172, dummy=yes,
-				AC_MSG_ERROR(libudev >= 172 is required))
+	PKG_CHECK_MODULES(UDEV, libudev >= 143, dummy=yes,
+				AC_MSG_ERROR(libudev >= 143 is required))
 	AC_SUBST(UDEV_CFLAGS)
 	AC_SUBST(UDEV_LIBS)
 	AC_CHECK_LIB(udev, udev_hwdb_new,
@@ -226,6 +226,10 @@ AM_CONDITIONAL(EXPERIMENTAL, test "${enable_experimental}" = "yes")
 AC_ARG_ENABLE(wearable, AC_HELP_STRING([--enable-wearable],
 			[enable wearable profile]), [enable_wearable=${enableval}])
 AM_CONDITIONAL(WEARABLE, test "${enable_wearable}" = "yes")
+
+AC_ARG_ENABLE(usbbt, AC_HELP_STRING([--enable-usbbt],
+                [enable usb bluetooth]), [enable_usbbt=${enableval}])
+AM_CONDITIONAL(USBBT, test "${enable_usbbt}" = "yes")
 
 AC_ARG_ENABLE(autopair, AC_HELP_STRING([--enable-autopair],
 			[Enable Autopair Plugin]), [enable_autopair=${enableval}])

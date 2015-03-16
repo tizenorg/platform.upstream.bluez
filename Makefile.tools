@@ -117,11 +117,13 @@ tools_hci_tester_SOURCES = tools/hci-tester.c monitor/bt.h
 tools_hci_tester_LDADD = src/libshared-glib.la @GLIB_LIBS@
 endif
 
+#tools/mpris-proxy tools/mcaptest
+
 if TOOLS
 bin_PROGRAMS += tools/hciattach tools/hciconfig tools/hcitool tools/hcidump \
 			tools/rfcomm tools/rctest tools/l2test tools/l2ping \
 			tools/sdptool tools/ciptool tools/bccmd \
-			tools/bluemoon tools/mpris-proxy tools/mcaptest
+			tools/bluemoon
 
 tools_hciattach_SOURCES = tools/hciattach.c tools/hciattach.h \
 						tools/hciattach_st.c \
@@ -131,7 +133,7 @@ tools_hciattach_SOURCES = tools/hciattach.c tools/hciattach.h \
 						tools/hciattach_qualcomm.c \
 						tools/hciattach_intel.c \
 						tools/hciattach_bcm43xx.c
-#						src/log.c 
+#						src/log.c
 #						tools/hciattach_bcm43xx.c
 tools_hciattach_LDADD = lib/libbluetooth-internal.la
 
@@ -190,14 +192,14 @@ tools_bccmd_LDADD = lib/libbluetooth-internal.la
 tools_bluemoon_SOURCES = tools/bluemoon.c monitor/bt.h
 tools_bluemoon_LDADD = src/libshared-mainloop.la
 
-tools_mpris_proxy_SOURCES = tools/mpris-proxy.c
-tools_mpris_proxy_LDADD = gdbus/libgdbus-internal.la @GLIB_LIBS@ @DBUS_LIBS@
+#tools_mpris_proxy_SOURCES = tools/mpris-proxy.c
+#tools_mpris_proxy_LDADD = gdbus/libgdbus-internal.la @GLIB_LIBS@ @DBUS_LIBS@
 
-tools_mcaptest_SOURCES = tools/mcaptest.c \
-				btio/btio.h btio/btio.c \
-				src/log.c src/log.h \
-				profiles/health/mcap.h profiles/health/mcap.c
-tools_mcaptest_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@ -lrt
+#tools_mcaptest_SOURCES = tools/mcaptest.c \
+#				btio/btio.h btio/btio.c \
+#				src/log.c src/log.h \
+#				profiles/health/mcap.h profiles/health/mcap.c
+#tools_mcaptest_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@ -lrt
 
 dist_man_MANS += tools/hciattach.1 tools/hciconfig.1 \
 			tools/hcitool.1 tools/hcidump.1 \
@@ -230,7 +232,7 @@ noinst_PROGRAMS += tools/bdaddr tools/avinfo tools/avtest \
 			tools/btsnoop tools/btproxy tools/btiotest \
 			tools/cltest tools/seq2bseq tools/hex2hcd \
 			tools/ibeacon tools/btgatt-client \
-			tools/btgatt-server
+			tools/btgatt-server tools/mpris-player
 
 tools_bdaddr_SOURCES = tools/bdaddr.c src/oui.h src/oui.c
 tools_bdaddr_LDADD = lib/libbluetooth-internal.la @UDEV_LIBS@
@@ -266,6 +268,8 @@ tools_btiotest_SOURCES = tools/btiotest.c btio/btio.h btio/btio.c
 tools_btiotest_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
 
 tools_cltest_SOURCES = tools/cltest.c
+tools_mpris_player_SOURCES = tools/mpris-player.c
+tools_mpris_player_LDADD = gdbus/libgdbus-internal.la @GLIB_LIBS@ @DBUS_LIBS@
 tools_cltest_LDADD = lib/libbluetooth-internal.la src/libshared-mainloop.la
 
 tools_seq2bseq_SOURCES = tools/seq2bseq.c
