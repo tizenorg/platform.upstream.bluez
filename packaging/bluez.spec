@@ -128,6 +128,9 @@ export CFLAGS+=" -DPBAP_SIM_ENABLE"
 		--enable-readline	\
 		--enable-service \
 		--with-systemdunitdir=%{_unitdir} \
+%if "%{?profile}" == "tv"
+		--enable-hid
+%endif
 #			--disable-static \
 #			--sysconfdir=%{_sysconfdir} \
 #			--localstatedir=%{_localstatedir} \
