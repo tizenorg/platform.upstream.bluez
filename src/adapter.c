@@ -1568,9 +1568,6 @@ static void start_discovery_complete(uint8_t status, uint16_t length,
 	const struct mgmt_cp_start_discovery *rp = param;
 
 	DBG("status 0x%02x", status);
-#ifndef __TIZEN_PATCH__
-	DBG("Discovery Type 0x%02x", rp->type);
-#endif
 
 	if (length < sizeof(*rp)) {
 		error("Wrong size of start discovery return parameters");
@@ -1578,6 +1575,10 @@ static void start_discovery_complete(uint8_t status, uint16_t length,
 	}
 
 	if (status == MGMT_STATUS_SUCCESS) {
+#ifndef __TIZEN_PATCH__
+		DBG("Discovery Type 0x%02x", rp->type);
+#endif
+
 #ifdef __TIZEN_PATCH__
 		DBG("Return param discovery type 0x%02x", rp->type);
 		adapter->discovery_type |= rp->type;
@@ -1621,13 +1622,13 @@ static void start_le_discovery_complete(uint8_t status, uint16_t length,
 	const struct mgmt_cp_start_discovery *rp = param;
 
 	DBG("status 0x%02x", status);
-	DBG("Discovery Type 0x%02x", rp->type);
 	if (length < sizeof(*rp)) {
-		error("Wrong size of start discovery return parameters");
+		error("Wrong size of start LE discovery return parameters");
 		return;
 	}
 
 	if (status == MGMT_STATUS_SUCCESS) {
+		DBG("Discovery Type 0x%02x", rp->type);
 		adapter->discovery_type |= rp->type;
 		adapter->discovery_enable = 0x01;
 
