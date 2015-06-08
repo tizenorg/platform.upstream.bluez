@@ -43,21 +43,13 @@ endif
 
 if SYSTEMD
 systemdsystemunitdir = @SYSTEMD_SYSTEMUNITDIR@
-#if USBBT
-#systemdsystemunit_DATA = src/common/bluetooth.service
-#else
 systemdsystemunit_DATA = src/bluetooth.service
-#endif
 
 dbussystembusdir = @DBUS_SYSTEMBUSDIR@
 dbussystembus_DATA = src/org.bluez.service
 endif
 
-if USBBT
-#EXTRA_DIST += src/common/bluetooth.service.in src/org.bluez.service
-else
 EXTRA_DIST += src/bluetooth.service.in src/org.bluez.service
-endif
 
 plugindir = $(libdir)/bluetooth/plugins
 
@@ -88,7 +80,7 @@ include_HEADERS += $(lib_headers)
 lib_LTLIBRARIES += lib/libbluetooth.la
 
 lib_libbluetooth_la_SOURCES = $(lib_headers) $(lib_sources)
-lib_libbluetooth_la_LDFLAGS = $(AM_LDFLAGS) -version-info 21:0:18
+lib_libbluetooth_la_LDFLAGS = $(AM_LDFLAGS) -version-info 21:1:18
 lib_libbluetooth_la_DEPENDENCIES = $(local_headers)
 endif
 
@@ -134,12 +126,12 @@ src_libshared_glib_la_SOURCES = $(shared_sources) \
 src_libshared_mainloop_la_SOURCES = $(shared_sources) \
 				src/shared/io-mainloop.c \
 				src/shared/timeout-mainloop.c \
-				monitor/mainloop.h monitor/mainloop.c
+				src/shared/mainloop.h src/shared/mainloop.c
 
 attrib_sources = attrib/att.h attrib/att-database.h attrib/att.c \
 		attrib/gatt.h attrib/gatt.c \
-		attrib/gattrib.h attrib/gattrib.c attrib/client.h \
-		attrib/client.c attrib/gatt-service.h attrib/gatt-service.c
+		attrib/gattrib.h attrib/gattrib.c  \
+		attrib/gatt-service.h attrib/gatt-service.c
 
 btio_sources = btio/btio.h btio/btio.c
 
@@ -175,6 +167,7 @@ src_bluetoothd_SOURCES = $(builtin_sources) \
 			src/sdpd-server.c src/sdpd-request.c \
 			src/sdpd-service.c src/sdpd-database.c \
 			src/attrib-server.h src/attrib-server.c \
+			src/gatt-database.h src/gatt-database.c \
 			src/sdp-xml.h src/sdp-xml.c \
 			src/sdp-client.h src/sdp-client.c \
 			src/textfile.h src/textfile.c \
@@ -185,6 +178,7 @@ src_bluetoothd_SOURCES = $(builtin_sources) \
 			src/agent.h src/agent.c \
 			src/error.h src/error.c \
 			src/adapter.h src/adapter.c \
+			src/adapter_le_vsc_features.h src/adapter_le_vsc_features.c \
 			src/profile.h src/profile.c \
 			src/service.h src/service.c \
 			src/gatt-dbus.h src/gatt-dbus.c \
@@ -200,17 +194,10 @@ src_bluetoothd_LDADD = lib/libbluetooth-internal.la \
 src_bluetoothd_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic \
 				-Wl,--version-script=$(srcdir)/src/bluetooth.ver
 
-if USBBT
-src_bluetoothd_DEPENDENCIES = lib/libbluetooth-internal.la \
-				gdbus/libgdbus-internal.la \
-				src/libshared-glib.la \
-				src/common/bluetooth.service
-else
 src_bluetoothd_DEPENDENCIES = lib/libbluetooth-internal.la \
 				gdbus/libgdbus-internal.la \
 				src/libshared-glib.la \
 				src/bluetooth.service
-endif
 
 src_bluetoothd_CFLAGS = $(AM_CFLAGS) -DBLUETOOTH_PLUGIN_BUILTIN \
 					-DPLUGINDIR=\""$(build_plugindir)"\"
@@ -277,7 +264,7 @@ EXTRA_DIST += tools/magic.btsnoop
 
 AM_CFLAGS += @DBUS_CFLAGS@ @GLIB_CFLAGS@
 
-AM_CPPFLAGS = -I$(builddir)/lib -I$(srcdir)/gdbus
+AM_CPPFLAGS = -I$(builddir)/lib
 
 
 unit_tests += unit/test-eir

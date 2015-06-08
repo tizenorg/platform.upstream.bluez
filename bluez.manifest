@@ -79,6 +79,9 @@
                         <annotation name="com.tizen.smack" value="obexd::public" />
                         <annotation name="com.tizen.smack" value="bt_agent::public" />
                     </method>
+                    <method name="RegisterProfile2">
+                        <annotation name="com.tizen.smack" value="bt-service::platform" />
+                    </method>
                 </interface>
             </node>
         </dbus>

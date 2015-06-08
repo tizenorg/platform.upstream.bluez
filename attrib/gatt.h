@@ -22,8 +22,6 @@
  *
  */
 
-#include <bluetooth/sdp.h>
-
 /*
  * GATT Characteristic Property bit field
  * Reference: Core SPEC 4.1 page 2183 (Table 3.5: Characteristic Properties
@@ -126,4 +124,8 @@ gboolean gatt_parse_record(const sdp_record_t *rec,
 #ifdef __TIZEN_PATCH__
 guint gatt_find_info(GAttrib *attrib, uint16_t start, uint16_t end,
 				GAttribResultFunc func, gpointer user_data);
+guint gatt_read_char_by_offset(GAttrib *attrib, uint16_t handle, uint16_t offset,
+				GAttribResultFunc func, gpointer user_data);
+gboolean gatt_register_internet_protocol_service(struct btd_adapter *adapter);
+gboolean gatt_unregister_internet_protocol_service(struct btd_adapter *adapter);
 #endif

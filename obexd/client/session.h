@@ -24,7 +24,6 @@
 
 #include <stdint.h>
 #include <glib.h>
-#include <gdbus/gdbus.h>
 
 struct obc_session;
 
@@ -81,3 +80,6 @@ guint obc_session_delete(struct obc_session *session, const char *file,
 				GError **err);
 void obc_session_cancel(struct obc_session *session, guint id,
 							gboolean remove);
+#ifdef __TIZEN_PATCH__
+void release_session(struct obc_session *session);
+#endif

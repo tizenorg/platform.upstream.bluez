@@ -80,6 +80,7 @@ struct gatt_primary *btd_device_get_primary(struct btd_device *device,
 GSList *btd_device_get_primaries(struct btd_device *device);
 struct gatt_db *btd_device_get_gatt_db(struct btd_device *device);
 struct bt_gatt_client *btd_device_get_gatt_client(struct btd_device *device);
+struct bt_gatt_server *btd_device_get_gatt_server(struct btd_device *device);
 void btd_device_gatt_set_service_changed(struct btd_device *device,
 						uint16_t start, uint16_t end);
 bool device_attach_att(struct btd_device *dev, GIOChannel *io);
@@ -106,7 +107,6 @@ bool device_is_bonded(struct btd_device *device, uint8_t bdaddr_type);
 gboolean device_is_trusted(struct btd_device *device);
 void device_set_paired(struct btd_device *dev, uint8_t bdaddr_type);
 void device_set_unpaired(struct btd_device *dev, uint8_t bdaddr_type);
-bool device_is_service_blocked(struct btd_device *device, const char *uuid);
 void btd_device_set_temporary(struct btd_device *device, gboolean temporary);
 void btd_device_set_trusted(struct btd_device *device, gboolean trusted);
 void device_set_bonded(struct btd_device *device, uint8_t bdaddr_type);
@@ -156,6 +156,7 @@ void device_set_adv_report_info(struct btd_device *device, void *data,
 void device_set_payload_timeout(struct btd_device *device,
 			uint16_t payload_timeout);
 void device_set_last_addr_type(struct btd_device *device, uint8_t type);
+void device_set_ipsp_connected(struct btd_device *device, gboolean connected);
 #endif
 
 struct btd_device *btd_device_ref(struct btd_device *device);
@@ -191,6 +192,3 @@ int btd_device_connect_services(struct btd_device *dev, GSList *services);
 
 void btd_device_init(void);
 void btd_device_cleanup(void);
-#ifdef BLUEZ5_GATT_CLIENT
-gboolean disconnect_le_device(gpointer user_data);
-#endif

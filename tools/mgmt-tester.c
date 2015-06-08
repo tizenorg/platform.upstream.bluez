@@ -56,6 +56,7 @@ struct test_data {
 	unsigned int mgmt_settings_id;
 	unsigned int mgmt_alt_settings_id;
 	unsigned int mgmt_alt_ev_id;
+	unsigned int mgmt_discov_ev_id;
 	uint8_t mgmt_version;
 	uint16_t mgmt_revision;
 	uint16_t mgmt_index;
@@ -310,7 +311,7 @@ static void test_condition_complete(struct test_data *data)
 		user->test_data = data; \
 		user->expected_version = 0x08; \
 		user->expected_manufacturer = 0x003f; \
-		user->expected_supported_settings = 0x00003fff; \
+		user->expected_supported_settings = 0x0000bfff; \
 		user->initial_settings = 0x00000080; \
 		user->unmet_conditions = 0; \
 		tester_add_full(name, data, \
@@ -348,7 +349,7 @@ static void test_condition_complete(struct test_data *data)
 		user->test_data = data; \
 		user->expected_version = 0x08; \
 		user->expected_manufacturer = 0x003f; \
-		user->expected_supported_settings = 0x00003e1b; \
+		user->expected_supported_settings = 0x0000be1b; \
 		user->initial_settings = 0x00000200; \
 		user->unmet_conditions = 0; \
 		tester_add_full(name, data, \
@@ -406,6 +407,8 @@ struct generic_data {
 	bool client_enable_sc;
 	bool expect_sc_key;
 	bool force_power_off;
+	bool addr_type_avail;
+	uint8_t addr_type;
 };
 
 static const char dummy_data[] = { 0x00 };
@@ -2395,7 +2398,10 @@ static const void *pair_device_send_param_func(uint16_t *len)
 	static uint8_t param[8];
 
 	memcpy(param, hciemu_get_client_bdaddr(data->hciemu), 6);
-	if (data->hciemu_type == HCIEMU_TYPE_LE)
+
+	if (test->addr_type_avail)
+		param[6] = test->addr_type;
+	else if (data->hciemu_type == HCIEMU_TYPE_LE)
 		param[6] = 0x01; /* Address type */
 	else
 		param[6] = 0x00; /* Address type */
@@ -2409,10 +2415,14 @@ static const void *pair_device_send_param_func(uint16_t *len)
 static const void *pair_device_expect_param_func(uint16_t *len)
 {
 	struct test_data *data = tester_get_data();
+	const struct generic_data *test = data->test_data;
 	static uint8_t param[7];
 
 	memcpy(param, hciemu_get_client_bdaddr(data->hciemu), 6);
-	if (data->hciemu_type == HCIEMU_TYPE_LE)
+
+	if (test->addr_type_avail)
+		param[6] = test->addr_type;
+	else if (data->hciemu_type == HCIEMU_TYPE_LE)
 		param[6] = 0x01; /* Address type */
 	else
 		param[6] = 0x00; /* Address type */
@@ -2500,6 +2510,52 @@ static const void *client_bdaddr_param_func(uint8_t *len)
 
 	return bdaddr;
 }
+
+static const struct generic_data pair_device_not_supported_test_1 = {
+	.setup_settings = settings_powered_bondable,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_NOT_SUPPORTED,
+	.expect_func = pair_device_expect_param_func,
+	.addr_type_avail = true,
+	.addr_type = BDADDR_BREDR,
+};
+
+static const struct generic_data pair_device_not_supported_test_2 = {
+	.setup_settings = settings_powered_bondable,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_NOT_SUPPORTED,
+	.expect_func = pair_device_expect_param_func,
+	.addr_type_avail = true,
+	.addr_type = BDADDR_LE_PUBLIC,
+};
+
+static uint16_t settings_powered_bondable_le[] = { MGMT_OP_SET_LE,
+							MGMT_OP_SET_BONDABLE,
+							MGMT_OP_SET_POWERED,
+							0 };
+
+static const struct generic_data pair_device_reject_transport_not_enabled_1 = {
+	.setup_settings = settings_powered_bondable_le,
+	.setup_nobredr = true,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_REJECTED,
+	.expect_func = pair_device_expect_param_func,
+	.addr_type_avail = true,
+	.addr_type = BDADDR_BREDR,
+};
+
+static const struct generic_data pair_device_reject_transport_not_enabled_2 = {
+	.setup_settings = settings_powered_bondable,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_REJECTED,
+	.expect_func = pair_device_expect_param_func,
+	.addr_type_avail = true,
+	.addr_type = BDADDR_LE_PUBLIC,
+};
 
 static const struct generic_data pair_device_reject_test_1 = {
 	.setup_settings = settings_powered_bondable,
@@ -2833,6 +2889,25 @@ static const struct generic_data pair_device_smp_bredr_test_1 = {
 	.client_io_cap = 0x03, /* NoInputNoOutput */
 };
 
+static const struct generic_data pair_device_smp_bredr_test_2 = {
+	.setup_settings = settings_powered_sc_bondable_le_ssp,
+	.client_enable_ssp = true,
+	.client_enable_le = true,
+	.client_enable_sc = true,
+	.expect_sc_key = true,
+	.send_opcode = MGMT_OP_PAIR_DEVICE,
+	.send_func = pair_device_send_param_func,
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_func = pair_device_expect_param_func,
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+	.expect_hci_command = BT_HCI_CMD_USER_CONFIRM_REQUEST_REPLY,
+	.expect_hci_func = client_bdaddr_param_func,
+	.io_cap = 0x01, /* DisplayYesNo */
+	.client_io_cap = 0x01, /* DisplayYesNo */
+};
+
 static const struct generic_data pair_device_le_reject_test_1 = {
 	.setup_settings = settings_powered_bondable,
 	.io_cap = 0x02, /* KeyboardOnly */
@@ -3021,6 +3096,44 @@ static const struct generic_data pairing_acceptor_ssp_4 = {
 	.client_auth_req = 0x02, /* Dedicated Bonding - No MITM */
 };
 
+static uint16_t settings_powered_sc_bondable_connectable_le_ssp[] = {
+						MGMT_OP_SET_BONDABLE,
+						MGMT_OP_SET_CONNECTABLE,
+						MGMT_OP_SET_LE,
+						MGMT_OP_SET_SSP,
+						MGMT_OP_SET_SECURE_CONN,
+						MGMT_OP_SET_POWERED,
+						0 };
+
+static const struct generic_data pairing_acceptor_smp_bredr_1 = {
+	.setup_settings = settings_powered_sc_bondable_connectable_le_ssp,
+	.client_enable_ssp = true,
+	.client_enable_le = true,
+	.client_enable_sc = true,
+	.expect_sc_key = true,
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+	.just_works = true,
+	.io_cap = 0x03, /* NoInputNoOutput */
+	.client_io_cap = 0x03, /* No InputNoOutput */
+	.client_auth_req = 0x00, /* No Bonding - No MITM */
+};
+
+static const struct generic_data pairing_acceptor_smp_bredr_2 = {
+	.setup_settings = settings_powered_sc_bondable_connectable_le_ssp,
+	.client_enable_ssp = true,
+	.client_enable_le = true,
+	.client_enable_sc = true,
+	.expect_sc_key = true,
+	.expect_alt_ev =  MGMT_EV_NEW_LONG_TERM_KEY,
+	.expect_alt_ev_len = sizeof(struct mgmt_ev_new_long_term_key),
+	.verify_alt_ev_func = verify_ltk,
+	.io_cap = 0x01, /* DisplayYesNo */
+	.client_io_cap = 0x01, /* DisplayYesNo */
+	.client_auth_req = 0x02, /* Dedicated Bonding - No MITM */
+};
+
 static uint16_t settings_powered_bondable_connectable_advertising[] = {
 					MGMT_OP_SET_BONDABLE,
 					MGMT_OP_SET_CONNECTABLE,
@@ -3160,12 +3273,27 @@ static const struct generic_data unblock_device_invalid_param_test_1 = {
 
 static const char set_static_addr_valid_param[] = {
 			0x11, 0x22, 0x33, 0x44, 0x55, 0xc0 };
+static const char set_static_addr_settings[] = { 0x00, 0x82, 0x00, 0x00 };
 
 static const struct generic_data set_static_addr_success_test = {
 	.send_opcode = MGMT_OP_SET_STATIC_ADDRESS,
 	.send_param = set_static_addr_valid_param,
 	.send_len = sizeof(set_static_addr_valid_param),
 	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_param = set_static_addr_settings,
+	.expect_len = sizeof(set_static_addr_settings),
+	.expect_settings_set = MGMT_SETTING_STATIC_ADDRESS,
+};
+
+static const char set_static_addr_settings_dual[] = { 0x80, 0x00, 0x00, 0x00 };
+
+static const struct generic_data set_static_addr_success_test_2 = {
+	.send_opcode = MGMT_OP_SET_STATIC_ADDRESS,
+	.send_param = set_static_addr_valid_param,
+	.send_len = sizeof(set_static_addr_valid_param),
+	.expect_status = MGMT_STATUS_SUCCESS,
+	.expect_param = set_static_addr_settings_dual,
+	.expect_len = sizeof(set_static_addr_settings_dual),
 };
 
 static const struct generic_data set_static_addr_failure_test = {
@@ -3174,6 +3302,14 @@ static const struct generic_data set_static_addr_failure_test = {
 	.send_param = set_static_addr_valid_param,
 	.send_len = sizeof(set_static_addr_valid_param),
 	.expect_status = MGMT_STATUS_REJECTED,
+};
+
+static const struct generic_data set_static_addr_failure_test_2 = {
+	.setup_settings = settings_powered,
+	.send_opcode = MGMT_OP_SET_STATIC_ADDRESS,
+	.send_param = set_static_addr_valid_param,
+	.send_len = sizeof(set_static_addr_valid_param),
+	.expect_status = MGMT_STATUS_NOT_SUPPORTED,
 };
 
 static const char set_scan_params_valid_param[] = { 0x60, 0x00, 0x30, 0x00 };
@@ -3706,10 +3842,9 @@ static void discovering_event(uint16_t index, uint16_t length,
 					const void *param, void *user_data)
 {
 	struct test_data *data = tester_get_data();
-	unsigned int id = PTR_TO_UINT(user_data);
 	const struct mgmt_ev_discovering *ev = param;
 
-	mgmt_unregister(data->mgmt, id);
+	mgmt_unregister(data->mgmt, data->mgmt_discov_ev_id);
 
 	if (length != sizeof(*ev)) {
 		tester_warn("Incorrect discovering event length");
@@ -3743,10 +3878,11 @@ static void setup_start_discovery(const void *test_data)
 	const struct generic_data *test = data->test_data;
 	const void *send_param = test->setup_send_param;
 	uint16_t send_len = test->setup_send_len;
-	unsigned int id = 0;
+	unsigned int id;
 
 	id = mgmt_register(data->mgmt, MGMT_EV_DISCOVERING, data->mgmt_index,
-			   discovering_event, UINT_TO_PTR(id), NULL);
+			   discovering_event, NULL, NULL);
+	data->mgmt_discov_ev_id = id;
 
 	mgmt_send(data->mgmt, test->setup_send_opcode, data->mgmt_index,
 				send_len, send_param, setup_discovery_callback,
@@ -5006,6 +5142,18 @@ int main(int argc, char *argv[])
 	test_bredrle("Pair Device - Power off 1",
 				&pair_device_power_off_test_1,
 				NULL, test_command_generic);
+	test_le("Pair Device - Incorrect transport reject 1",
+				&pair_device_not_supported_test_1,
+				NULL, test_command_generic);
+	test_bredr("Pair Device - Incorrect transport reject 2",
+				&pair_device_not_supported_test_2,
+				NULL, test_command_generic);
+	test_bredrle("Pair Device - Reject on not enabled transport 1",
+				&pair_device_reject_transport_not_enabled_1,
+				NULL, test_command_generic);
+	test_bredrle("Pair Device - Reject on not enabled transport 2",
+				&pair_device_reject_transport_not_enabled_2,
+				NULL, test_command_generic);
 	test_bredrle("Pair Device - Invalid Parameters 1",
 				&pair_device_invalid_param_test_1,
 				NULL, test_command_generic);
@@ -5060,8 +5208,11 @@ int main(int argc, char *argv[])
 	test_bredrle("Pair Device - SSP Non-bondable 1",
 				&pair_device_ssp_nonbondable_1,
 				NULL, test_command_generic);
-	test_bredrle("Pair Device - SMP over BR/EDR Just-Works Success 1",
+	test_bredrle("Pair Device - SMP over BR/EDR Success 1",
 				&pair_device_smp_bredr_test_1,
+				NULL, test_command_generic);
+	test_bredrle("Pair Device - SMP over BR/EDR Success 2",
+				&pair_device_smp_bredr_test_2,
 				NULL, test_command_generic);
 	test_le("Pair Device - LE Success 1",
 				&pair_device_le_success_test_1,
@@ -5109,6 +5260,12 @@ int main(int argc, char *argv[])
 	test_bredrle("Pairing Acceptor - SSP 4",
 				&pairing_acceptor_ssp_4, setup_pairing_acceptor,
 				test_pairing_acceptor);
+	test_bredrle("Pairing Acceptor - SMP over BR/EDR 1",
+				&pairing_acceptor_smp_bredr_1,
+				setup_pairing_acceptor, test_pairing_acceptor);
+	test_bredrle("Pairing Acceptor - SMP over BR/EDR 2",
+				&pairing_acceptor_smp_bredr_2,
+				setup_pairing_acceptor, test_pairing_acceptor);
 	test_le("Pairing Acceptor - LE 1",
 				&pairing_acceptor_le_1, setup_pairing_acceptor,
 				test_pairing_acceptor);
@@ -5147,11 +5304,17 @@ int main(int argc, char *argv[])
 				&unblock_device_invalid_param_test_1,
 				NULL, test_command_generic);
 
-	test_bredrle("Set Static Address - Success",
+	test_le("Set Static Address - Success 1",
 				&set_static_addr_success_test,
 				NULL, test_command_generic);
-	test_bredrle("Set Static Address - Failure",
+	test_bredrle("Set Static Address - Success 2",
+				&set_static_addr_success_test_2,
+				NULL, test_command_generic);
+	test_bredrle("Set Static Address - Failure 1",
 				&set_static_addr_failure_test,
+				NULL, test_command_generic);
+	test_bredr("Set Static Address - Failure 2",
+				&set_static_addr_failure_test_2,
 				NULL, test_command_generic);
 
 	test_bredrle("Set Scan Parameters - Success",

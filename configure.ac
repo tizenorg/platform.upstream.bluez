@@ -1,5 +1,5 @@
 AC_PREREQ(2.60)
-AC_INIT(bluez, 5.27)
+AC_INIT(bluez, 5.28)
 
 AM_INIT_AUTOMAKE([foreign subdir-objects color-tests silent-rules
 					tar-pax no-dist-gzip dist-xz])
@@ -53,6 +53,8 @@ AC_CHECK_LIB(pthread, pthread_create, dummy=yes,
 
 AC_CHECK_LIB(dl, dlopen, dummy=yes,
 			AC_MSG_ERROR(dynamic linking loader is required))
+
+AC_CHECK_HEADERS(linux/types.h linux/if_alg.h)
 
 PKG_CHECK_MODULES(GLIB, glib-2.0 >= 2.28, dummy=yes,
 				AC_MSG_ERROR(GLib >= 2.28 is required))
@@ -130,8 +132,8 @@ AM_CONDITIONAL(MONITOR, test "${enable_monitor}" != "no")
 AC_ARG_ENABLE(udev, AC_HELP_STRING([--disable-udev],
 		[disable udev device support]), [enable_udev=${enableval}])
 if (test "${enable_tools}" != "no" && test "${enable_udev}" != "no"); then
-	PKG_CHECK_MODULES(UDEV, libudev >= 143, dummy=yes,
-				AC_MSG_ERROR(libudev >= 143 is required))
+	PKG_CHECK_MODULES(UDEV, libudev >= 172, dummy=yes,
+				AC_MSG_ERROR(libudev >= 172 is required))
 	AC_SUBST(UDEV_CFLAGS)
 	AC_SUBST(UDEV_LIBS)
 	AC_CHECK_LIB(udev, udev_hwdb_new,
@@ -218,7 +220,7 @@ AC_ARG_ENABLE(manpages, AC_HELP_STRING([--enable-manpages],
 AM_CONDITIONAL(MANPAGES, test "${enable_manpages}" = "yes")
 
 AC_ARG_ENABLE(experimental, AC_HELP_STRING([--enable-experimental],
-			[enable experimental plugins (SAP, NFC, ...)]),
+			[enable experimental plugins (NFC, ...)]),
 					[enable_experimental=${enableval}])
 AM_CONDITIONAL(EXPERIMENTAL, test "${enable_experimental}" = "yes")
 
@@ -226,10 +228,6 @@ AM_CONDITIONAL(EXPERIMENTAL, test "${enable_experimental}" = "yes")
 AC_ARG_ENABLE(wearable, AC_HELP_STRING([--enable-wearable],
 			[enable wearable profile]), [enable_wearable=${enableval}])
 AM_CONDITIONAL(WEARABLE, test "${enable_wearable}" = "yes")
-
-AC_ARG_ENABLE(usbbt, AC_HELP_STRING([--enable-usbbt],
-                [enable usb bluetooth]), [enable_usbbt=${enableval}])
-AM_CONDITIONAL(USBBT, test "${enable_usbbt}" = "yes")
 
 AC_ARG_ENABLE(autopair, AC_HELP_STRING([--enable-autopair],
 			[Enable Autopair Plugin]), [enable_autopair=${enableval}])
@@ -239,19 +237,22 @@ AC_ARG_ENABLE(hid, AC_HELP_STRING([--enable-hid],
 			[Enable HID Plugin]), [enable_hid=${enableval}])
 AM_CONDITIONAL(TIZEN_HID_PLUGIN, test "${enable_hid}" = "yes")
 
+AM_CONDITIONAL(TIZEN_HEALTH_PLUGIN, test "${enable_health}" = "yes")
+
 AC_ARG_ENABLE(tizenunusedplugin, AC_HELP_STRING([--enable-tizenunusedplugin],
                 [Enable Unused Plugin]), [enable_tizenunusedplugin=${enableval}])
 AM_CONDITIONAL(TIZEN_UNUSED_PLUGIN, test "${enable_tizenunusedplugin}" = "yes")
+
+AC_ARG_ENABLE(sap, AC_HELP_STRING([--enable-sap],
+			[Enable SAP Plugin]), [enable_sap=${enableval}])
+AM_CONDITIONAL(TIZEN_SAP_PLUGIN, test "${enable_sap}" = "yes")
+
 # End of __TIZEN_PATCH__
 
 AC_ARG_ENABLE(sixaxis, AC_HELP_STRING([--enable-sixaxis],
 		[enable sixaxis plugin]), [enable_sixaxis=${enableval}])
 AM_CONDITIONAL(SIXAXIS, test "${enable_sixaxis}" = "yes" &&
 					 test "${enable_udev}" != "no")
-
-AC_ARG_ENABLE(service, AC_HELP_STRING([--enable-service],
-		[enable service plugin]), [enable_service=${enableval}])
-AM_CONDITIONAL(SERVICE, test "${enable_service}" = "yes")
 
 if (test "${prefix}" = "NONE"); then
 	dnl no prefix and no localstatedir, so default to /var

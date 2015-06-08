@@ -107,6 +107,8 @@ struct att_range {
 };
 
 #ifdef __TIZEN_PATCH__
+void get_uuid(uint8_t type, const void *val, bt_uuid_t *uuid);
+
 static inline bt_uuid_t att_get_uuid(const void *ptr, uint8_t len)
 {
 	bt_uuid_t uuid;
@@ -218,6 +220,3 @@ uint16_t enc_exec_write_req(uint8_t flags, uint8_t *pdu, size_t len);
 uint16_t dec_exec_write_req(const uint8_t *pdu, size_t len, uint8_t *flags);
 uint16_t enc_exec_write_resp(uint8_t *pdu);
 uint16_t dec_exec_write_resp(const uint8_t *pdu, size_t len);
-#ifdef __TIZEN_PATCH__
-void get_uuid(uint8_t type, const void *val, bt_uuid_t *uuid);
-#endif

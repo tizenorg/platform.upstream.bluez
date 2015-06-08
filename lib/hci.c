@@ -156,6 +156,10 @@ char *hci_bustostr(int bus)
 		return "PCI";
 	case HCI_SDIO:
 		return "SDIO";
+#ifdef __TIZEN_PATCH__
+	case HCI_SMD:
+		return "QC_SMD";
+#endif
 	default:
 		return "UNKNOWN";
 	}

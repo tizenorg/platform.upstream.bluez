@@ -23,6 +23,3 @@
 
 int client_manager_init(void);
 void client_manager_exit(void);
-#ifdef __TIZEN_PATCH__
-void release_session(struct obc_session *session);
-#endif

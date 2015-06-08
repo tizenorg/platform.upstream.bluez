@@ -1,3 +1,4 @@
+#ifdef __TIZEN_PATCH__
 /*
  *
  *  BlueZ - Bluetooth protocol stack for Linux
@@ -23,3 +24,5 @@
 
 gboolean gatt_dbus_manager_register(void);
 void gatt_dbus_manager_unregister(void);
+
+#endif

@@ -31,18 +31,27 @@
 #include <inttypes.h>
 
 #include <glib.h>
-#include <gdbus/gdbus.h>
 
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
 #include "lib/uuid.h"
+
+#include "gdbus/gdbus.h"
+
 #include "src/plugin.h"
 #include "src/adapter.h"
 #include "src/device.h"
 #include "src/dbus-common.h"
 #include "src/profile.h"
 
+#ifdef __TIZEN_PATCH__
+#include "src/service.h"
+#endif
+
 #include "src/uuid-helper.h"
 #include "src/log.h"
 #include "src/error.h"
+#include "src/shared/queue.h"
 
 #include "avdtp.h"
 #include "media.h"
@@ -270,7 +279,7 @@ static void clear_configuration(struct media_endpoint *endpoint,
 done:
 	endpoint->transports = g_slist_remove(endpoint->transports, transport);
 #ifdef __TIZEN_PATCH__
-	if (mp = media_adapter_get_player(endpoint->adapter))
+	if ((mp = media_adapter_get_player(endpoint->adapter)))
 		if (mp->sink_watch) {
 			sink_remove_state_cb(mp->sink_watch);
 			mp->sink_watch = 0;
@@ -309,9 +318,6 @@ static void endpoint_reply(DBusPendingCall *call, void *user_data)
 
 		/* Clear endpoint configuration in case of NO_REPLY error */
 		if (dbus_error_has_name(&err, DBUS_ERROR_NO_REPLY)) {
-			if (request->cb)
-				request->cb(endpoint, NULL, size,
-							request->user_data);
 			clear_endpoint(endpoint);
 			dbus_message_unref(reply);
 			dbus_error_free(&err);
@@ -604,7 +610,7 @@ static gboolean set_configuration(struct media_endpoint *endpoint,
 #ifdef __TIZEN_PATCH__
 	set_avrcp_status = FALSE;
 	adapter = find_adapter(device);
-	if (mp = media_adapter_get_player(adapter))
+	if ((mp = media_adapter_get_player(adapter)))
 		media_set_sink_callback(device, mp);
 #endif
 
@@ -1285,6 +1291,11 @@ static uint64_t get_uid(void *user_data)
 
 	if (mp->track == NULL)
 		return UINT64_MAX;
+
+#ifdef __TIZEN_PATCH__
+	if (!g_hash_table_lookup(mp->track, "Title"))
+		return UINT64_MAX;
+#endif
 
 	return 0;
 }

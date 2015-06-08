@@ -39,17 +39,16 @@
 #include <fcntl.h>
 #include <netinet/in.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/l2cap.h>
-
 #include <glib.h>
 
-#include "btio/btio.h"
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+#include "lib/l2cap.h"
 #include "lib/uuid.h"
+
+#include "btio/btio.h"
 #include "src/adapter.h"
 #include "src/device.h"
-
 #include "src/log.h"
 #include "src/error.h"
 #include "src/uinput.h"
@@ -178,7 +177,7 @@ struct avctp_channel {
 };
 
 struct key_pressed {
-	uint8_t op;
+	uint16_t op;
 	guint timer;
 };
 
@@ -331,6 +330,36 @@ static gboolean auto_release(gpointer user_data)
 	return FALSE;
 }
 
+static void handle_press(struct avctp *session, uint16_t op)
+{
+	if (session->key.timer > 0) {
+		g_source_remove(session->key.timer);
+
+		/* Only auto release if keys are different */
+		if (session->key.op == op)
+			goto done;
+
+		send_key(session->uinput, session->key.op, 0);
+	}
+
+	session->key.op = op;
+
+	send_key(session->uinput, op, 1);
+
+done:
+	session->key.timer = g_timeout_add_seconds(AVC_PRESS_TIMEOUT,
+							auto_release, session);
+}
+
+static void handle_release(struct avctp *session, uint16_t op)
+{
+	if (session->key.timer > 0) {
+		g_source_remove(session->key.timer);
+		session->key.timer = 0;
+	}
+
+	send_key(session->uinput, op, 0);
+}
 #ifdef __TIZEN_PATCH__
 extern void avrcp_stop_position_timer(void);
 #endif
@@ -389,28 +418,14 @@ static size_t handle_panel_passthrough(struct avctp *session,
 		}
 
 		if (pressed) {
-			if (session->key.timer > 0) {
-				g_source_remove(session->key.timer);
-#ifndef __TIZEN_PATCH__
-				send_key(session->uinput, session->key.op, 0);
-#endif
-			}
-
-			session->key.op = key_map[i].uinput;
-			session->key.timer = g_timeout_add_seconds(
-							AVC_PRESS_TIMEOUT,
-							auto_release,
-							session);
+			handle_press(session, key_map[i].uinput);
 #ifdef __TIZEN_PATCH__
 			if (key_map[i].avc == AVC_REWIND)
 				avrcp_stop_position_timer();
 #endif
-		} else if (session->key.timer > 0) {
-			g_source_remove(session->key.timer);
-			session->key.timer = 0;
-		}
+		} else
+			handle_release(session, key_map[i].uinput);
 
-		send_key(session->uinput, key_map[i].uinput, pressed);
 		break;
 	}
 
@@ -1084,6 +1099,8 @@ static int uinput_create(char *name)
 		return err;
 	}
 
+	send_event(fd, EV_REP, REP_DELAY, 300);
+
 	return fd;
 }
 
@@ -1351,11 +1368,11 @@ static void avctp_control_confirm(struct avctp *session, GIOChannel *chan,
 #ifdef __TIZEN_PATCH__
 	session->auth_id = btd_request_authorization(src, dst,
 							AVRCP_TARGET_UUID,
-							auth_cb, session, 0);
+							auth_cb, session);
 #else
 	session->auth_id = btd_request_authorization(src, dst,
 							AVRCP_REMOTE_UUID,
-							auth_cb, session, 0);
+							auth_cb, session);
 #endif
 	if (session->auth_id == 0)
 		goto drop;

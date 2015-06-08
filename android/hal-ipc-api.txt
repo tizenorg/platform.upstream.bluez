@@ -456,7 +456,7 @@ Commands and responses:
 		Command parameters: Socket type (1 octet)
 		                    Service name (256 octets)
 		                    Service UUID (16 octets)
-		                    Channel (2 octets)
+		                    Channel (4 octets)
 		                    Socket flags (1 octet)
 		Response parameters: File descriptor (inline)
 
@@ -474,7 +474,7 @@ Commands and responses:
 		Command parameters: Remote address (6 octets)
 		                    Socket type (1 octet)
 		                    Service UUID (16 octets)
-		                    Channel (2 octets)
+		                    Channel (4 octets)
 		                    Socket flags (1 octet)
 		Response parameters: File descriptor (inline)
 
@@ -2473,8 +2473,9 @@ Notifications:
 
 		Valid State values: 0x00 = Disconnected
 		                    0x01 = Connecting
-		                    0x02 = SLC Connected
-		                    0x03 = Disconnecting
+		                    0x02 = Connected
+		                    0x03 = SLC Connected
+		                    0x04 = Disconnecting
 
 		Peer Features is a bitmask of the supported features. Currently
 		available bits:

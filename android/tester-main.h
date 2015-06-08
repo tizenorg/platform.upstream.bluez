@@ -68,8 +68,16 @@ struct pdu_set {
 		.action_status = status, \
 		.action = modif_fun, \
 		.set_data = from, \
-		.set_data_to = to, \
+		.set_data_2 = to, \
 		.set_data_len = len, \
+	}
+
+#define PROCESS_DATA(status, proc_fun, data1, data2, data3) { \
+		.action_status = status, \
+		.action = proc_fun, \
+		.set_data = data1, \
+		.set_data_2 = data2, \
+		.set_data_3 = data3, \
 	}
 
 #define ACTION(status, act_fun, data_set) { \
@@ -96,6 +104,11 @@ struct pdu_set {
 #define CALLBACK_STATUS(cb, cb_res) { \
 		.callback = cb, \
 		.callback_result.status = cb_res, \
+	}
+
+#define CALLBACK_ERROR(cb, cb_err) { \
+		.callback = cb, \
+		.callback_result.error = cb_err, \
 	}
 
 #define CALLBACK_ADAPTER_PROPS(props, prop_cnt) { \
@@ -238,6 +251,12 @@ struct pdu_set {
 		.callback_result.num_properties = 1, \
 		.callback_result.conn_id = cb_conn_id, \
 		.callback_result.gatt_app_id = cb_server_id, \
+	}
+
+#define CALLBACK_GATTS_NOTIF_CONF(cb_conn_id, cb_status) { \
+		.callback = CB_GATTS_INDICATION_SEND, \
+		.callback_result.conn_id = cb_conn_id, \
+		.callback_result.status = cb_status, \
 	}
 
 #define CALLBACK_GATTS_SERVICE_ADDED(cb_res, cb_server_id, cb_service, \
@@ -527,6 +546,7 @@ typedef enum {
 	CB_GATTS_REQUEST_WRITE,
 	CB_GATTS_REQUEST_EXEC_WRITE,
 	CB_GATTS_RESPONSE_CONFIRMATION,
+	CB_GATTS_INDICATION_SEND,
 
 	/* Map client */
 	CB_MAP_CLIENT_REMOTE_MAS_INSTANCES,
@@ -540,6 +560,7 @@ typedef enum {
 	CB_EMU_VALUE_NOTIFICATION,
 	CB_EMU_READ_RESPONSE,
 	CB_EMU_WRITE_RESPONSE,
+	CB_EMU_ATT_ERROR,
 } expected_bt_callback_t;
 
 struct test_data {
@@ -651,11 +672,11 @@ struct bt_callback_data {
 	int offset;
 	bool is_long;
 	int connected;
-	int *attr_handle;
-	int *srvc_handle;
-	int *inc_srvc_handle;
-	int *char_handle;
-	int *desc_handle;
+	uint16_t *attr_handle;
+	uint16_t *srvc_handle;
+	uint16_t *inc_srvc_handle;
+	uint16_t *char_handle;
+	uint16_t *desc_handle;
 	btgatt_srvc_id_t *service;
 	btgatt_gatt_id_t *characteristic;
 	btgatt_gatt_id_t *descriptor;
@@ -669,6 +690,7 @@ struct bt_callback_data {
 	uint8_t *value;
 	bool need_rsp;
 	bool is_prep;
+	uint8_t error;
 
 	btpan_control_state_t ctrl_state;
 	btpan_connection_state_t conn_state;
@@ -706,12 +728,13 @@ struct step {
 	struct bt_callback_data callback_result;
 
 	void *set_data;
-	void *set_data_to;
+	void *set_data_2;
+	void *set_data_3;
 	int set_data_len;
 
-	int *store_srvc_handle;
-	int *store_char_handle;
-	int *store_desc_handle;
+	uint16_t *store_srvc_handle;
+	uint16_t *store_char_handle;
+	uint16_t *store_desc_handle;
 };
 
 struct test_case {

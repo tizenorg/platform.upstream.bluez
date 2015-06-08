@@ -33,7 +33,7 @@
 #include <endian.h>
 #include <stdbool.h>
 
-#include "bluetooth/bluetooth.h"
+#include "lib/bluetooth.h"
 
 #include "src/shared/util.h"
 #include "monitor/bt.h"
@@ -147,6 +147,7 @@ struct btconn {
 	uint8_t addr_type;
 	uint8_t encr_mode;
 	uint16_t next_cid;
+	uint64_t fixed_chan;
 	struct l2conn *l2conns;
 	struct rcconn *rcconns;
 	struct cid_hook *cid_hooks;
@@ -918,6 +919,13 @@ static void init_conn(struct bthost *bthost, uint16_t handle,
 
 	if (bthost->new_conn_cb)
 		bthost->new_conn_cb(conn->handle, bthost->new_conn_data);
+
+	if (addr_type == BDADDR_BREDR) {
+		struct bt_l2cap_pdu_info_req req;
+		req.type = L2CAP_IT_FIXED_CHAN;
+		l2cap_sig_send(bthost, conn, BT_L2CAP_PDU_INFO_REQ, 1,
+							&req, sizeof(req));
+	}
 }
 
 static void evt_conn_complete(struct bthost *bthost, const void *data,
@@ -1368,6 +1376,7 @@ static bool l2cap_conn_rsp(struct bthost *bthost, struct btconn *conn,
 				uint8_t ident, const void *data, uint16_t len)
 {
 	const struct bt_l2cap_pdu_conn_rsp *rsp = data;
+	struct bt_l2cap_pdu_config_req req;
 	struct l2conn *l2conn;
 
 	if (len < sizeof(*rsp))
@@ -1379,18 +1388,14 @@ static bool l2cap_conn_rsp(struct bthost *bthost, struct btconn *conn,
 	else
 		return false;
 
-	if (le16_to_cpu(rsp->result) == 0x0001) {
-		struct bt_l2cap_pdu_config_req req;
+	if (rsp->result)
+		return true;
 
-		memset(&req, 0, sizeof(req));
-		req.dcid = rsp->dcid;
+	memset(&req, 0, sizeof(req));
+	req.dcid = rsp->dcid;
 
-		l2cap_sig_send(bthost, conn, BT_L2CAP_PDU_CONFIG_REQ, 0,
+	l2cap_sig_send(bthost, conn, BT_L2CAP_PDU_CONFIG_REQ, 0,
 							&req, sizeof(req));
-	} else if (l2conn->psm == 0x0003 && !rsp->result && !rsp->status &&
-						bthost->rfcomm_conn_data) {
-		rfcomm_sabm_send(bthost, conn, l2conn, 1, 0);
-	}
 
 	return true;
 }
@@ -1426,9 +1431,17 @@ static bool l2cap_config_rsp(struct bthost *bthost, struct btconn *conn,
 				uint8_t ident, const void *data, uint16_t len)
 {
 	const struct bt_l2cap_pdu_config_rsp *rsp = data;
+	struct l2conn *l2conn;
 
 	if (len < sizeof(*rsp))
 		return false;
+
+	l2conn = btconn_find_l2cap_conn_by_scid(conn, rsp->scid);
+	if (!l2conn)
+		return false;
+
+	if (l2conn->psm == 0x0003 && !rsp->result && bthost->rfcomm_conn_data)
+		rfcomm_sabm_send(bthost, conn, l2conn, 1, 0);
 
 	return true;
 }
@@ -1489,6 +1502,35 @@ static bool l2cap_info_req(struct bthost *bthost, struct btconn *conn,
 		rsp->result = cpu_to_le16(0x0001); /* Not Supported */
 		l2cap_sig_send(bthost, conn, BT_L2CAP_PDU_INFO_RSP, ident,
 							rsp, sizeof(*rsp));
+		break;
+	}
+
+	return true;
+}
+
+static bool l2cap_info_rsp(struct bthost *bthost, struct btconn *conn,
+				uint8_t ident, const void *data, uint16_t len)
+{
+	const struct bt_l2cap_pdu_info_rsp *rsp = data;
+	uint16_t type;
+
+	if (len < sizeof(*rsp))
+		return false;
+
+	if (rsp->result)
+		return true;
+
+	type = le16_to_cpu(rsp->type);
+
+	switch (type) {
+	case L2CAP_IT_FIXED_CHAN:
+		if (len < sizeof(*rsp) + 8)
+			return false;
+		conn->fixed_chan = get_le64(rsp->data);
+		if (conn->smp_data && conn->encr_mode)
+			smp_conn_encrypted(conn->smp_data, conn->encr_mode);
+		break;
+	default:
 		break;
 	}
 
@@ -1564,6 +1606,11 @@ static void l2cap_sig(struct bthost *bthost, struct btconn *conn,
 
 	case BT_L2CAP_PDU_INFO_REQ:
 		ret = l2cap_info_req(bthost, conn, hdr->ident,
+						data + sizeof(*hdr), hdr_len);
+		break;
+
+	case BT_L2CAP_PDU_INFO_RSP:
+		ret = l2cap_info_rsp(bthost, conn, hdr->ident,
 						data + sizeof(*hdr), hdr_len);
 		break;
 
@@ -1991,23 +2038,30 @@ static void rfcomm_mcc_recv(struct bthost *bthost, struct btconn *conn,
 	}
 }
 
+#define GET_LEN8(length)	((length & 0xfe) >> 1)
+#define GET_LEN16(length)	((length & 0xfffe) >> 1)
+
 static void rfcomm_uih_recv(struct bthost *bthost, struct btconn *conn,
 				struct l2conn *l2conn, const void *data,
 				uint16_t len)
 {
 	const struct rfcomm_hdr *hdr = data;
-	uint16_t hdr_len;
+	uint16_t hdr_len, data_len;
 	const void *p;
 
 	if (len < sizeof(*hdr))
 		return;
 
-	if (RFCOMM_TEST_EA(hdr->length))
+	if (RFCOMM_TEST_EA(hdr->length)) {
+		data_len = (uint16_t) GET_LEN8(hdr->length);
 		hdr_len = sizeof(*hdr);
-	else
+	} else {
+		uint8_t ex_len = *((uint8_t *)(data + sizeof(*hdr)));
+		data_len = ((uint16_t) hdr->length << 8) | ex_len;
 		hdr_len = sizeof(*hdr) + sizeof(uint8_t);
+	}
 
-	if (len < hdr_len)
+	if (len < hdr_len + data_len)
 		return;
 
 	p = data + hdr_len;
@@ -2017,13 +2071,10 @@ static void rfcomm_uih_recv(struct bthost *bthost, struct btconn *conn,
 
 		hook = find_rfcomm_chan_hook(conn,
 					RFCOMM_GET_CHANNEL(hdr->address));
-		if (!hook)
-			return;
-
-		hook->func(p, len - hdr_len - sizeof(uint8_t),
-							hook->user_data);
+		if (hook && data_len)
+			hook->func(p, data_len, hook->user_data);
 	} else {
-		rfcomm_mcc_recv(bthost, conn, l2conn, p, len - hdr_len);
+		rfcomm_mcc_recv(bthost, conn, l2conn, p, data_len);
 	}
 }
 
@@ -2276,6 +2327,17 @@ void bthost_le_start_encrypt(struct bthost *bthost, uint16_t handle,
 	memcpy(cmd.ltk, ltk, 16);
 
 	send_command(bthost, BT_HCI_CMD_LE_START_ENCRYPT, &cmd, sizeof(cmd));
+}
+
+uint64_t bthost_conn_get_fixed_chan(struct bthost *bthost, uint16_t handle)
+{
+	struct btconn *conn;
+
+	conn = bthost_find_conn(bthost, handle);
+	if (!conn)
+		return 0;
+
+	return conn->fixed_chan;
 }
 
 void bthost_add_l2cap_server(struct bthost *bthost, uint16_t psm,

@@ -50,6 +50,7 @@ GIOChannel *g_attrib_get_channel(GAttrib *attrib);
 
 #ifdef __TIZEN_PATCH__
 void g_attrib_channel_unref(GAttrib *attrib);
+struct bt_att *g_attrib_get_att(GAttrib *attrib);
 #endif
 
 gboolean g_attrib_set_destroy_function(GAttrib *attrib,

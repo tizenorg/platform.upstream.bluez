@@ -49,8 +49,7 @@ typedef void (*bt_gatt_client_write_long_callback_t)(bool success,
 typedef void (*bt_gatt_client_notify_callback_t)(uint16_t value_handle,
 					const uint8_t *value, uint16_t length,
 					void *user_data);
-typedef void (*bt_gatt_client_notify_id_callback_t)(unsigned int id,
-							uint16_t att_ecode,
+typedef void (*bt_gatt_client_register_callback_t)(uint16_t att_ecode,
 							void *user_data);
 typedef void (*bt_gatt_client_service_changed_callback_t)(uint16_t start_handle,
 							uint16_t end_handle,
@@ -72,33 +71,37 @@ bool bt_gatt_client_set_debug(struct bt_gatt_client *client,
 
 uint16_t bt_gatt_client_get_mtu(struct bt_gatt_client *client);
 
-bool bt_gatt_client_read_value(struct bt_gatt_client *client,
+bool bt_gatt_client_cancel(struct bt_gatt_client *client, unsigned int id);
+bool bt_gatt_client_cancel_all(struct bt_gatt_client *client);
+
+unsigned int bt_gatt_client_read_value(struct bt_gatt_client *client,
 					uint16_t value_handle,
 					bt_gatt_client_read_callback_t callback,
 					void *user_data,
 					bt_gatt_client_destroy_func_t destroy);
-bool bt_gatt_client_read_long_value(struct bt_gatt_client *client,
+unsigned int bt_gatt_client_read_long_value(struct bt_gatt_client *client,
 					uint16_t value_handle, uint16_t offset,
 					bt_gatt_client_read_callback_t callback,
 					void *user_data,
 					bt_gatt_client_destroy_func_t destroy);
-bool bt_gatt_client_read_multiple(struct bt_gatt_client *client,
+unsigned int bt_gatt_client_read_multiple(struct bt_gatt_client *client,
 					uint16_t *handles, uint8_t num_handles,
 					bt_gatt_client_read_callback_t callback,
 					void *user_data,
 					bt_gatt_client_destroy_func_t destroy);
 
-bool bt_gatt_client_write_without_response(struct bt_gatt_client *client,
+unsigned int bt_gatt_client_write_without_response(
+					struct bt_gatt_client *client,
 					uint16_t value_handle,
 					bool signed_write,
 					const uint8_t *value, uint16_t length);
-bool bt_gatt_client_write_value(struct bt_gatt_client *client,
+unsigned int bt_gatt_client_write_value(struct bt_gatt_client *client,
 					uint16_t value_handle,
 					const uint8_t *value, uint16_t length,
 					bt_gatt_client_callback_t callback,
 					void *user_data,
 					bt_gatt_client_destroy_func_t destroy);
-bool bt_gatt_client_write_long_value(struct bt_gatt_client *client,
+unsigned int bt_gatt_client_write_long_value(struct bt_gatt_client *client,
 				bool reliable,
 				uint16_t value_handle, uint16_t offset,
 				const uint8_t *value, uint16_t length,
@@ -106,14 +109,18 @@ bool bt_gatt_client_write_long_value(struct bt_gatt_client *client,
 				void *user_data,
 				bt_gatt_client_destroy_func_t destroy);
 
-bool bt_gatt_client_register_notify(struct bt_gatt_client *client,
+unsigned int bt_gatt_client_register_notify(struct bt_gatt_client *client,
 				uint16_t chrc_value_handle,
-				bt_gatt_client_notify_id_callback_t callback,
+				bt_gatt_client_register_callback_t callback,
 				bt_gatt_client_notify_callback_t notify,
 				void *user_data,
 				bt_gatt_client_destroy_func_t destroy);
 bool bt_gatt_client_unregister_notify(struct bt_gatt_client *client,
 							unsigned int id);
-#ifdef BLUEZ5_GATT_CLIENT
+
+bool bt_gatt_client_set_sec_level(struct bt_gatt_client *client, int level);
+int bt_gatt_client_get_sec_level(struct bt_gatt_client *client);
+
+#ifdef BLUEZ5_27_GATT_CLIENT
 bool bt_gatt_discover_services(struct bt_gatt_client *client);
 #endif

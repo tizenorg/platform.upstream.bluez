@@ -42,7 +42,8 @@
 
 #include "src/shared/util.h"
 #include "src/shared/btsnoop.h"
-#include "mainloop.h"
+#include "src/shared/mainloop.h"
+
 #include "display.h"
 #include "packet.h"
 #include "hcidump.h"
@@ -154,6 +155,7 @@ static const char *settings_str[] = {
 	"powered", "connectable", "fast-connectable", "discoverable",
 	"bondable", "link-security", "ssp", "br/edr", "hs", "le",
 	"advertising", "secure-conn", "debug-keys", "privacy",
+	"configuration", "static-addr",
 };
 
 static void mgmt_new_settings(uint16_t len, const void *buf)
@@ -598,6 +600,7 @@ static void mgmt_new_irk(uint16_t len, const void *buf)
 static void mgmt_new_csrk(uint16_t len, const void *buf)
 {
 	const struct mgmt_ev_new_csrk *ev = buf;
+	const char *type;
 	char addr[18];
 
 	if (len < sizeof(*ev)) {
@@ -607,8 +610,26 @@ static void mgmt_new_csrk(uint16_t len, const void *buf)
 
 	ba2str(&ev->key.addr.bdaddr, addr);
 
-	printf("@ New CSRK: %s (%d) %s\n", addr, ev->key.addr.type,
-					ev->key.master ? "Master" : "Slave");
+	switch (ev->key.type) {
+	case 0x00:
+		type = "Local Unauthenticated";
+		break;
+	case 0x01:
+		type = "Remote Unauthenticated";
+		break;
+	case 0x02:
+		type = "Local Authenticated";
+		break;
+	case 0x03:
+		type = "Remote Authenticated";
+		break;
+	default:
+		type = "<unknown>";
+		break;
+	}
+
+	printf("@ New CSRK: %s (%d) %s (%u)\n", addr, ev->key.addr.type,
+							type, ev->key.type);
 
 	buf += sizeof(*ev);
 	len -= sizeof(*ev);

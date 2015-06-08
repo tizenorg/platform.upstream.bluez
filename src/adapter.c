@@ -37,22 +37,27 @@
 #include <sys/stat.h>
 #include <dirent.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
-
 #include <glib.h>
 #include <dbus/dbus.h>
-#include <gdbus/gdbus.h>
+
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/hci.h"
+#include "bluetooth/hci_lib.h"
+#include "bluetooth/sdp.h"
+#include "bluetooth/sdp_lib.h"
+#include "lib/uuid.h"
+#include "lib/mgmt.h"
+
+#include "gdbus/gdbus.h"
 
 #include "log.h"
 #include "textfile.h"
 
-#include "lib/uuid.h"
-#include "lib/mgmt.h"
 #include "src/shared/mgmt.h"
 #include "src/shared/util.h"
+#include "src/shared/queue.h"
+#include "src/shared/att.h"
+#include "src/shared/gatt-db.h"
 
 #include "hcid.h"
 #include "sdpd.h"
@@ -68,11 +73,11 @@
 #include "attrib/att.h"
 #include "attrib/gatt.h"
 #include "attrib-server.h"
+#include "gatt-database.h"
 #include "eir.h"
-#ifdef BLUEZ5_GATT_CLIENT
-#include "src/shared/gatt-client.h"
-#include "src/shared/att-types.h"
-#include <bluetooth/l2cap.h>
+
+#ifdef __TIZEN_PATCH__
+#include "adapter_le_vsc_features.h"
 #endif
 
 #define ADAPTER_INTERFACE	"org.bluez.Adapter1"
@@ -88,7 +93,7 @@
 #define BONDING_TIMEOUT (2 * 60)
 #ifdef __TIZEN_PATCH__
 #define check_address(address) bachk(address)
-#define ADV_DATA_LENGTH_MAX 28
+#define ADV_DATA_MAX_LENGTH 31
 #define SCAN_RESPONSE_DATA_LENGTH_MAX 31
 #define MANUFACTURER_DATA_LENGTH_MAX 28
 #define PRIVATE_ADDR_TIMEOUT (15 * 60)
@@ -116,10 +121,13 @@ static struct mgmt *mgmt_master = NULL;
 static uint8_t mgmt_version = 0;
 static uint8_t mgmt_revision = 0;
 
+#if 0 // Not used
 #ifdef __TIZEN_PATCH__
 static DBusMessage *write_sec_conn_host_support(DBusConnection *conn,
 					DBusMessage *msg, void *user_data);
 #endif /* __TIZEN_PATCH__ */
+#endif
+
 static GSList *adapter_drivers = NULL;
 
 static GSList *disconnect_list = NULL;
@@ -173,7 +181,6 @@ struct service_auth {
 	struct btd_device *device;
 	struct btd_adapter *adapter;
 	struct agent *agent;		/* NULL for queued auths */
-	int fd;
 };
 
 struct btd_adapter_pin_cb_iter {
@@ -181,6 +188,13 @@ struct btd_adapter_pin_cb_iter {
 	unsigned int attempt;		/* numer of times it() was called */
 	/* When the iterator reaches the end, it is NULL and attempt is 0 */
 };
+
+#ifdef __TIZEN_PATCH__
+struct adv_info {
+	int slot_id;	/* Reservied slot id is 0 (Single adv) */
+	bool status;		/* Advertising status */
+};
+#endif
 
 struct btd_adapter {
 	int ref_count;
@@ -191,9 +205,6 @@ struct btd_adapter {
 	bdaddr_t bdaddr;		/* controller Bluetooth address */
 #ifdef __TIZEN_PATCH__
 	bdaddr_t rpaddr;		/* controller RPA */
-#ifdef BLUEZ5_GATT_CLIENT
-	struct client *gatt_client;
-#endif
 #endif
 	uint32_t dev_class;		/* controller class of device */
 	char *name;			/* controller device name */
@@ -216,6 +227,7 @@ struct btd_adapter {
 	bool le_privacy_enabled;	/* whether LE Privacy feature enabled */
 	char local_irk[MGMT_IRK_SIZE];	/* adapter local IRK */
 	uint8_t disc_type;
+	bool ipsp_intialized;		/* Ipsp Initialization state */
 #endif
 
 	bool discovering;		/* discovering property state */
@@ -238,14 +250,22 @@ struct btd_adapter {
 	struct btd_device *connect_le;	/* LE device waiting to be connected */
 	sdp_list_t *services;		/* Services associated to adapter */
 
+	struct btd_gatt_database *database;
+
 	gboolean initialized;
 #ifdef __TIZEN_PATCH__
+	GSList *adv_list;	/* List of advertising instance */
 	bool advertising;		/* Advertising active */
 	gchar *version;			/* Bluetooth Version */
+#if 0 // Not used
 	bool secure_connection;         /* Secure Connection active*/
 	uint16_t auth_payload_timeout; /* Authenticated payload timeout value*/
+
 	bool set_new_rpa;		/* RPA to be set */
 	bool rpa_is_set;		/* RPA is set */
+#endif
+
+	uint8_t adv_tx_power;
 
 	gboolean le_discovering;		/* LE Discovery active */
 	GSList *le_discovery_list;		/* list of LE discovery clients */
@@ -268,24 +288,24 @@ struct btd_adapter {
 
 	unsigned int pair_device_id;
 	guint pair_device_timeout;
+	unsigned int db_id;		/* Service event handler for GATT db */
 #ifdef __TIZEN_PATCH__
 	guint private_addr_timeout;
 #endif
 	bool is_default;		/* true if adapter is default one */
 };
 
-#ifdef BLUEZ5_GATT_CLIENT
-struct client {
-	int fd;
-	struct bt_gatt_client *gatt;
-};
-#endif
 
 #ifdef __TIZEN_PATCH__
 enum {
 	DISABLE_PRIVACY,
 	ENABLE_PRIVACY,
 	GEN_IRK_THEN_ENABLE_PRIVACY
+};
+
+enum {
+	DEINIT_6LOWPAN,
+	INIT_6LOWPAN
 };
 #endif
 
@@ -342,7 +362,6 @@ static void dev_class_changed_callback(uint16_t index, uint16_t length,
 {
 	struct btd_adapter *adapter = user_data;
 	const struct mgmt_cod *rp = param;
-	uint8_t appearance[3];
 	uint32_t dev_class;
 
 	if (length < sizeof(*rp)) {
@@ -361,12 +380,6 @@ static void dev_class_changed_callback(uint16_t index, uint16_t length,
 
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Class");
-
-	appearance[0] = rp->val[0];
-	appearance[1] = rp->val[1] & 0x1f;	/* removes service class */
-	appearance[2] = rp->val[2];
-
-	attrib_gap_set(adapter, GATT_CHARAC_APPEARANCE, appearance, 2);
 }
 
 static void set_dev_class_complete(uint8_t status, uint16_t length,
@@ -524,6 +537,120 @@ static bool set_mode(struct btd_adapter *adapter, uint16_t opcode,
 static bool set_privacy(struct btd_adapter *adapter, bool privacy);
 #endif
 
+#ifdef __TIZEN_PATCH__
+static int compare_slot(gconstpointer a, gconstpointer b)
+{
+	const struct adv_info *adv = a;
+	const int id = *(int*)b;
+
+	return (adv->slot_id == id ? 0 : -1);
+}
+
+static struct adv_info *find_advertiser(struct btd_adapter *adapter,
+				int slot_id)
+{
+	GSList *list;
+
+	list = g_slist_find_custom(adapter->adv_list, &slot_id,
+							compare_slot);
+	if (list)
+		return list->data;
+
+	return NULL;
+}
+
+static void create_advertiser(struct btd_adapter *adapter,
+					int slot_id)
+{
+	struct adv_info *adv;
+
+	if (!adapter)
+		return;
+
+	if (find_advertiser(adapter, slot_id) != NULL) {
+		error("Aleady existed [%d]", slot_id);
+		return;
+	}
+
+	DBG("Create adv slot id : %d", slot_id);
+
+	adv = g_new0(struct adv_info, 1);
+	if (adv == NULL)
+		return;
+
+	adv->slot_id = slot_id;
+
+	adapter->adv_list= g_slist_append(adapter->adv_list, adv);
+	return;
+}
+
+#ifndef __TIZEN_PATCH__
+/* There is no caller of this function */
+static void destroy_advertiser(struct btd_adapter *adapter,
+				int slot_id)
+{
+	struct adv_info *adv;
+
+	if (!adapter)
+		return;
+
+	adv = find_advertiser(adapter, slot_id);
+	if (!adv) {
+		DBG("Unable to find advertiser [%d]", slot_id);
+		return;
+	}
+
+	adapter->adv_list = g_slist_remove(adapter->adv_list,
+								adv);
+}
+#endif
+
+static void advertising_state_changed(struct btd_adapter *adapter,
+					int slot_id, bool enabled)
+{
+	struct adv_info *adv;
+	int id = slot_id;
+	int state = enabled;
+
+	if (!adapter)
+		return;
+
+	adv = find_advertiser(adapter, slot_id);
+	if (!adv) {
+		DBG("Unable to find advertiser [%d]", slot_id);
+		return;
+	}
+
+	adv->status = enabled;
+	DBG("slot_id %d, status %d", adv->slot_id, adv->status);
+
+	g_dbus_emit_signal(dbus_conn, adapter->path,
+			ADAPTER_INTERFACE, "AdvertisingEnabled",
+			DBUS_TYPE_INT32, &id,
+			DBUS_TYPE_BOOLEAN, &state,
+			DBUS_TYPE_INVALID);
+}
+
+static void clear_advertiser_cb(gpointer data, gpointer user_data)
+{
+	struct adv_info *adv = data;
+	struct btd_adapter *adapter = user_data;
+
+	if (adv->status)
+		advertising_state_changed(adapter, adv->slot_id, 0);
+}
+
+static void advertiser_cleanup(struct btd_adapter *adapter)
+{
+	if (!adapter->adv_list)
+		return;
+
+	g_slist_foreach(adapter->adv_list, clear_advertiser_cb, adapter);
+	g_slist_free(adapter->adv_list);
+	adapter->adv_list = NULL;
+}
+#endif
+
 static void settings_changed(struct btd_adapter *adapter, uint32_t settings)
 {
 	uint32_t changed_mask;
@@ -581,9 +708,9 @@ static void settings_changed(struct btd_adapter *adapter, uint32_t settings)
 			(adapter->advertising)) {
 			return;
 		}
+
 		adapter->advertising = adapter->current_settings & MGMT_SETTING_ADVERTISING;
-		g_dbus_emit_property_changed(dbus_conn, adapter->path,
-					ADAPTER_INTERFACE, "Advertising");
+		advertising_state_changed(adapter, 0, adapter->advertising);
 	}
 #endif
 }
@@ -1237,14 +1364,14 @@ gboolean adapter_clear_le_white_list(struct btd_adapter *adapter)
 	if (mgmt_send(adapter->mgmt, MGMT_OP_CLEAR_DEV_WHITE_LIST,
 				   adapter->dev_id, 0, NULL,
 				   NULL, NULL, NULL) > 0)
-
-	return TRUE;
+		return TRUE;
+	else
+		return FALSE;
 }
 
 gboolean adapter_add_le_white_list(struct btd_adapter *adapter, struct btd_device *device)
 {
 	struct mgmt_cp_add_dev_white_list cp;
-	uint8_t bdaddr_type;
 	const bdaddr_t *dst;
 	char device_addr[18];
 
@@ -2135,6 +2262,7 @@ static void discovery_cleanup(struct btd_adapter *adapter)
 	adapter->discovery_found = NULL;
 }
 
+#ifndef __TIZEN_PATCH__
 static gboolean remove_temp_devices(gpointer user_data)
 {
 	struct btd_adapter *adapter = user_data;
@@ -2155,6 +2283,7 @@ static gboolean remove_temp_devices(gpointer user_data)
 
 	return FALSE;
 }
+#endif
 
 static void discovery_destroy(void *user_data)
 {
@@ -2389,6 +2518,125 @@ static DBusMessage *start_discovery(DBusConnection *conn,
 }
 
 #ifdef __TIZEN_PATCH__
+static int set_adv_data_flag(uint8_t *adv_data, uint8_t *data, int data_len)
+{
+	adv_data[0] = 2;
+	adv_data[1] = EIR_FLAGS;
+	adv_data[2] = EIR_GEN_DISC;
+
+	memcpy(adv_data + 3, data, data_len);
+	return data_len + 3;
+}
+
+static int set_adv_data_device_name(uint8_t *adv_data, int adv_len, char *name)
+{
+	int ad_type;
+	int ad_len;
+	int i, j;
+	int name_len;
+	uint8_t *data = NULL;
+
+	data = g_memdup(adv_data, adv_len);
+
+	if (!data || !name)
+		return adv_len;
+
+	name_len = strlen(name);
+
+	for (i = 0; i <adv_len ; i++) {
+		ad_len = data[i];
+		ad_type = data[i + 1];
+
+		if (ad_type == EIR_NAME_COMPLETE) {
+			/* Move to last position and update local name */
+			for (j = i; j < adv_len - 2; j++)
+				adv_data[j] = data[j + 2];
+
+			adv_data[j] = name_len + 1;
+			if (name_len > ADV_DATA_MAX_LENGTH - adv_len) {
+				adv_data[j + 1] = EIR_NAME_SHORT;
+				memcpy(adv_data + j + 2, name, ADV_DATA_MAX_LENGTH - adv_len);
+			} else {
+				adv_data[j + 1] = EIR_NAME_COMPLETE;
+				memcpy(adv_data + j + 2, name, name_len);
+			}
+
+			g_free(data);
+			return adv_len + name_len;
+		} else {
+			memcpy(adv_data + i, &data[i], ad_len + 1);
+			i = i + data[i];
+		}
+	}
+
+	g_free(data);
+	return adv_len;
+}
+
+static int set_adv_data_tx_power(uint8_t *adv_data, int adv_len, int8_t tx_power)
+{
+	int ad_type;
+	int ad_len;
+	int i, j;
+	uint8_t *data = NULL;
+
+	data = g_memdup(adv_data, adv_len);
+	if (!data)
+		return adv_len;
+
+	for (i = 0; i <adv_len ; i++) {
+		ad_len = data[i];
+		ad_type = data[i + 1];
+
+		if (ad_type == EIR_TX_POWER) {
+			adv_data[i] = 2;
+			adv_data[i + 1] = EIR_TX_POWER;
+			adv_data[i + 2] = tx_power;
+
+			for(j = i + 2; j < adv_len; j++)
+				adv_data[j + 1] = data[j];
+
+			g_free(data);
+			return adv_len + 1;
+		} else {
+			memcpy(adv_data + i, &data[i], ad_len + 1);
+			i = i + data[i];
+		}
+	}
+
+	g_free(data);
+	return adv_len;
+}
+
+static gboolean adapter_le_set_missed_adv_data(uint8_t *p_data, uint8_t data_len,
+		gboolean is_scan_rsp, char *adapter_name, int8_t tx_power, uint8_t **adv_data, int *adv_len)
+{
+	uint8_t *data;
+	int len;
+
+	data = g_malloc0(ADV_DATA_MAX_LENGTH);
+	/* Fix : NULL_RETURNS */
+	if (data == NULL) {
+		return FALSE;
+	}
+	memcpy(data, p_data, data_len);
+	len = data_len;
+
+	/* In case multi advertising, need to update the below AD type
+		since it handled into kernel */
+	if (!is_scan_rsp) {
+		len = set_adv_data_flag(data, p_data, data_len);
+	}
+
+	len = set_adv_data_tx_power(data, len, tx_power);
+
+	len = set_adv_data_device_name(data, len, adapter_name);
+
+	*adv_data = data;
+	*adv_len = len;
+	return TRUE;
+}
+
 static DBusMessage *adapter_start_custom_discovery(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
 {
@@ -2572,6 +2820,7 @@ static DBusMessage *adapter_set_advertising(DBusConnection *conn,
 	struct btd_adapter *adapter = data;
 	dbus_bool_t err;
 	dbus_bool_t enable = FALSE;
+	dbus_int32_t slot_id;
 
 	DBG("adapter_set_advertising");
 
@@ -2579,12 +2828,23 @@ static DBusMessage *adapter_set_advertising(DBusConnection *conn,
 		return btd_error_not_ready(msg);
 
 	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_BOOLEAN, &enable,
+						DBUS_TYPE_INT32, &slot_id,
 						DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
 
-	err = set_mode(adapter, MGMT_OP_SET_ADVERTISING, enable);
+	if (adapter_le_is_supported_multi_advertising() && slot_id > 0)
+		err = adapter_le_enable_multi_adv(enable, slot_id);
+	else
+		err = set_mode(adapter, MGMT_OP_SET_ADVERTISING, enable);
+
 	if (!err)
 		return btd_error_failed(msg, "Set Advertising failed");
+
+	if (enable)
+		create_advertiser(adapter, slot_id);
+
+	if (err && slot_id > 0)
+		advertising_state_changed(adapter, slot_id, enable);
 
 	return dbus_message_new_method_return(msg);
 }
@@ -2598,6 +2858,8 @@ static DBusMessage *adapter_set_advertising_params(DBusConnection *conn,
 	dbus_uint32_t interval_max;
 	dbus_uint32_t filter_policy;
 	dbus_uint32_t type;
+	dbus_int32_t slot_id;
+	gboolean ret;
 
 	DBG("Set customised advertising parameters");
 
@@ -2609,6 +2871,7 @@ static DBusMessage *adapter_set_advertising_params(DBusConnection *conn,
 				DBUS_TYPE_UINT32, &interval_max,
 				DBUS_TYPE_UINT32, &filter_policy,
 				DBUS_TYPE_UINT32, &type,
+				DBUS_TYPE_INT32, &slot_id,
 				DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
 
@@ -2623,17 +2886,46 @@ static DBusMessage *adapter_set_advertising_params(DBusConnection *conn,
 	if (type > 0x04)
 		return btd_error_invalid_args(msg);
 
-	cp.interval_max = interval_max;
-	cp.interval_min = interval_min;
-	cp.filter_policy = filter_policy;
-	cp.type = type;
+	if (adapter_le_is_supported_multi_advertising() && slot_id > 0) {
+		adapter_le_adv_inst_info_t *p_inst;
+		adapter_le_adv_param_t *p_params;
 
-	if (mgmt_send(adapter->mgmt, MGMT_OP_SET_ADVERTISING_PARAMS,
-				adapter->dev_id, sizeof(cp), &cp,
-				NULL, NULL, NULL) > 0)
-		return dbus_message_new_method_return(msg);
+		p_inst = malloc(sizeof(adapter_le_adv_inst_info_t));
+		p_params = malloc(sizeof(adapter_le_adv_param_t));
+		memset(p_inst, 0, sizeof(adapter_le_adv_inst_info_t));
+		memset(p_params, 0, sizeof(adapter_le_adv_param_t));
+		p_inst->inst_id = slot_id;
+		p_params->adv_int_min = interval_min;
+		p_params->adv_int_max = interval_max;
+		p_params->adv_type = type;
+		p_params->channel_map = 0x07;	/* fixed channel :: will be used all */
+		p_params->adv_filter_policy = filter_policy;
+		p_params->tx_power = BLE_ADV_TX_POWER_MID;	/* TODO:need to optimize */
+		p_inst->bdaddr_type = 0x00;
+		bacpy(&p_inst->bdaddr, &adapter->bdaddr);
 
-	return btd_error_failed(msg, "set advertising param failed");
+		ret = adapter_le_set_multi_adv_params(p_inst, p_params);
+
+		free(p_inst);
+		free(p_params);
+
+		if (ret)
+			return dbus_message_new_method_return(msg);
+		else
+			return btd_error_failed(msg, "set advertising param failed");
+	} else {
+		cp.interval_max = interval_max;
+		cp.interval_min = interval_min;
+		cp.filter_policy = filter_policy;
+		cp.type = type;
+
+		if (mgmt_send(adapter->mgmt, MGMT_OP_SET_ADVERTISING_PARAMS,
+					adapter->dev_id, sizeof(cp), &cp,
+					NULL, NULL, NULL) > 0)
+			return dbus_message_new_method_return(msg);
+
+		return btd_error_failed(msg, "set advertising param failed");
+	}
 }
 
 static DBusMessage *adapter_set_advertising_data(DBusConnection *conn,
@@ -2643,6 +2935,9 @@ static DBusMessage *adapter_set_advertising_data(DBusConnection *conn,
 	struct mgmt_cp_set_advertising_data cp;
 	uint8_t *value;
 	int32_t len = 0;
+	dbus_int32_t slot_id;
+	uint8_t *adv_data = NULL;
+	int adv_len = 0;
 
 	DBG("Set advertising data");
 
@@ -2651,20 +2946,202 @@ static DBusMessage *adapter_set_advertising_data(DBusConnection *conn,
 
 	if (!dbus_message_get_args(msg, NULL,
 			DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &value, &len,
+			DBUS_TYPE_INT32, &slot_id,
 			DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
 
-	if (len > ADV_DATA_LENGTH_MAX)
+	if (len > ADV_DATA_MAX_LENGTH - 3)
 		return btd_error_invalid_args(msg);
 
-	memcpy(&cp, value, len);
+	if (adapter_le_set_missed_adv_data(value, len, FALSE,
+			adapter->name, adapter->adv_tx_power, &adv_data, &adv_len) != TRUE)
+			return btd_error_failed(msg, "set advertising data failed");
 
-	if (mgmt_send(adapter->mgmt, MGMT_OP_SET_ADVERTISING_DATA,
-					adapter->dev_id, len,
-					&cp, NULL, NULL, NULL) > 0)
-		return dbus_message_new_method_return(msg);
+	if (adapter_le_is_supported_multi_advertising() && slot_id > 0) {
+		if (adapter_le_set_multi_adv_data(slot_id, FALSE, adv_len, adv_data)) {
+			g_free(adv_data);
+			return dbus_message_new_method_return(msg);
+		} else {
+			g_free(adv_data);
+			return btd_error_failed(msg, "set advertising data failed");
+		}
+	} else {
+		memcpy(&cp, adv_data, adv_len);
 
-	return btd_error_failed(msg, "set advertising data failed");
+		if (mgmt_send(adapter->mgmt, MGMT_OP_SET_ADVERTISING_DATA,
+						adapter->dev_id, adv_len,
+						&cp, NULL, NULL, NULL) > 0) {
+			g_free(adv_data);
+			return dbus_message_new_method_return(msg);
+		}
+
+		g_free(adv_data);
+		return btd_error_failed(msg, "set advertising data failed");
+	}
+}
+
+static DBusMessage *adapter_le_scan_filter_param_setup(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	struct btd_adapter *adapter = data;
+	dbus_bool_t err;
+	dbus_int32_t client_if, action, filt_index;
+	dbus_int32_t feat_seln, list_logic_type, filt_logic_type;
+	dbus_int32_t rssi_high_thres, rssi_low_thres, dely_mode;
+	dbus_int32_t found_timeout, lost_timeout, found_timeout_cnt;
+	adapter_le_scan_filter_param_t params;
+
+	DBG("adapter_le_scan_filter_param_setup");
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
+
+	if (adapter_le_get_scan_filter_size() == 0)
+		return btd_error_not_supported(msg);
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_INT32, &client_if,
+						DBUS_TYPE_INT32, &action,
+						DBUS_TYPE_INT32, &filt_index,
+						DBUS_TYPE_INT32, &feat_seln,
+						DBUS_TYPE_INT32, &list_logic_type,
+						DBUS_TYPE_INT32, &filt_logic_type,
+						DBUS_TYPE_INT32, &rssi_high_thres,
+						DBUS_TYPE_INT32, &rssi_low_thres,
+						DBUS_TYPE_INT32, &dely_mode,
+						DBUS_TYPE_INT32, &found_timeout,
+						DBUS_TYPE_INT32, &lost_timeout,
+						DBUS_TYPE_INT32, &found_timeout_cnt,
+						DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	memset(&params, 0, sizeof(params));
+
+	params.action = action;
+	params.index = filt_index;
+	params.feature = feat_seln;
+	params.filter_logic_type = filt_logic_type;
+	params.list_logic_type = list_logic_type;
+	params.delivery_mode = dely_mode;
+	params.rssi_high_threshold = rssi_high_thres;
+
+	if (params.delivery_mode == ON_FOUND) {
+		params.rssi_low_threshold = rssi_low_thres;
+		params.onfound_timeout = found_timeout;
+		params.onfound_timeout_cnt = found_timeout_cnt;
+		params.onlost_timeout = lost_timeout;
+	}
+
+	err = adapter_le_set_scan_filter_params(&params);
+
+	if (!err)
+		return btd_error_failed(msg, "Failed to scan filter param setup");
+
+	return dbus_message_new_method_return(msg);
+}
+
+static DBusMessage *adapter_le_scan_filter_add_remove(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	struct btd_adapter *adapter = data;
+	dbus_bool_t err;
+	dbus_int32_t client_if, action, filt_type, filt_index;
+	dbus_int32_t company_id, company_id_mask;
+	gchar *string;
+	dbus_uint32_t address_type;
+	uint8_t *p_uuid, *p_uuid_mask, *p_data, *p_mask;
+	int32_t uuid_len = 0, uuid_mask_len = 0, data_len = 0, mask_len = 0;
+
+	DBG("adapter_le_scan_filter_add_remove");
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
+
+	if (adapter_le_get_scan_filter_size() == 0)
+		return btd_error_not_supported(msg);
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_INT32, &client_if,
+						DBUS_TYPE_INT32, &action,
+						DBUS_TYPE_INT32, &filt_type,
+						DBUS_TYPE_INT32, &filt_index,
+						DBUS_TYPE_INT32, &company_id,
+						DBUS_TYPE_INT32, &company_id_mask,
+						DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &p_uuid, &uuid_len,
+						DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &p_uuid_mask, &uuid_mask_len,
+						DBUS_TYPE_STRING, &string,
+						DBUS_TYPE_UINT32, &address_type,
+						DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &p_data, &data_len,
+						DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &p_mask, &mask_len,
+						DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	err = adapter_le_set_scan_filter_data(client_if, action, filt_type,
+			filt_index, company_id, company_id_mask,
+			uuid_len, p_uuid, uuid_mask_len, p_uuid_mask,
+			string, address_type, data_len, p_data, mask_len, p_mask);
+
+	if (!err)
+		return btd_error_failed(msg, "Failed to add/remove filter");
+
+	return dbus_message_new_method_return(msg);
+}
+
+static DBusMessage *adapter_le_scan_filter_clear(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	struct btd_adapter *adapter = data;
+	dbus_bool_t err;
+	dbus_int32_t client_if;
+	dbus_int32_t filt_index;
+
+	DBG("adapter_le_scan_filter_clear");
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
+
+	if (adapter_le_get_scan_filter_size() == 0)
+		return btd_error_not_supported(msg);
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_INT32, &client_if,
+						DBUS_TYPE_INT32, &filt_index,
+						DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	err = adapter_le_clear_scan_filter_data(client_if, filt_index);
+
+	if (!err)
+		return btd_error_failed(msg, "Failed to clear filter");
+
+	return dbus_message_new_method_return(msg);
+}
+
+
+static DBusMessage *adapter_le_scan_filter_enable(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	struct btd_adapter *adapter = data;
+	dbus_bool_t err;
+	dbus_bool_t enable = FALSE;
+	dbus_int32_t client_if;
+
+	DBG("adapter_le_scan_filter_enable");
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
+
+	if (adapter_le_get_scan_filter_size() == 0)
+		return btd_error_not_supported(msg);
+
+	if (!dbus_message_get_args(msg, NULL, DBUS_TYPE_INT32, &client_if,
+						DBUS_TYPE_BOOLEAN, &enable,
+						DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	err = adapter_le_enable_scan_filtering(enable);
+
+	if (!err)
+		return btd_error_failed(msg, "Failed to enable scan filtering");
+
+	return dbus_message_new_method_return(msg);
 }
 
 static DBusMessage *adapter_le_set_scan_params(DBusConnection *conn,
@@ -2711,6 +3188,9 @@ static DBusMessage *adapter_set_scan_rsp_data(DBusConnection *conn,
 	struct mgmt_cp_set_scan_rsp_data cp;
 	uint8_t *value;
 	int32_t len = 0;
+	dbus_int32_t slot_id;
+	uint8_t *adv_data = NULL;
+	int adv_len = 0;
 
 	DBG("Set scan response data");
 
@@ -2719,20 +3199,38 @@ static DBusMessage *adapter_set_scan_rsp_data(DBusConnection *conn,
 
 	if (!dbus_message_get_args(msg, NULL,
 			DBUS_TYPE_ARRAY, DBUS_TYPE_BYTE, &value, &len,
+			DBUS_TYPE_INT32, &slot_id,
 			DBUS_TYPE_INVALID))
 		return btd_error_invalid_args(msg);
 
 	if (len > SCAN_RESPONSE_DATA_LENGTH_MAX)
 		return btd_error_invalid_args(msg);
 
-	memcpy(&cp, value, len);
+	if (adapter_le_set_missed_adv_data(value, len, TRUE,
+			adapter->name, adapter->adv_tx_power, &adv_data, &adv_len) != TRUE)
+			return btd_error_failed(msg, "set advertising data failed");
 
-	if (mgmt_send(adapter->mgmt, MGMT_OP_SET_SCAN_RSP_DATA,
-					adapter->dev_id, len, &cp,
-					NULL, NULL, NULL) > 0)
-		return dbus_message_new_method_return(msg);
+	if (adapter_le_is_supported_multi_advertising() && slot_id > 0) {
+		if (adapter_le_set_multi_adv_data(slot_id, TRUE, adv_len, (uint8_t *)adv_data)) {
+			g_free(adv_data);
+			return dbus_message_new_method_return(msg);
+		} else {
+			g_free(adv_data);
+			return btd_error_failed(msg, "set advertising data failed");
+		}
+	} else {
+		memcpy(&cp, adv_data, adv_len);
 
-	return btd_error_failed(msg, "set scan reponse data failed");
+		if (mgmt_send(adapter->mgmt, MGMT_OP_SET_SCAN_RSP_DATA,
+						adapter->dev_id, adv_len, &cp,
+						NULL, NULL, NULL) > 0) {
+			g_free(adv_data);
+			return dbus_message_new_method_return(msg);
+		}
+
+		g_free(adv_data);
+		return btd_error_failed(msg, "set scan reponse data failed");
+	}
 }
 
 static DBusMessage *adapter_add_device_white_list(DBusConnection *conn,
@@ -2860,6 +3358,7 @@ static DBusMessage *adapter_set_le_privacy(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
+#if 0 // Not used
 static void read_sec_conn_host_support_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -2936,6 +3435,7 @@ static DBusMessage *write_sec_conn_host_support(DBusConnection *conn,
 			NULL, NULL);
 	return dbus_message_new_method_return(msg);
 }
+#endif
 
 static DBusMessage *adapter_enable_rssi(DBusConnection *conn,
 						DBusMessage *msg, void *data)
@@ -3045,6 +3545,37 @@ static DBusMessage *adapter_get_rssi(DBusConnection *conn,
 			return dbus_message_new_method_return(msg);
 
 	return btd_error_failed(msg, "Get Raw RSSI Failed");
+}
+
+static void get_adv_tx_power_complete(uint8_t status, uint16_t length,
+					const void *param, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	const struct mgmt_rp_get_adv_tx_power *rp = param;
+
+	if (status != MGMT_STATUS_SUCCESS) {
+		error("Failed to get adv tx power: %s (0x%02x)",
+						mgmt_errstr(status), status);
+		return;
+	}
+
+	if (length < sizeof(*rp)) {
+		error("Wrong size of get adv tx power");
+		return;
+	}
+
+	adapter->adv_tx_power = rp->adv_tx_power;
+	return;
+}
+
+static  void adapter_get_adv_tx_power(void *data)
+{
+	struct btd_adapter *adapter = data;
+
+	mgmt_send(adapter->mgmt, MGMT_OP_GET_ADV_TX_POWER,
+					adapter->dev_id, 0, NULL,
+					get_adv_tx_power_complete, adapter, NULL);
+	return;
 }
 
 #ifdef __BROADCOM_PATCH__
@@ -3506,6 +4037,14 @@ static void property_set_powered(const GDBusPropertyTable *property,
 		return;
 	}
 
+#ifdef __TIZEN_PATCH__
+	if (adapter_le_read_ble_feature_info())
+		g_dbus_emit_property_changed(dbus_conn, adapter->path,
+			ADAPTER_INTERFACE, "SupportedLEFeatures");
+
+	adapter_get_adv_tx_power(adapter);
+#endif
+
 	property_set_mode(adapter, MGMT_SETTING_POWERED, iter, id);
 }
 
@@ -3630,197 +4169,33 @@ static gboolean property_get_discovering(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static void add_gatt_uuid(struct gatt_db_attribute *attrib, void *user_data)
+{
+	GHashTable *uuids = user_data;
+	bt_uuid_t uuid, u128;
+	char uuidstr[MAX_LEN_UUID_STR + 1];
+
+	if (!gatt_db_service_get_active(attrib))
+		return;
+
+	if (!gatt_db_attribute_get_service_uuid(attrib, &uuid))
+		return;
+
+	bt_uuid_to_uuid128(&uuid, &u128);
+	bt_uuid_to_string(&u128, uuidstr, sizeof(uuidstr));
+
+	g_hash_table_add(uuids, strdup(uuidstr));
+}
+
+static void iter_append_uuid(gpointer key, gpointer value, gpointer user_data)
+{
+	DBusMessageIter *iter = user_data;
+	const char *uuid = key;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &uuid);
+}
+
 #ifdef __TIZEN_PATCH__
-#ifdef BLUEZ5_GATT_CLIENT
-static void print_services(struct client *cli)
-{
-	DBG("+");
-	struct bt_gatt_service_iter iter_srv;
-	const bt_gatt_service_t *service;
-	struct bt_gatt_characteristic_iter iter_chr;
-	const bt_gatt_characteristic_t *chrc;
-
-	if (!bt_gatt_service_iter_init(&iter_srv, cli->gatt)) {
-		DBG("Failed to initialize service iterator");
-		return;
-	}
-
-	while (bt_gatt_service_iter_next(&iter_srv, &service)) {
-		if (!bt_gatt_characteristic_iter_init(&iter_chr, service)) {
-			DBG("Failed to initialize characteristic iterator");
-			return;
-		}
-		DBG("service - start: 0x%04x, end: 0x%04x",
-					service->start_handle, service->end_handle);
-
-		while (bt_gatt_characteristic_iter_next(&iter_chr, &chrc)) {
-			DBG("characterustuc - start: 0x%04x, end: 0x%04x, value: 0x%04x, props: 0x%02x",
-					chrc->start_handle, chrc->end_handle, chrc->value_handle, chrc->properties);
-		}
-	}
-}
-
-static void gatt_discover_services_cb(bool success, uint8_t att_ecode, void *user_data)
-{
-	struct btd_adapter *adapter = user_data;
-	struct client *cli = adapter->gatt_client;
-
-	DBG("LE Discover services\n");
-
-	print_services(cli);
-}
-
-static void gatt_connected_cb(bool success, uint8_t att_ecode, void *user_data)
-{
-	struct btd_device *device = user_data;
-	struct client *cli;
-	struct btd_adapter *adapter;
-
-	if (!device) {
-		DBG("Unable to get device object");
-		return;
-	}
-	adapter = device_get_adapter(device);
-	cli = adapter->gatt_client;
-
-	if (!success) {
-		DBG("GATT discovery procedures failed - error code: 0x%02x\n",
-								att_ecode);
-		return;
-	}
-
-	device_set_gatt_connected(device, TRUE);
-	DBG("LE Device connected\n");
-
-	print_services(cli);
-
-	fflush(stdout);
-}
-
-static void gatt_disconnected_cb(void *user_data)
-{
-	struct btd_device *device = user_data;
-
-	if (!device) {
-		DBG("Unable to get device object");
-		return;
-	}
-
-	device_set_gatt_connected(device, FALSE);
-	DBG("LE Device disconnected\n");
-}
-
-static int le_att_connect(bdaddr_t *src, bdaddr_t *dst, uint8_t dst_type,
-									int sec)
-{
-	DBG("+");
-	int sock;
-	struct sockaddr_l2 srcaddr, dstaddr;
-	struct bt_security btsec;
-
-	sock = socket(PF_BLUETOOTH, SOCK_SEQPACKET, BTPROTO_L2CAP);
-	if (sock < 0) {
-		error("Failed to create L2CAP socket");
-		return -1;
-	}
-
-	/* Set up source address */
-	memset(&srcaddr, 0, sizeof(srcaddr));
-	srcaddr.l2_family = AF_BLUETOOTH;
-	srcaddr.l2_cid = htobs(ATT_CID);
-	srcaddr.l2_bdaddr_type = 0;
-	bacpy(&srcaddr.l2_bdaddr, src);
-
-	if (bind(sock, (struct sockaddr *)&srcaddr, sizeof(srcaddr)) < 0) {
-		error("Failed to bind L2CAP socket");
-		close(sock);
-		return -1;
-	}
-
-	/* Set the security level */
-	memset(&btsec, 0, sizeof(btsec));
-	btsec.level = sec;
-	if (setsockopt(sock, SOL_BLUETOOTH, BT_SECURITY, &btsec,
-							sizeof(btsec)) != 0) {
-		error("Failed to set L2CAP security level\n");
-		close(sock);
-		return -1;
-	}
-
-	/* Set up destination address */
-	memset(&dstaddr, 0, sizeof(dstaddr));
-	dstaddr.l2_family = AF_BLUETOOTH;
-	dstaddr.l2_cid = htobs(ATT_CID);
-	dstaddr.l2_bdaddr_type = dst_type;
-	bacpy(&dstaddr.l2_bdaddr, dst);
-
-	DBG("Connecting to device...");
-	fflush(stdout);
-
-	if (connect(sock, (struct sockaddr *) &dstaddr, sizeof(dstaddr)) < 0) {
-		error("Failed to connect");
-		close(sock);
-		return -1;
-	}
-
-	DBG(" Done\n");
-
-	return sock;
-}
-
-static struct client *create_client(int fd, struct btd_device *device)
-{
-	DBG("+");
-	struct client *cli;
-	struct bt_att *att;
-	struct btd_adapter *adapter;
-
-	cli = g_new0(struct client, 1);
-	if (!cli) {
-		error("Failed to allocate memory for client\n");
-		return NULL;
-	}
-
-	att = bt_att_new(fd);
-	if (!att) {
-		error("Failed to initialze ATT transport layer\n");
-		bt_att_unref(att);
-		free(cli);
-		return NULL;
-	}
-	if (!bt_att_set_close_on_unref(att, true)) {
-		error("Failed to set up ATT transport layer\n");
-		bt_att_unref(att);
-		free(cli);
-		return NULL;
-	}
-	if (!bt_att_register_disconnect(att, gatt_disconnected_cb, device, NULL)) {
-		error("Failed to set ATT disconnect handler\n");
-		bt_att_unref(att);
-		free(cli);
-		return NULL;
-	}
-
-	cli->fd = fd;
-	cli->gatt = bt_gatt_client_new(att, BT_ATT_DEFAULT_LE_MTU); /* mtu value can be adjustable */
-
-	if (!cli->gatt) {
-		error("Failed to create GATT client\n");
-		bt_att_unref(att);
-		free(cli);
-		return NULL;
-	}
-
-	adapter = device_get_adapter(device);
-	adapter->gatt_client = cli;
-
-	bt_gatt_client_set_ready_handler(cli->gatt, gatt_connected_cb, device, NULL);
-
-	/* bt_gatt_client already holds a reference */
-	bt_att_unref(att);
-	return cli;
-}
-#endif /* BLUEZ5_GATT_CLIENT */
 
 static gboolean property_get_le_discovering(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *user_data)
@@ -3833,17 +4208,7 @@ static gboolean property_get_le_discovering(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
-static gboolean property_get_advertising(const GDBusPropertyTable *property,
-					DBusMessageIter *iter, void *user_data)
-{
-	struct btd_adapter *adapter = user_data;
-	dbus_bool_t advertising = (dbus_bool_t)adapter->advertising;
-
-	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &advertising);
-
-	return TRUE;
-}
-
+#if 0 // Not used
 static gboolean property_get_secure_connection(const GDBusPropertyTable
 			  *property, DBusMessageIter *iter, void *user_data)
 {
@@ -3855,6 +4220,7 @@ static gboolean property_get_secure_connection(const GDBusPropertyTable
 
 	return TRUE;
 }
+#endif
 
 static gboolean property_get_connectable(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *user_data)
@@ -3884,6 +4250,76 @@ static gboolean property_get_version(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static gboolean property_get_supported_le_features(
+					const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *user_data)
+{
+	const char *str, *val;
+	int value;
+	DBusMessageIter entry;
+
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry);
+
+	value = adapter_le_get_max_adv_instance();
+	if (value > 0) {
+		str = g_strdup("adv_inst_max");
+		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &str);
+
+		val = g_strdup_printf("%d", value);
+		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &val);
+
+		free((void *)str);
+		free((void *)val);
+	}
+
+	value = adapter_le_is_supported_offloading();
+	if (value > 0) {
+		str = g_strdup("rpa_offloading");
+		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &str);
+
+		val = g_strdup_printf("%d", value);
+		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &val);
+
+		free((void *)str);
+		free((void *)val);
+	}
+
+	value = adapter_le_get_scan_filter_size();
+	if (value > 0) {
+		str = g_strdup("max_filter");
+		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &str);
+
+		val = g_strdup_printf("%d", value);
+		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &val);
+
+		free((void *)str);
+		free((void *)val);
+	}
+
+	dbus_message_iter_close_container(iter, &entry);
+
+	return TRUE;
+}
+
+static gboolean property_get_ipsp_init_state(
+					const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct btd_adapter *adapter = data;
+	dbus_bool_t ipsp_initialized;
+
+	DBG("property_get_ipsp_init_state called");
+	if (adapter->ipsp_intialized)
+		ipsp_initialized = TRUE;
+	else
+		ipsp_initialized = FALSE;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN,
+					&ipsp_initialized);
+
+	return TRUE;
+}
 #endif
 
 static gboolean property_get_uuids(const GDBusPropertyTable *property,
@@ -3892,10 +4328,14 @@ static gboolean property_get_uuids(const GDBusPropertyTable *property,
 	struct btd_adapter *adapter = user_data;
 	DBusMessageIter entry;
 	sdp_list_t *l;
+	struct gatt_db *db;
+	GHashTable *uuids;
 
-	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
-					DBUS_TYPE_STRING_AS_STRING, &entry);
+	uuids = g_hash_table_new_full(g_str_hash, g_str_equal, free, NULL);
+	if (!uuids)
+		return FALSE;
 
+	/* SDP records */
 	for (l = adapter->services; l != NULL; l = l->next) {
 		sdp_record_t *rec = l->data;
 		char *uuid;
@@ -3904,12 +4344,20 @@ static gboolean property_get_uuids(const GDBusPropertyTable *property,
 		if (uuid == NULL)
 			continue;
 
-		dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING,
-								&uuid);
-		free(uuid);
+		g_hash_table_add(uuids, uuid);
 	}
 
+	/* GATT services */
+	db = btd_gatt_database_get_db(adapter->database);
+	if (db)
+		gatt_db_foreach_service(db, NULL, add_gatt_uuid, uuids);
+
+	dbus_message_iter_open_container(iter, DBUS_TYPE_ARRAY,
+					DBUS_TYPE_STRING_AS_STRING, &entry);
+	g_hash_table_foreach(uuids, iter_append_uuid, &entry);
 	dbus_message_iter_close_container(iter, &entry);
+
+	g_hash_table_destroy(uuids);
 
 	return TRUE;
 }
@@ -4036,148 +4484,142 @@ static DBusMessage *find_device(DBusConnection *conn, DBusMessage *msg,
 	return reply;
 }
 
-#ifdef BLUEZ5_GATT_CLIENT
-static DBusMessage *connect_le(DBusConnection *conn, DBusMessage *msg,
-							void *user_data)
+static void adapter_set_ipsp_init_state(struct btd_adapter *adapter, gboolean initialized)
+{
+	if (adapter->ipsp_intialized == initialized)
+		return;
+
+	adapter->ipsp_intialized = initialized;
+
+	DBG("Set Ipsp init state for adapter %s", adapter->path);
+
+	g_dbus_emit_property_changed(dbus_conn, adapter->path,
+						ADAPTER_INTERFACE, "IpspInitStateChanged");
+}
+
+static void deinitialize_6lowpan_complete(uint8_t status, uint16_t length,
+	const void *param, void *user_data)
 {
 	struct btd_adapter *adapter = user_data;
-	struct btd_device *device;
-	struct client *cli;
-	int fd;
-	int sec_level = BT_SECURITY_LOW;
-	const gchar *address;
-	bdaddr_t addr;
+	bool initialized = FALSE;
 
-	if (dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &address,
-						DBUS_TYPE_INVALID) == FALSE)
-		return btd_error_invalid_args(msg);
-
-	if (check_address(address) < 0)
-		return btd_error_invalid_args(msg);
-
-	DBG("%s", address);
-	str2ba(address, &addr);
-
-	cli = g_new0(struct client, 1);
-
-	device = btd_adapter_get_device(adapter, &addr,
-			BDADDR_LE_PUBLIC);
-
-	if (!device) {
-		DBG("Unable to get device object");
-		return btd_error_not_available(msg);
-	} else {
-		if (device_get_gatt_connected(device))
-			return btd_error_already_connected(msg);
-
-		if (device_is_paired(device, BDADDR_LE_PUBLIC))
-			sec_level = BT_SECURITY_MEDIUM;
+	if (status != MGMT_STATUS_SUCCESS)
+		error("De-Initialize BT 6lowpan failed for hci%u: %s (0x%02x)",
+			adapter->dev_id, mgmt_errstr(status), status);
+	else {
+		adapter_set_ipsp_init_state(adapter, initialized);
+		DBG("De-Initialize BT 6lowpan successfully for hci%u",
+			adapter->dev_id);
 	}
+}
 
-	fd = le_att_connect(btd_adapter_get_address(adapter),
-			&addr, BDADDR_LE_PUBLIC, sec_level);
+static bool deinitialize_6lowpan(struct btd_adapter *adapter)
+{
+	struct mgmt_cp_enable_6lowpan cp;
 
-	if (fd < 0)
-		return btd_error_not_available(msg);
+	memset(&cp, 0, sizeof(cp));
 
-	cli = create_client(fd, device);
+	cp.enable_6lowpan = DEINIT_6LOWPAN;
+	if (mgmt_send(adapter->mgmt, MGMT_OP_ENABLE_6LOWPAN,
+			adapter->dev_id, sizeof(cp), &cp,
+			deinitialize_6lowpan_complete, adapter, NULL) > 0)
+		return true;
 
-	if (!cli) {
-		close(fd);
-		return btd_error_not_available(msg);
+	error("Failed to de-initialize BT 6Lowpan for index %u",
+		adapter->dev_id);
+	return false;
+}
+
+static void initialize_6lowpan_complete(uint8_t status, uint16_t length,
+	const void *param, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	bool initialized = TRUE;
+
+	if (status != MGMT_STATUS_SUCCESS)
+		error("Initialize BT 6lowpan failed for hci%u: %s (0x%02x)",
+			adapter->dev_id, mgmt_errstr(status), status);
+	else {
+		adapter_set_ipsp_init_state(adapter, initialized);
+		DBG("Initialize BT 6lowpan successfully for hci%u",
+			adapter->dev_id);
 	}
-	adapter->gatt_client = cli;
+}
+
+static bool initialize_6lowpan(struct btd_adapter *adapter)
+{
+	struct mgmt_cp_enable_6lowpan cp;
+
+	memset(&cp, 0, sizeof(cp));
+
+	cp.enable_6lowpan = INIT_6LOWPAN;
+	if (mgmt_send(adapter->mgmt, MGMT_OP_ENABLE_6LOWPAN,
+			adapter->dev_id, sizeof(cp), &cp,
+			initialize_6lowpan_complete, adapter, NULL) > 0)
+		return true;
+
+	error("Failed to initialize BT 6Lowpan for index %u",
+		adapter->dev_id);
+	return false;
+}
+
+static DBusMessage *adapter_initialize_ipsp(DBusConnection *conn,
+					DBusMessage *msg, void *data)
+{
+	struct btd_adapter *adapter = data;
+	dbus_bool_t err;
+
+	DBG("Initialize IPSP");
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
+
+	if (adapter->ipsp_intialized)
+		return btd_error_already_exists(msg);
+
+	/* Register IPSP service as GATT primary service */
+	err = gatt_register_internet_protocol_service(adapter);
+
+	if (!err)
+		return btd_error_failed(msg, "Failed to register IPSP service");
+
+	/* Enable BT 6lowpan in kernel */
+	err = initialize_6lowpan(adapter);
+
+	if (!err)
+		return btd_error_failed(msg, "Failed to initialize BT 6lowpan");
 
 	return dbus_message_new_method_return(msg);
 }
 
-static DBusMessage *disconnect_le(DBusConnection *conn,
-		DBusMessage *msg, void *user_data)
+static DBusMessage *adapter_deinitialize_ipsp(DBusConnection *conn,
+					DBusMessage *msg, void *data)
 {
-	struct btd_adapter *adapter = user_data;
-	struct btd_device *device;
-	const gchar *address;
-	bdaddr_t addr;
+	struct btd_adapter *adapter = data;
+	dbus_bool_t err;
 
-	if (dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &address,
-						DBUS_TYPE_INVALID) == FALSE)
-		return btd_error_invalid_args(msg);
+	DBG("De-initialize IPSP");
 
-	if (check_address(address) < 0)
-		return btd_error_invalid_args(msg);
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
 
-	DBG("%s", address);
-	str2ba(address, &addr);
+	if (!adapter->ipsp_intialized)
+		return btd_error_not_permitted(msg, "IPSP not initialized");
 
-	device = btd_adapter_find_device(adapter, &addr, BDADDR_LE_PUBLIC);
+	/* Un-register IPSP service as GATT primary service */
+	err = gatt_unregister_internet_protocol_service(adapter);
 
-	if (!device) {
-		DBG("Unable to get device object");
-		return btd_error_not_available(msg);
-	} else {
-		if (!device_get_gatt_connected(device))
-			return btd_error_not_connected(msg);
+	if (!err)
+		return btd_error_failed(msg, "Failed to un-register IPSP service");
 
-		if (btd_device_get_bdaddr_type(device) == BDADDR_BREDR)
-			return btd_error_not_supported(msg);
-	}
+	/* Disable BT 6lowpan in kernel */
+	err = deinitialize_6lowpan(adapter);
 
-	DBG("Disconnect LE device");
-	if (!disconnect_le_device(device))
-		return btd_error_failed(msg, "to disconnect LE device");
+	if (!err)
+		return btd_error_failed(msg, "Failed to deinitialize BT 6lowpan");
 
 	return dbus_message_new_method_return(msg);
 }
-
-static DBusMessage *discover_le_services(DBusConnection *conn,
-		DBusMessage *msg, void *user_data)
-{
-	DBusMessage *reply;
-	dbus_bool_t val;
-	struct btd_adapter *adapter = user_data;
-	struct btd_device *device;
-	const gchar *address;
-	bdaddr_t addr;
-
-	if (dbus_message_get_args(msg, NULL, DBUS_TYPE_STRING, &address,
-						DBUS_TYPE_INVALID) == FALSE)
-		return btd_error_invalid_args(msg);
-
-	if (check_address(address) < 0)
-		return btd_error_invalid_args(msg);
-
-	DBG("%s", address);
-	str2ba(address, &addr);
-
-	device = btd_adapter_find_device(adapter, &addr, BDADDR_LE_PUBLIC);
-
-	reply = dbus_message_new_method_return(msg);
-	if (!reply)
-		return btd_error_invalid_args(msg);
-
-	if (!device) {
-		DBG("Unable to get device object");
-		return btd_error_not_available(msg);
-	} else {
-		if (!device_get_gatt_connected(device))
-			return btd_error_not_connected(msg);
-
-		if (btd_device_get_bdaddr_type(device) == BDADDR_BREDR)
-			return btd_error_not_supported(msg);
-	}
-
-	val = bt_gatt_discover_services(adapter->gatt_client->gatt);
-
-	if(val == TRUE)
-		bt_gatt_client_set_ready_handler(adapter->gatt_client->gatt,
-				gatt_discover_services_cb, adapter, NULL);
-
-	dbus_message_append_args(reply,	DBUS_TYPE_BOOLEAN, &val,
-								DBUS_TYPE_INVALID);
-
-	return reply;
-}
-#endif /* BLUEZ5_GATT_CLIENT */
 #endif
 
 static DBusMessage *remove_device(DBusConnection *conn,
@@ -4224,32 +4666,67 @@ static const GDBusMethodTable adapter_methods[] = {
 			adapter_start_le_discovery) },
 	{ GDBUS_ASYNC_METHOD("StopLEDiscovery", NULL, NULL,
 			adapter_stop_le_discovery) },
+#if 0 // Not used
 	{ GDBUS_METHOD("EnableSecureConnection",
 			GDBUS_ARGS({"enable", "b"}), NULL,
 			write_sec_conn_host_support)},
+
 	{ GDBUS_METHOD("ReadSecureConnection", NULL,
 					NULL, read_sec_conn_host_support)},
+#endif
+
 	{ GDBUS_METHOD("SetAdvertising",
-			GDBUS_ARGS({ "enable", "b" }), NULL,
+			GDBUS_ARGS({ "enable", "b" },
+				{ "slot_id", "i" }), NULL,
 			adapter_set_advertising) },
 	{ GDBUS_METHOD("SetAdvertisingParameters",
 			GDBUS_ARGS({ "interval_min", "u" },
 				{ "interval_max", "u" },
 				{ "filter_policy", "u" },
-				{ "type", "u" }), NULL,
+				{ "type", "u" },
+				{ "slot_id", "i" }), NULL,
 			adapter_set_advertising_params) },
 	{ GDBUS_METHOD("SetAdvertisingData",
 			GDBUS_ARGS({ "value", "ay" },
-				{ "length", "i" }), NULL,
+				{ "slot_id", "i" }), NULL,
 			adapter_set_advertising_data) },
 	{ GDBUS_METHOD("SetScanParameters",
 			GDBUS_ARGS({ "type", "u" },
 				{ "interval", "u" },
 				{ "window", "u" }), NULL,
 			adapter_le_set_scan_params) },
+	{ GDBUS_ASYNC_METHOD("scan_filter_param_setup",
+			GDBUS_ARGS({ "client_if", "i" }, { "action", "i" },
+				{ "filt_index", "i" }, { "feat_seln", "i"},
+				{ "list_logic_type", "i" }, { "filt_logic_type", "i"},
+				{ "rssi_high_thres", "i" }, { "rssi_low_thres", "i"},
+				{ "dely_mode", "i" }, { "found_timeout", "i"},
+				{ "lost_timeout", "i" }, { "found_timeout_cnt", "i"}), NULL,
+			adapter_le_scan_filter_param_setup) },
+	{ GDBUS_ASYNC_METHOD("scan_filter_add_remove",
+			GDBUS_ARGS({ "client_if", "i" }, { "action", "i" },
+				{ "filt_type", "i" }, { "filt_index", "i"},
+				{ "company_id", "i" }, { "company_id_mask", "i"},
+				{ "p_uuid", "ay" }, { "p_uuid_mask", "ay" },
+				{ "string", "s" }, { "address_type", "u" },
+				/*{ "data_len", "i" },*/ { "p_data", "ay" },
+				/*{ "mask_len", "i" },*/ { "p_mask", "ay" }), NULL,
+			adapter_le_scan_filter_add_remove) },
+	{ GDBUS_ASYNC_METHOD("scan_filter_clear",
+			GDBUS_ARGS({ "client_if", "i" }, { "filt_index", "i" }), NULL,
+			adapter_le_scan_filter_clear) },
+	{ GDBUS_ASYNC_METHOD("scan_filter_enable",
+			GDBUS_ARGS({ "client_if", "i" }, { "enable", "b" }), NULL,
+			adapter_le_scan_filter_enable) },
+	{ GDBUS_ASYNC_METHOD("InitializeIpsp",
+			NULL, NULL,
+			adapter_initialize_ipsp) },
+	{ GDBUS_ASYNC_METHOD("DeinitializeIpsp",
+			NULL, NULL,
+			adapter_deinitialize_ipsp) },
 	{ GDBUS_METHOD("SetScanRespData",
 			GDBUS_ARGS({ "value", "ay" },
-				{ "length", "i" }), NULL,
+				{ "slot_id", "i" }), NULL,
 			adapter_set_scan_rsp_data) },
 	{ GDBUS_METHOD("AddDeviceWhiteList",
 			GDBUS_ARGS({ "address", "s" },
@@ -4299,18 +4776,6 @@ static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_ASYNC_METHOD("CreateDevice",
 			GDBUS_ARGS({ "address", "s" }), NULL,
 			create_device) },
-#ifdef BLUEZ5_GATT_CLIENT
-	{ GDBUS_METHOD("ConnectLE",
-			GDBUS_ARGS({ "address", "s"}),
-			NULL, connect_le) },
-	{ GDBUS_METHOD("DisconnectLE",
-			GDBUS_ARGS({ "address", "s"}),
-			NULL, disconnect_le) },
-	{ GDBUS_METHOD("DiscoverLEServices",
-			GDBUS_ARGS({ "address", "s"}),
-			GDBUS_ARGS({ "result", "b"}),
-			discover_le_services) },
-#endif
 #endif
 	{ GDBUS_ASYNC_METHOD("RemoveDevice",
 			GDBUS_ARGS({ "device", "o" }), NULL, remove_device) },
@@ -4319,6 +4784,9 @@ static const GDBusMethodTable adapter_methods[] = {
 
 #ifdef __TIZEN_PATCH__
 static const GDBusSignalTable adapter_signals[] = {
+	{ GDBUS_SIGNAL("AdvertisingEnabled",
+			GDBUS_ARGS({ "slot_id", "i" },
+					{ "enabled", "b"})) },
 	{ GDBUS_SIGNAL("RssiEnabled",
 			GDBUS_ARGS({"address","s"},
 					{ "link_type", "i" },
@@ -4359,11 +4827,14 @@ static const GDBusPropertyTable adapter_properties[] = {
 	{ "Modalias", "s", property_get_modalias, NULL,
 					property_exists_modalias },
 #ifdef __TIZEN_PATCH__
-	{ "Advertising", "b", property_get_advertising },
+#if 0 // Not used
 	{ "SecureConnection", "b", property_get_secure_connection },
+#endif
 	{ "Connectable", "b", property_get_connectable,
 					property_set_connectable },
 	{ "Version", "s", property_get_version },
+	{ "SupportedLEFeatures", "as", property_get_supported_le_features},
+	{ "IpspInitStateChanged", "b", property_get_ipsp_init_state},
 #endif
 
 	{ }
@@ -5217,6 +5688,14 @@ bool btd_adapter_get_connectable(struct btd_adapter *adapter)
 		return true;
 
 	return false;
+}
+
+struct btd_gatt_database *btd_adapter_get_database(struct btd_adapter *adapter)
+{
+	if (!adapter)
+		return NULL;
+
+	return adapter->database;
 }
 
 uint32_t btd_adapter_get_class(struct btd_adapter *adapter)
@@ -6079,6 +6558,7 @@ static void convert_sdp_entry(char *key, char *value, void *user_data)
 	if (record_has_uuid(rec, att_uuid))
 		goto failed;
 
+	/* TODO: Do this through btd_gatt_database */
 	if (!gatt_parse_record(rec, &uuid, &psm, &start, &end))
 		goto failed;
 
@@ -6615,6 +7095,9 @@ static struct btd_adapter *btd_adapter_new(uint16_t index)
 static void adapter_remove(struct btd_adapter *adapter)
 {
 	GSList *l;
+#ifndef __TIZEN_PATCH__
+	struct gatt_db *db;
+#endif
 
 	DBG("Removing adapter %s", adapter->path);
 
@@ -6640,7 +7123,17 @@ static void adapter_remove(struct btd_adapter *adapter)
 	adapter->devices = NULL;
 
 	unload_drivers(adapter);
+
+#ifndef __TIZEN_PATCH__
+	db = btd_gatt_database_get_db(adapter->database);
+	gatt_db_unregister(db, adapter->db_id);
+	adapter->db_id = 0;
+
+	btd_gatt_database_destroy(adapter->database);
+	adapter->database = NULL;
+#else
 	btd_adapter_gatt_server_stop(adapter);
+#endif
 
 	g_slist_free(adapter->pin_callbacks);
 	adapter->pin_callbacks = NULL;
@@ -6857,6 +7350,7 @@ static void update_found_devices(struct btd_adapter *adapter,
 	}
 
 	device_set_last_addr_type(dev, bdaddr_type);
+	device_set_ipsp_connected(dev, FALSE);
 #else
 	if (device_is_temporary(dev) && !adapter->discovery_list) {
 		eir_data_free(&eir_data);
@@ -7176,11 +7670,7 @@ static void adapter_stop(struct btd_adapter *adapter)
 	}
 
 #ifdef __TIZEN_PATCH__
-	if (adapter->advertising) {
-		adapter->advertising = FALSE;
-		g_dbus_emit_property_changed(dbus_conn, adapter->path,
-					ADAPTER_INTERFACE, "Advertising");
-	}
+	advertiser_cleanup(adapter);
 #endif
 	g_dbus_emit_property_changed(dbus_conn, adapter->path,
 						ADAPTER_INTERFACE, "Powered");
@@ -7267,11 +7757,6 @@ static gboolean process_auth_queue(gpointer user_data)
 		if (auth->svc_id > 0)
 			return FALSE;
 
-		if (device_is_service_blocked(device, auth->uuid)) {
-			auth->cb(&err, auth->user_data);
-			goto next;
-		}
-
 /* The below patch should be removed after we provide the API
  * to control autorization for the specific UUID.
  */
@@ -7294,7 +7779,7 @@ static gboolean process_auth_queue(gpointer user_data)
 		dev_path = device_get_path(device);
 
 		if (agent_authorize_service(auth->agent, dev_path, auth->uuid,
-					agent_auth_cb, adapter, NULL, auth->fd) < 0) {
+					agent_auth_cb, adapter, NULL) < 0) {
 			auth->cb(&err, auth->user_data);
 			goto next;
 		}
@@ -7330,7 +7815,7 @@ static void svc_complete(struct btd_device *dev, int err, void *user_data)
 
 static int adapter_authorize(struct btd_adapter *adapter, const bdaddr_t *dst,
 					const char *uuid, service_auth_cb cb,
-					void *user_data, int fd)
+					void *user_data)
 {
 	struct service_auth *auth;
 	struct btd_device *device;
@@ -7354,7 +7839,6 @@ static int adapter_authorize(struct btd_adapter *adapter, const bdaddr_t *dst,
 	auth->device = device;
 	auth->adapter = adapter;
 	auth->id = ++id;
-	auth->fd = fd;
 	auth->svc_id = device_wait_for_svc_complete(device, svc_complete, auth);
 
 	g_queue_push_tail(adapter->auths, auth);
@@ -7364,7 +7848,7 @@ static int adapter_authorize(struct btd_adapter *adapter, const bdaddr_t *dst,
 
 guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
 					const char *uuid, service_auth_cb cb,
-					void *user_data, int fd)
+					void *user_data)
 {
 	struct btd_adapter *adapter;
 	GSList *l;
@@ -7374,7 +7858,7 @@ guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
 		if (!adapter)
 			return 0;
 
-		return adapter_authorize(adapter, dst, uuid, cb, user_data, fd);
+		return adapter_authorize(adapter, dst, uuid, cb, user_data);
 	}
 
 	for (l = adapters; l != NULL; l = g_slist_next(l)) {
@@ -7382,7 +7866,7 @@ guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
 
 		adapter = l->data;
 
-		id = adapter_authorize(adapter, dst, uuid, cb, user_data, fd);
+		id = adapter_authorize(adapter, dst, uuid, cb, user_data);
 		if (id != 0)
 			return id;
 	}
@@ -7896,6 +8380,7 @@ void adapter_check_version(struct btd_adapter *adapter, uint8_t hci_ver)
 	adapter->version = g_strdup(ver);
 }
 
+#if 0 // Not used
 static void new_local_irk_callback(uint16_t index, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -7913,6 +8398,7 @@ static void new_local_irk_callback(uint16_t index, uint16_t length,
 	memcpy(adapter->local_irk, (char *)ev->irk, sizeof(adapter->local_irk));
 	store_adapter_info(adapter);
 }
+#endif
 
 static void hardware_error_callback(uint16_t index, uint16_t length,
 		const void *param, void *user_data)
@@ -7949,7 +8435,7 @@ static void device_name_update_callback(uint16_t index, uint16_t length,
 	struct btd_adapter *adapter = user_data;
 	struct btd_device *device;
 	char addr[18];
-	const char *eir_name;
+	const uint8_t *eir_name;
 	struct eir_data eir_data;
 
 	if (length < sizeof(*ev)) {
@@ -7979,6 +8465,57 @@ static void device_name_update_callback(uint16_t index, uint16_t length,
 		btd_device_device_set_name(device, eir_data.name);
 
 	eir_data_free(&eir_data);
+}
+
+static void multi_adv_state_change_callback(uint16_t index, uint16_t length,
+					const void *param, void *user_data)
+{
+	const struct mgmt_ev_vendor_specific_multi_adv_state_changed *ev = param;
+
+	if (length < sizeof(*ev)) {
+		error("Too small adv state change event");
+		return;
+	}
+
+	DBG("adv id %d, state change reason %d, connection_handle %x",
+		ev->adv_instance, ev->state_change_reason, ev->connection_handle);
+
+	if ((ev->adv_instance > 0 && ev->adv_instance < adapter_le_get_max_adv_instance()) &&
+			ev->state_change_reason == 0)
+		adapter_le_enable_multi_adv(TRUE, ev->adv_instance);
+}
+
+static void bt_6lowpan_conn_state_change_callback(uint16_t index, uint16_t length,
+					const void *param, void *user_data)
+{
+	const struct mgmt_ev_6lowpan_conn_state_changed *ev = param;
+	struct btd_adapter *adapter = user_data;
+	struct btd_device *device;
+	char addr[18];
+	gboolean connected = 0;
+
+	if (length < sizeof(*ev)) {
+		error("Too small device connected event");
+		return;
+	}
+
+	ba2str(&ev->addr.bdaddr, addr);
+
+	DBG("hci%u device %s", index, addr);
+
+	device = btd_adapter_find_device(adapter, &ev->addr.bdaddr,
+								ev->addr.type);
+	if (!device) {
+		error("Unable to get device object for %s", addr);
+		return;
+	}
+
+	if (ev->connected)
+		connected = TRUE;
+	else
+		connected = FALSE;
+
+	device_set_ipsp_connected(device, connected);
 }
 #endif
 
@@ -8634,7 +9171,7 @@ static void new_long_term_key_callback(uint16_t index, uint16_t length,
 
 static void store_csrk(const bdaddr_t *local, const bdaddr_t *peer,
 				uint8_t bdaddr_type, const unsigned char *key,
-				uint8_t master)
+				uint32_t counter, uint8_t type)
 {
 	const char *group;
 	char adapter_addr[18];
@@ -8643,15 +9180,29 @@ static void store_csrk(const bdaddr_t *local, const bdaddr_t *peer,
 	GKeyFile *key_file;
 	char key_str[33];
 	gsize length = 0;
+	gboolean auth;
 	char *str;
 	int i;
 
-	if (master == 0x00)
+	switch (type) {
+	case 0x00:
 		group = "LocalSignatureKey";
-	else if (master == 0x01)
+		auth = FALSE;
+		break;
+	case 0x01:
 		group = "RemoteSignatureKey";
-	else {
-		warn("Unsupported CSRK type %u", master);
+		auth = FALSE;
+		break;
+	case 0x02:
+		group = "LocalSignatureKey";
+		auth = TRUE;
+		break;
+	case 0x03:
+		group = "RemoteSignatureKey";
+		auth = TRUE;
+		break;
+	default:
+		warn("Unsupported CSRK type %u", type);
 		return;
 	}
 
@@ -8668,6 +9219,8 @@ static void store_csrk(const bdaddr_t *local, const bdaddr_t *peer,
 		sprintf(key_str + (i * 2), "%2.2X", key[i]);
 
 	g_key_file_set_string(key_file, group, "Key", key_str);
+	g_key_file_set_integer(key_file, group, "Counter", counter);
+	g_key_file_set_boolean(key_file, group, "Authenticated", auth);
 
 	create_file(filename, S_IRUSR | S_IWUSR);
 
@@ -8696,8 +9249,8 @@ static void new_csrk_callback(uint16_t index, uint16_t length,
 
 	ba2str(&addr->bdaddr, dst);
 
-	DBG("hci%u new CSRK for %s master %u", adapter->dev_id, dst,
-								ev->key.master);
+	DBG("hci%u new CSRK for %s type %u", adapter->dev_id, dst,
+								ev->key.type);
 
 	device = btd_adapter_get_device(adapter, &addr->bdaddr, addr->type);
 	if (!device) {
@@ -8708,8 +9261,8 @@ static void new_csrk_callback(uint16_t index, uint16_t length,
 	if (!ev->store_hint)
 		return;
 
-	store_csrk(bdaddr, &key->addr.bdaddr, key->addr.type, key->val,
-								key->master);
+	store_csrk(bdaddr, &key->addr.bdaddr, key->addr.type, key->val, 0,
+								key->type);
 
 	if (device_is_temporary(device))
 		btd_device_set_temporary(device, FALSE);
@@ -9077,9 +9630,22 @@ static int set_did(struct btd_adapter *adapter, uint16_t vendor,
 	return -EIO;
 }
 
+#ifndef __TIZEN_PATCH__
+static void services_modified(struct gatt_db_attribute *attrib, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+
+	g_dbus_emit_property_changed(dbus_conn, adapter->path,
+						ADAPTER_INTERFACE, "UUIDs");
+}
+#endif
+
 static int adapter_register(struct btd_adapter *adapter)
 {
 	struct agent *agent;
+#ifndef __TIZEN_PATCH__
+	struct gatt_db *db;
+#endif
 
 	if (powering_down)
 		return -EBUSY;
@@ -9114,7 +9680,21 @@ static int adapter_register(struct btd_adapter *adapter)
 		agent_unref(agent);
 	}
 
+#ifndef __TIZEN_PATCH__
+	adapter->database = btd_gatt_database_new(adapter);
+	if (!adapter->database) {
+		error("Failed to create GATT database for adapter");
+		adapters = g_slist_remove(adapters, adapter);
+		return -EINVAL;
+	}
+
+	db = btd_gatt_database_get_db(adapter->database);
+	adapter->db_id = gatt_db_register(db, services_modified,
+							services_modified,
+							adapter, NULL);
+#else
 	btd_adapter_gatt_server_start(adapter);
+#endif
 
 	load_config(adapter);
 	fix_storage(adapter);
@@ -9204,6 +9784,7 @@ static void connected_callback(uint16_t index, uint16_t length,
 	struct eir_data eir_data;
 	uint16_t eir_len;
 	char addr[18];
+	bool name_known;
 
 	if (length < sizeof(*ev)) {
 		error("Too small device connected event");
@@ -9236,7 +9817,9 @@ static void connected_callback(uint16_t index, uint16_t length,
 
 	adapter_add_connection(adapter, device, ev->addr.type);
 
-	if (eir_data.name != NULL) {
+	name_known = device_name_known(device);
+
+	if (eir_data.name && (eir_data.name_complete || !name_known)) {
 		device_store_cached_name(device, eir_data.name);
 		btd_device_device_set_name(device, eir_data.name);
 	}
@@ -9467,6 +10050,44 @@ static bool set_privacy(struct btd_adapter *adapter, bool privacy)
 
 	return false;
 }
+
+int btd_adapter_connect_ipsp(struct btd_adapter *adapter,
+						const bdaddr_t *bdaddr,
+						uint8_t bdaddr_type)
+
+{
+	struct mgmt_cp_connect_6lowpan cp;
+
+	memset(&cp, 0, sizeof(cp));
+	bacpy(&cp.addr.bdaddr, bdaddr);
+	cp.addr.type = bdaddr_type;
+
+	if (mgmt_send(adapter->mgmt, MGMT_OP_CONNECT_6LOWPAN,
+				adapter->dev_id, sizeof(cp), &cp,
+				NULL, NULL, NULL) > 0)
+		return 0;
+
+	return -EIO;
+}
+
+int btd_adapter_disconnect_ipsp(struct btd_adapter *adapter,
+						const bdaddr_t *bdaddr,
+						uint8_t bdaddr_type)
+
+{
+	struct mgmt_cp_disconnect_6lowpan cp;
+
+	memset(&cp, 0, sizeof(cp));
+	bacpy(&cp.addr.bdaddr, bdaddr);
+	cp.addr.type = bdaddr_type;
+
+	if (mgmt_send(adapter->mgmt, MGMT_OP_DISCONNECT_6LOWPAN,
+				adapter->dev_id, sizeof(cp), &cp,
+				NULL, NULL, NULL) > 0)
+		return 0;
+
+	return -EIO;
+}
 #endif
 
 static void clear_devices_complete(uint8_t status, uint16_t length,
@@ -9588,8 +10209,10 @@ static void read_info_complete(uint8_t status, uint16_t length,
 		break;
 	}
 
+#if 0
 	if (missing_settings & MGMT_SETTING_SECURE_CONN)
 		set_mode(adapter, MGMT_OP_SET_SECURE_CONN, 0x01);
+#endif
 
 	err = adapter_register(adapter);
 	if (err < 0) {
@@ -9733,10 +10356,12 @@ static void read_info_complete(uint8_t status, uint16_t length,
 							rssi_disabled_callback,
 							adapter, NULL);
 
+#if 0 // Not used
 	mgmt_register(adapter->mgmt, MGMT_EV_NEW_LOCAL_IRK,
 						adapter->dev_id,
 						new_local_irk_callback,
 						adapter, NULL);
+#endif
 
 	mgmt_register(adapter->mgmt, MGMT_EV_HARDWARE_ERROR,
 						adapter->dev_id,
@@ -9752,6 +10377,16 @@ static void read_info_complete(uint8_t status, uint16_t length,
 					adapter->dev_id,
 					device_name_update_callback,
 					adapter, NULL);
+
+	mgmt_register(adapter->mgmt, MGMT_EV_MULTI_ADV_STATE_CHANGED,
+				adapter->dev_id,
+				multi_adv_state_change_callback,
+				adapter, NULL);
+
+	mgmt_register(adapter->mgmt, MGMT_EV_6LOWPAN_CONN_STATE_CHANGED,
+						adapter->dev_id,
+						bt_6lowpan_conn_state_change_callback,
+						adapter, NULL);
 #endif
 
 	set_dev_class(adapter);
@@ -10104,6 +10739,7 @@ bool btd_le_connect_before_pairing(void)
 }
 
 #ifdef __TIZEN_PATCH__
+#if 0 // Not used
 static void read_rssi_complete(uint8_t status, uint16_t length,
 					const void *param, void *user_data)
 {
@@ -10240,6 +10876,7 @@ int btd_adapter_read_auth_payload_timeout(struct btd_adapter *adapter,
 			return 0;
 	return -EIO;
 }
+#endif
 
 int btd_adapter_le_conn_update(struct btd_adapter *adapter, bdaddr_t *bdaddr,
 				uint16_t interval_min, uint16_t interval_max,

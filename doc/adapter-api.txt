@@ -302,10 +302,6 @@ Properties	string Address [readonly]
 
 			Indicates that a device LE discovery procedure is active.
 
-		boolean Advertising [readonly]
-
-			Indicates that a advertising procedure is active.
-
 		string Version [readonly]
 
 			 The Bluetooth version.

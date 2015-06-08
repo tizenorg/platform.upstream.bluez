@@ -22,13 +22,15 @@
  *
  */
 
+#include <stdbool.h>
+#include <dbus/dbus.h>
+#include <glib.h>
+#ifdef __TIZEN_PATCH__
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/sdp.h>
 #include <bluetooth/hci.h>
 #include <bluetooth/hci_lib.h>
-#include <dbus/dbus.h>
-#include <glib.h>
-#include <stdbool.h>
+#endif
 
 #define MAX_NAME_LENGTH		248
 
@@ -86,6 +88,8 @@ bool btd_adapter_get_pairable(struct btd_adapter *adapter);
 bool btd_adapter_get_powered(struct btd_adapter *adapter);
 bool btd_adapter_get_connectable(struct btd_adapter *adapter);
 
+struct btd_gatt_database *btd_adapter_get_database(struct btd_adapter *adapter);
+
 uint32_t btd_adapter_get_class(struct btd_adapter *adapter);
 const char *btd_adapter_get_name(struct btd_adapter *adapter);
 void btd_adapter_remove_device(struct btd_adapter *adapter,
@@ -127,7 +131,7 @@ void adapter_remove_profile(struct btd_adapter *adapter, gpointer p);
 int btd_register_adapter_driver(struct btd_adapter_driver *driver);
 void btd_unregister_adapter_driver(struct btd_adapter_driver *driver);
 guint btd_request_authorization(const bdaddr_t *src, const bdaddr_t *dst,
-		const char *uuid, service_auth_cb cb, void *user_data, int fd);
+		const char *uuid, service_auth_cb cb, void *user_data);
 int btd_cancel_authorization(guint id);
 
 int btd_adapter_restore_powered(struct btd_adapter *adapter);
@@ -236,17 +240,22 @@ void btd_adapter_for_each_device(struct btd_adapter *adapter,
 bool btd_le_connect_before_pairing(void);
 
 #ifdef __TIZEN_PATCH__
+#if 0 // Not used
 int btd_adapter_read_rssi(struct btd_adapter *adapter, bdaddr_t *bdaddr,
 			struct btd_device *device);
+
 int btd_adapter_l2cap_conn_param_update(struct btd_adapter *adapter,
 			bdaddr_t *bdaddr, uint16_t interval_min,
 			uint16_t interval_max, uint16_t latency,
 			uint16_t supervision_time_out);
+
 int btd_adapter_write_auth_payload_timeout(struct btd_adapter *adapter,
 				bdaddr_t *bdaddr, uint32_t payload_timeout,
 				struct btd_device *device);
 int btd_adapter_read_auth_payload_timeout(struct btd_adapter *adapter,
 				bdaddr_t *bdaddr, struct btd_device *device);
+#endif
+
 int btd_adapter_le_conn_update(struct btd_adapter *adapter, bdaddr_t *bdaddr,
 			uint16_t interval_min, uint16_t interval_max,
 			uint16_t latency, uint16_t supervision_time_out);
@@ -258,4 +267,11 @@ void btd_adapter_set_le_auto_connect(struct btd_adapter *adapter, gboolean auto_
 gboolean btd_adapter_disable_le_auto_connect(struct btd_adapter *adapter);
 void adapter_check_version(struct btd_adapter *adapter, uint8_t hci_ver);
 GSList *btd_adapter_get_connections(struct btd_adapter *adapter);
+int btd_adapter_connect_ipsp(struct btd_adapter *adapter,
+						const bdaddr_t *bdaddr,
+						uint8_t bdaddr_type);
+int btd_adapter_disconnect_ipsp(struct btd_adapter *adapter,
+						const bdaddr_t *bdaddr,
+						uint8_t bdaddr_type);
+
 #endif

@@ -43,11 +43,12 @@
 
 #include <glib.h>
 
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+
 #include "src/log.h"
 #include "src/sdpd.h"
 #include "src/shared/util.h"
-
-#include "lib/bluetooth.h"
 
 #include "ipc-common.h"
 #include "ipc.h"
@@ -70,7 +71,7 @@
 #define DEFAULT_NAME "BlueZ for Android"
 
 #define STARTUP_GRACE_SECONDS 5
-#define SHUTDOWN_GRACE_SECONDS 10
+#define SHUTDOWN_GRACE_SECONDS 5
 
 static char *config_vendor = NULL;
 static char *config_model = NULL;

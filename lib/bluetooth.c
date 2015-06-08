@@ -1141,6 +1141,104 @@ const char *bt_compidtostr(int compid)
 		return "LM Technologies Ltd";
 	case 439:
 		return "General Electric Company";
+	case 440:
+		return "i+D3 S.L.";
+	case 441:
+		return "HANA Micron";
+	case 442:
+		return "Stages Cycling LLC";
+	case 443:
+		return "Cochlear Bone Anchored Solutions AB";
+	case 444:
+		return "SenionLab AB";
+	case 445:
+		return "Syszone Co., Ltd";
+	case 446:
+		return "Pulsate Mobile Ltd.";
+	case 447:
+		return "Hong Kong HunterSun Electronic Limited";
+	case 448:
+		return "pironex GmbH";
+	case 449:
+		return "BRADATECH Corp.";
+	case 450:
+		return "Transenergooil AG";
+	case 451:
+		return "Bunch";
+	case 452:
+		return "DME Microelectronics";
+	case 453:
+		return "Bitcraze AB";
+	case 454:
+		return "HASWARE Inc.";
+	case 455:
+		return "Abiogenix Inc.";
+	case 456:
+		return "Poly-Control ApS";
+	case 457:
+		return "Avi-on";
+	case 458:
+		return "Laerdal Medical AS";
+	case 459:
+		return "Fetch My Pet";
+	case 460:
+		return "Sam Labs Ltd.";
+	case 461:
+		return "Chengdu Synwing Technology Ltd";
+	case 462:
+		return "HOUWA SYSTEM DESIGN, k.k.";
+	case 463:
+		return "BSH";
+	case 464:
+		return "Primus Inter Pares Ltd";
+	case 465:
+		return "August";
+	case 466:
+		return "Gill Electronics";
+	case 467:
+		return "Sky Wave Design";
+	case 468:
+		return "Newlab S.r.l.";
+	case 469:
+		return "ELAD srl";
+	case 470:
+		return "G-wearables inc.";
+	case 471:
+		return "Squadrone Systems Inc.";
+	case 472:
+		return "Code Corporation";
+	case 473:
+		return "Savant Systems LLC";
+	case 474:
+		return "Logitech International SA";
+	case 475:
+		return "Innblue Consulting";
+	case 476:
+		return "iParking Ltd.";
+	case 477:
+		return "Koninklijke Philips Electronics N.V.";
+	case 478:
+		return "Minelab Electronics Pty Limited";
+	case 479:
+		return "Bison Group Ltd.";
+	case 480:
+		return "Widex A/S";
+	case 481:
+		return "Jolla Ltd";
+	case 482:
+		return "Lectronix, Inc.";
+	case 483:
+		return "Caterpillar Inc";
+	case 484:
+		return "Freedom Innovations";
+	case 485:
+		return "Dynamic Devices Ltd";
+	case 486:
+		return "Technology Solutions (UK) Ltd";
+	case 487:
+		return "IPS Group Inc.";
+	case 488:
+		return "STIR";
 	case 65535:
 		return "internal use";
 	default:

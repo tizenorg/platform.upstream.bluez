@@ -33,17 +33,16 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hidp.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
+#include "lib/bluetooth.h"
+#include "lib/hidp.h"
+#include "lib/sdp.h"
+#include "lib/sdp_lib.h"
+#include "lib/uuid.h"
 
-#include <gdbus/gdbus.h>
-
-#include "src/log.h"
+#include "gdbus/gdbus.h"
 
 #include "btio/btio.h"
-#include "lib/uuid.h"
+#include "src/log.h"
 #include "src/adapter.h"
 #include "src/device.h"
 #include "src/profile.h"
@@ -1341,29 +1340,8 @@ static gboolean property_get_reconnect_mode(
 	return TRUE;
 }
 
-static gboolean property_get_connected(const GDBusPropertyTable *property,
-					DBusMessageIter *iter, void *data)
-{
-	struct input_device *idev = data;
-	dbus_bool_t connected;
-
-	if (idev->service == NULL)
-		return FALSE;
-
-	if (btd_service_get_state(idev->service)
-				== BTD_SERVICE_STATE_CONNECTED) {
-		connected = true;
-	} else
-		connected = false;
-
-	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &connected);
-
-	return TRUE;
-}
-
 static const GDBusPropertyTable input_properties[] = {
 	{ "ReconnectMode", "s", property_get_reconnect_mode },
-	{ "Connected", "b", property_get_connected },
 	{ }
 };
 

@@ -29,17 +29,16 @@
 #include <stdbool.h>
 #include <errno.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/sdp.h>
-
 #include <glib.h>
 #include <dbus/dbus.h>
 
-#include "src/log.h"
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+#include "lib/uuid.h"
 
+#include "src/log.h"
 #include "src/uuid-helper.h"
 #include "btio/btio.h"
-#include "lib/uuid.h"
 #include "src/adapter.h"
 #include "src/device.h"
 #include "src/profile.h"
@@ -270,7 +269,7 @@ static void confirm_event_cb(GIOChannel *chan, gpointer user_data)
 	bacpy(&server->confirm->dst, &dst);
 
 	ret = btd_request_authorization(&src, &dst, HID_UUID,
-					auth_callback, server, 0);
+					auth_callback, server);
 	if (ret != 0)
 		return;
 

@@ -127,7 +127,7 @@ static char *event_str[EVENT_NUM + 1] = {
 	"AMP Status Change",
 };
 
-#define LE_EV_NUM 5
+#define LE_EV_NUM 11
 static char *ev_le_meta_str[LE_EV_NUM + 1] = {
 	"Unknown",
 	"LE Connection Complete",
@@ -135,6 +135,12 @@ static char *ev_le_meta_str[LE_EV_NUM + 1] = {
 	"LE Connection Update Complete",
 	"LE Read Remote Used Features Complete",
 	"LE Long Term Key Request",
+	"LE Remote Connection Parameter Request",
+	"LE Data Length Change",
+	"LE Read Local P-256 Public Key Complete",
+	"LE Generate DHKey Complete",
+	"LE Enhanced Connection Complete",
+	"LE Direct Advertising Report",
 };
 
 #define CMD_LINKCTL_NUM 60
@@ -446,9 +452,9 @@ static char *error_code_str[ERROR_CODE_NUM + 1] = {
 	"SCO Offset Rejected",
 	"SCO Interval Rejected",
 	"SCO Air Mode Rejected",
-	"Invalid LMP Parameters",
+	"Invalid LMP Parameters / Invalid LL Parameters",
 	"Unspecified Error",
-	"Unsupported LMP Parameter Value",
+	"Unsupported LMP Parameter Value / Unsupported LL Parameter Value",
 	"Role Change Not Allowed",
 	"LMP Response Timeout",
 	"LMP Error Transaction Collision",
@@ -475,7 +481,7 @@ static char *error_code_str[ERROR_CODE_NUM + 1] = {
 	"Host Busy - Pairing",
 	"Connection Rejected due to No Suitable Channel Found",
 	"Controller Busy",
-	"Unacceptable Connection Interval",
+	"Unacceptable Connection Parameters",
 	"Directed Advertising Timeout",
 	"Connection Terminated Due to MIC Failure",
 	"Connection Failed to be Established",
@@ -3667,7 +3673,11 @@ static inline void le_meta_ev_dump(int level, struct frame *frm)
 	frm->len -= EVT_LE_META_EVENT_SIZE;
 
 	p_indent(level, frm);
-	printf("%s\n", ev_le_meta_str[subevent]);
+
+	if (subevent <= LE_EV_NUM)
+		printf("%s\n", ev_le_meta_str[subevent]);
+	else
+		printf("%s\n", ev_le_meta_str[0]);
 
 	switch (mevt->subevent) {
 	case EVT_LE_CONN_COMPLETE:

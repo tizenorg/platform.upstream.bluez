@@ -33,12 +33,13 @@
 #include <sys/socket.h>
 #include <sys/ioctl.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/sdp.h>
-
 #include <glib.h>
 #include <dbus/dbus.h>
-#include <gdbus/gdbus.h>
+
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+
+#include "gdbus/gdbus.h"
 
 #include "log.h"
 #include "error.h"
@@ -383,9 +384,8 @@ done:
 
 static int agent_call_authorize_service(struct agent_request *req,
 						const char *device_path,
-						const char *uuid, const int fd)
+						const char *uuid)
 {
-	DBusMessageIter iter, dict;
 	struct agent *agent = req->agent;
 
 	req->msg = dbus_message_new_method_call(agent->owner, agent->path,
@@ -395,14 +395,10 @@ static int agent_call_authorize_service(struct agent_request *req,
 		return -ENOMEM;
 	}
 
-	dbus_message_iter_init_append(req->msg, &iter);
-
-	dbus_message_iter_append_basic(&iter, DBUS_TYPE_OBJECT_PATH,
-						&device_path);
-
-	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &uuid);
-
-	dbus_message_iter_append_basic(&iter, DBUS_TYPE_UNIX_FD, &fd);
+	dbus_message_append_args(req->msg,
+				DBUS_TYPE_OBJECT_PATH, &device_path,
+				DBUS_TYPE_STRING, &uuid,
+				DBUS_TYPE_INVALID);
 
 	if (g_dbus_send_message_with_reply(btd_get_dbus_connection(),
 						req->msg, &req->call,
@@ -417,7 +413,7 @@ static int agent_call_authorize_service(struct agent_request *req,
 
 int agent_authorize_service(struct agent *agent, const char *path,
 				const char *uuid, agent_cb cb,
-				void *user_data, GDestroyNotify destroy, int fd)
+				void *user_data, GDestroyNotify destroy)
 {
 	struct agent_request *req;
 	int err;
@@ -428,7 +424,7 @@ int agent_authorize_service(struct agent *agent, const char *path,
 	req = agent_request_new(agent, AGENT_REQUEST_AUTHORIZE_SERVICE, cb,
 							user_data, destroy);
 
-	err = agent_call_authorize_service(req, path, uuid, fd);
+	err = agent_call_authorize_service(req, path, uuid);
 	if (err < 0) {
 		agent_request_free(req, FALSE);
 		return -ENOMEM;

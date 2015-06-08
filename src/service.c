@@ -35,11 +35,10 @@
 #include <sys/ioctl.h>
 #include <errno.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
-
 #include <glib.h>
+
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
 
 #include "log.h"
 
@@ -55,10 +54,6 @@ struct btd_service {
 	void			*user_data;
 	btd_service_state_t	state;
 	int			err;
-	uint16_t		start_handle;
-	uint16_t		end_handle;
-	bool			auto_connect;
-	bool			blocked;
 };
 
 struct service_state_callback {
@@ -150,28 +145,7 @@ struct btd_service *service_create(struct btd_device *device,
 	service->ref = 1;
 	service->device = device; /* Weak ref */
 	service->profile = profile;
-	service->auto_connect = profile->auto_connect;
 	service->state = BTD_SERVICE_STATE_UNAVAILABLE;
-
-	return service;
-}
-
-struct btd_service *service_create_gatt(struct btd_device *device,
-						struct btd_profile *profile,
-						uint16_t start_handle,
-						uint16_t end_handle)
-{
-	struct btd_service *service;
-
-	if (!start_handle || !end_handle || start_handle > end_handle)
-		return NULL;
-
-	service = service_create(device, profile);
-	if (!service)
-		return NULL;
-
-	service->start_handle = start_handle;
-	service->end_handle = end_handle;
 
 	return service;
 }
@@ -197,6 +171,7 @@ int service_probe(struct btd_service *service)
 
 void service_remove(struct btd_service *service)
 {
+	change_state(service, BTD_SERVICE_STATE_DISCONNECTED, -ECONNABORTED);
 	change_state(service, BTD_SERVICE_STATE_UNAVAILABLE, 0);
 	service->profile->device_remove(service);
 	service->device = NULL;
@@ -328,67 +303,6 @@ btd_service_state_t btd_service_get_state(const struct btd_service *service)
 int btd_service_get_error(const struct btd_service *service)
 {
 	return service->err;
-}
-
-uint16_t btd_service_get_version(const struct btd_service *service)
-{
-	const sdp_record_t *rec;
-	sdp_list_t *list;
-	sdp_profile_desc_t *desc;
-	uint16_t version;
-
-	if (!service->profile->version)
-		return 0;
-
-	rec = btd_device_get_record(service->device,
-					service->profile->remote_uuid);
-	if (rec == NULL)
-		return 0;
-
-	if (sdp_get_profile_descs(rec, &list) < 0)
-		return 0;
-
-	desc = list->data;
-	version = desc->version;
-	sdp_list_free(list, free);
-
-	return MIN(version, service->profile->version);
-}
-
-void btd_service_set_auto_connect(struct btd_service *service, bool value)
-{
-	service->auto_connect = value;
-}
-
-bool btd_service_get_auto_connect(const struct btd_service *service)
-{
-	return service->auto_connect;
-}
-
-void btd_service_set_blocked(struct btd_service *service, bool value)
-{
-	service->blocked = value;
-}
-
-bool btd_service_is_blocked(const struct btd_service *service)
-{
-	return service->blocked;
-}
-
-bool btd_service_get_gatt_handles(const struct btd_service *service,
-							uint16_t *start_handle,
-							uint16_t *end_handle)
-{
-	if (!service || !service->start_handle || !service->end_handle)
-		return false;
-
-	if (start_handle)
-		*start_handle = service->start_handle;
-
-	if (end_handle)
-		*end_handle = service->end_handle;
-
-	return true;
 }
 
 unsigned int btd_service_add_state_cb(btd_service_state_cb cb, void *user_data)

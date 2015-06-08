@@ -80,7 +80,7 @@ void attrib_remove_service(struct btd_adapter *adapter, uint16_t start_handle,
 							uint16_t end_handle);
 bool gatt_update_db(struct btd_adapter *adapter, const bt_uuid_t *uuid,
 					uint8_t *value, size_t len);
-bool gatt_send_noty_ind(struct btd_adapter *adapter, bt_uuid_t *uuid,
+bool gatt_send_noty_ind(struct btd_adapter *adapter, const bt_uuid_t *uuid,
 					uint8_t *value, size_t len);
 bool gatt_send_service_changed_ind(struct btd_adapter *adapter, bt_uuid_t *uuid,
                     uint16_t start_handle, uint16_t end_handle);

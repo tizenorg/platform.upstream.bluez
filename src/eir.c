@@ -33,9 +33,9 @@
 #include <stdbool.h>
 #include <glib.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/sdp.h>
+#include "lib/bluetooth.h"
+#include "lib/hci.h"
+#include "lib/sdp.h"
 
 #include "src/shared/util.h"
 #include "uuid-helper.h"
@@ -128,6 +128,9 @@ static char *name2utf8(const uint8_t *name, uint8_t len)
 	char *ptr;
 
 	in_name = g_malloc0(sizeof(char) * (len + 1));
+	/* Fix : NULL_RETURNS */
+	if (in_name == NULL)
+		return NULL;
 	memcpy(in_name, name, sizeof(char) * len);
 	in_name[len] = '\0';
 

@@ -2,8 +2,7 @@
  *
  *  BlueZ - Bluetooth protocol stack for Linux
  *
- *  Copyright (C) 2010  Nokia Corporation
- *  Copyright (C) 2010  Marcel Holtmann <marcel@holtmann.org>
+ *  Copyright (C) 1987-2011 Free Software Foundation, Inc.
  *
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -22,11 +21,11 @@
  *
  */
 
-#ifdef __TIZEN_PATCH__
-GSList *attrib_client_register(DBusConnection *connection,
-					struct btd_device *device, int psm,
-					GAttrib *attrib, GSList *primaries);
-void attrib_client_unregister(GSList *services);
+#ifndef _HISTORY_H_
+#define _HISTORY_H_
 
-#define GATT_FIND_INFO_RESP_OPCODE_LEN		1
+static inline void add_history(const char *c)
+{
+}
+
 #endif

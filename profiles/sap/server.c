@@ -30,10 +30,13 @@
 
 #include <errno.h>
 #include <glib.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
 
+#include "lib/sdp.h"
+#include "lib/sdp_lib.h"
 #include "lib/uuid.h"
+
+#include "gdbus/gdbus.h"
+
 #include "btio/btio.h"
 #include "src/adapter.h"
 #include "src/sdpd.h"
@@ -41,6 +44,7 @@
 #include "src/error.h"
 #include "src/dbus-common.h"
 #include "src/shared/util.h"
+
 #include "sap.h"
 #include "server.h"
 
@@ -1253,7 +1257,7 @@ static void connect_confirm_cb(GIOChannel *io, gpointer data)
 	ba2str(&dst, dstaddr);
 
 	ret = btd_request_authorization(&src, &dst, SAP_UUID, connect_auth_cb,
-								server, 0);
+								server);
 	if (ret == 0) {
 		error("Authorization failure");
 		sap_server_remove_conn(server);

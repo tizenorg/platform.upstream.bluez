@@ -33,17 +33,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <sys/signalfd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-
-#include <bluetooth/bluetooth.h>
 
 #include <glib.h>
 
 #include <dbus/dbus.h>
 
-#include <gdbus/gdbus.h>
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+
+#include "gdbus/gdbus.h"
 
 #include "log.h"
 
@@ -55,8 +57,11 @@
 #include "dbus-common.h"
 #include "agent.h"
 #include "profile.h"
-#include "gatt.h"
 #include "systemd.h"
+
+#ifdef __TIZEN_PATCH__
+#include "gatt.h"
+#endif
 
 #define BLUEZ_NAME "org.bluez"
 
@@ -67,6 +72,12 @@
 
 struct main_opts main_opts;
 static GKeyFile *main_conf;
+
+static enum {
+	MPS_OFF,
+	MPS_SINGLE,
+	MPS_MULTIPLE,
+} mps = MPS_OFF;
 
 static const char * const supported_options[] = {
 	"Name",
@@ -80,6 +91,7 @@ static const char * const supported_options[] = {
 	"NameResolving",
 	"DebugKeys",
 	"ControllerMode",
+	"MultiProfile",
 #ifdef __TIZEN_PATCH__
 	"EnableLEPrivacy",
 #endif
@@ -310,6 +322,19 @@ static void parse_config(GKeyFile *config)
 		g_free(str);
 	}
 
+	str = g_key_file_get_string(config, "General", "MultiProfile", &err);
+	if (err) {
+		g_clear_error(&err);
+	} else {
+		DBG("MultiProfile=%s", str);
+
+		if (!strcmp(str, "single"))
+			mps = MPS_SINGLE;
+		else if (!strcmp(str, "multiple"))
+			mps = MPS_MULTIPLE;
+
+		g_free(str);
+	}
 #ifdef __TIZEN_PATCH__
 	boolean = g_key_file_get_boolean(config, "General",
 						"EnableLEPrivacy", &err);
@@ -334,7 +359,7 @@ static void init_defaults(void)
 	main_opts.name_resolv = TRUE;
 	main_opts.debug_keys = FALSE;
 #ifdef __TIZEN_PATCH__
-	main_opts.le_privacy = TRUE;
+	main_opts.le_privacy = FALSE;
 #endif
 
 	if (sscanf(VERSION, "%hhu.%hhu", &major, &minor) != 2)
@@ -593,7 +618,9 @@ int main(int argc, char *argv[])
 
 	g_dbus_set_flags(gdbus_flags);
 
+#ifdef __TIZEN_PATCH__
 	gatt_init();
+#endif
 
 	if (adapter_init() < 0) {
 		error("Adapter handling initialization failed");
@@ -612,6 +639,9 @@ int main(int argc, char *argv[])
 	if (main_opts.did_source > 0)
 		register_device_id(main_opts.did_source, main_opts.did_vendor,
 				main_opts.did_product, main_opts.did_version);
+
+	if (mps != MPS_OFF)
+		register_mps(mps == MPS_MULTIPLE);
 
 	/* Loading plugins has to be done after D-Bus has been setup since
 	 * the plugins might wanna expose some paths on the bus. However the
@@ -657,7 +687,9 @@ int main(int argc, char *argv[])
 
 	adapter_cleanup();
 
+#ifdef __TIZEN_PATCH__
 	gatt_cleanup();
+#endif
 
 	rfkill_exit();
 

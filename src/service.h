@@ -44,10 +44,6 @@ void btd_service_unref(struct btd_service *service);
 /* Service management functions used by the core */
 struct btd_service *service_create(struct btd_device *device,
 						struct btd_profile *profile);
-struct btd_service *service_create_gatt(struct btd_device *device,
-						struct btd_profile *profile,
-						uint16_t start_handle,
-						uint16_t end_handle);
 
 int service_probe(struct btd_service *service);
 void service_remove(struct btd_service *service);
@@ -63,14 +59,6 @@ struct btd_device *btd_service_get_device(const struct btd_service *service);
 struct btd_profile *btd_service_get_profile(const struct btd_service *service);
 btd_service_state_t btd_service_get_state(const struct btd_service *service);
 int btd_service_get_error(const struct btd_service *service);
-uint16_t btd_service_get_version(const struct btd_service *service);
-void btd_service_set_auto_connect(struct btd_service *service, bool value);
-bool btd_service_get_auto_connect(const struct btd_service *service);
-void btd_service_set_blocked(struct btd_service *service, bool value);
-bool btd_service_is_blocked(const struct btd_service *service);
-bool btd_service_get_gatt_handles(const struct btd_service *service,
-							uint16_t *start_handle,
-							uint16_t *end_handle);
 
 unsigned int btd_service_add_state_cb(btd_service_state_cb cb,
 							void *user_data);

@@ -22,7 +22,7 @@ Linux kernel v3.13	Version 1.4
 Linux kernel v3.15	Version 1.5
 Linux kernel v3.16	Version 1.6
 Linux kernel v3.17	Version 1.7
-Linux kernel v3.19	Version 1.8	(not yet released)
+Linux kernel v3.19	Version 1.8
 
 Version 1.1 introduces Set Device ID command.
 
@@ -246,6 +246,10 @@ Read Controller Information Command
 	then the configured static address will be used as identity
 	address.
 
+	In the case of a dual-mode controller with public address that
+	is configured as Low Energy only device (BR/EDR switched off),
+	the static address is used when set and public address otherwise.
+
 	If no short name is set the Short_Name parameter will be empty
 	(begin with a nul byte).
 
@@ -267,6 +271,7 @@ Read Controller Information Command
 		12	Debug Keys
 		13	Privacy
 		14	Controller Configuration
+		15	Static Address
 
 	This command generates a Command Complete event on success or
 	a Command Status event on failure.
@@ -1023,7 +1028,14 @@ Pair Device Command
 	This command generates a Command Complete event on success
 	or failure.
 
-	Possible errors:	Connect Failed
+	Reject status is used when requested transport is not enabled.
+
+	Not Supported status is used if controller is not capable with
+	requested transport.
+
+	Possible errors:	Rejected
+				Not Supported
+				Connect Failed
 				Busy
 				Invalid Parameters
 				Not Powered
@@ -1236,6 +1248,10 @@ Read Local Out Of Band Data Command
 	will return P-192 versions of hash and randomizer as well as
 	P-256 versions of both.
 
+	Values returned by this command become invalid when the controller
+	is powered down. After each power-cycle it is required to call
+	this command again to get updated values.
+
 	This command generates a Command Complete event on success or
 	a Command Status event on failure.
 
@@ -1282,6 +1298,21 @@ Add Remote Out Of Band Data Command
 	it is valid to leave both P-192 fields as zero values. If
 	Secure Connections is disabled, then of course this is the
 	same as not providing any data at all.
+
+	When providing data for remote LE devices, then the Hash_192 field
+	is used to provide the Security Manager TK Value. The Randomizer_192
+	field is not used and shall be set to zero. The Hash_192 value can
+	also be set to zero and that means that no Out Of Band data for
+	LE legacy pairing is provided.
+
+	The Hash_256 and Randomizer_256 fields can be used for LE secure
+	connections Out Of Band data. If only LE secure connections data
+	is provided the Hash_P192 and Randomizer_P192 fields can be set
+	to zero.
+
+	If Secure Connections Only mode has been enabled, then providing
+	Hash_P192 and Randomizer_P192 is not allowed. They are required
+	to be set to zero values.
 
 	This command can be used when the controller is not powered and
 	all settings will be programmed once powered.
@@ -1507,7 +1538,7 @@ Set Device ID Command
 
 		0x0000	Disable Device ID
 		0x0001	Bluetooth SIG
-		0x0002	USB Implementerâ€™s Forum
+		0x0002	USB Implementer?™s Forum
 
 	The information are put into the EIR data. If the controller does
 	not support EIR or if SSP is disabled, this command will still
@@ -1583,7 +1614,7 @@ Set Static Address Command
 	Command Code:		0x002B
 	Controller Index:	<controller id>
 	Command Parameters:	Address (6 Octets)
-	Return Parameters:
+	Return Parameters:	Current_Settings (4 Octets)
 
 	This command allows for setting the static random address. It is
 	only supported on controllers with LE support. The static random
@@ -1596,13 +1627,18 @@ Set Static Address Command
 	to disable the static address.
 
 	When a controller has a public address (which is required for
-	all dual-mode controllers), this address is not used. Only when
+	all dual-mode controllers), this address is not used. If a dual-mode
+	controller is configured as Low Energy only devices (BR/EDR has
+	been switched off), then the static address is used. Only when
 	the controller information reports BDADDR_ANY (00:00:00:00:00:00),
 	it is required to configure a static address first.
 
 	If privacy mode is enabled and the controller is single mode
 	LE only without a public address, the static random address is
 	used as identity address.
+
+	The Static Address flag from the current settings can also be used
+	to determine if the configured static address is in use or not.
 
 	This command generates a Command Complete event on success or a
 	Command Status event on failure.
@@ -2276,6 +2312,142 @@ Start Service Discovery Command
 				Invalid Index
 
 
+Read Local Out Of Band Extended Data Command
+============================================
+
+	Command Code:		0x003b
+	Controller Index:	<controller id>
+	Command Parameters:	Address_Type (1 Octet)
+	Return Parameters:	Address_Type (1 Octet)
+				EIR_Data_Length (2 Octets)
+				EIR_Data (0-65535 Octets)
+
+	This command is used to read the local Out of Band data
+	information and provide them encoded as extended inquiry
+	response information or advertising data.
+
+	Possible values for the Address_Type parameter are a bit-wise or
+	of the following bits:
+
+		0	BR/EDR
+		1	LE Public
+		2	LE Random
+
+	By combining these e.g. the following values are possible:
+
+		1	BR/EDR
+		6	LE (public & random)
+		7	Reserved (not in use)
+
+	For BR/EDR controller (Address_Type 1) the returned information
+	will contain the following information:
+
+		Class of Device
+		Simple Pairing Hash C-192 (optional)
+		Simple Pairing Randomizer R-192 (optional)
+		Simple Pairing Hash C-256 (optional)
+		Simple Pairing Randomizer R-256 (optional)
+		Service Class UUID (optional)
+		Bluetooth Local Name (optional)
+
+	The Simple Pairing Hash C-256 and Simple Pairing Randomizer R-256
+	fields are only included when secure connections has been enabled.
+
+	The Device Address (BD_ADDR) is not included in the EIR_Data and
+	needs to be taken from controller information.
+
+	For LE controller (Address_Type 6) the returned information
+	will contain the following information:
+
+		LE Bluetooth Device Address
+		LE Role
+		Security Manager TK Value (optional)
+		LE Secure Connections Confirmation Value (optional)
+		LE Secure Connections Random Value (optional)
+		Appearance (optional)
+		Local Name (optional)
+		Flags
+
+	The LE Secure Connections Confirmation Value and LE Secure Connections
+	Random Value fields are only included when secure connections has been
+	enabled.
+
+	The returned information from BR/EDR controller and LE controller
+	types are not related to each other. Once they have been used
+	over an Out Of Band link, a new set of information shall be
+	requested.
+
+	When Secure Connections Only mode has been enabled, then the fields
+	for Simple Pairing Hash C-192, Simple Pairing Randomizer R-192 and
+	Security Manager TK Value are not returned. Only the fields for
+	the strong secure connections pairing are included.
+
+	This command can only be used when the controller is powered.
+
+	Values returned by this command become invalid when the controller
+	is powered down. After each power-cycle it is required to call
+	this command again to get updated information.
+
+	This command generates a Command Complete event on success or
+	a Command Status event on failure.
+
+	Possible errors:	Not Supported
+				Busy
+				Invalid Parameters
+				Not Powered
+				Invalid Index
+
+
+Read Extended Controller Index List Command
+===========================================
+
+	Command Code:		0x003c
+	Controller Index:	<non-controller>
+	Command Parameters:
+	Return Parameters:	Num_Controllers (2 Octets)
+				Controller_Index[i] (2 Octets)
+				Controller_Type[i] (1 Octet)
+
+	This command returns the list of currently known controllers. It
+	includes configured, unconfigured and alternate controllers.
+
+	Controllers added or removed after calling this command can be
+	be monitored using the Extended Index Added and Extended Index
+	Removed events.
+
+	The existing Index Added, Index Removed, Unconfigured Index Added
+	and Unconfigured Index Removed are no longer sent after this command
+	has been used at least once.
+
+	Instead of calling Read Controller Index List and Read Unconfigured
+	Controller Index List, this command combines all the information
+	and can be used to retrieve the controller list.
+
+	The Controller_Type parameter has these values:
+
+		0x00	Primary Controller (BR/EDR and/or LE)
+		0x01	Unconfigured Controller (BR/EDR and/or LE)
+		0x02	Alternate MAC/PHY Controller (AMP)
+
+	The 0x00 and 0x01 types indiciate a primary BR/EDR and/or LE
+	controller. The difference is just if they need extra configuration
+	or if they are fully configured.
+
+	Controllers in configured state will be listed as 0x00 and controllers
+	in unconfigured state will be listed as 0x01. A controller that is
+	fully configured and supports configuration changes will be listed
+	as 0x00.
+
+	Alternate MAC/PHY controllers will be listed as 0x02. They do not
+	support the difference between configured and unconfigured state.
+
+	Controllers marked as RAW only operation are currently not listed
+	by this command.
+
+	This command generates a Command Complete event on success or
+	a Command Status event on failure.
+
+
 Command Complete Event
 ======================
 
@@ -2329,6 +2501,10 @@ Index Added Event
 	system. It is usually followed by a Read Controller Information
 	command.
 
+	Once the Read Extended Controller Index List command has been
+	used at least once, the Extended Index Added event will be
+	send instead of this one.
+
 
 Index Removed Event
 ===================
@@ -2339,6 +2515,10 @@ Index Removed Event
 
 	This event indicates that a controller has been removed from the
 	system.
+
+	Once the Read Extended Controller Index List command has been
+	used at least once, the Extended Index Removed event will be
+	send instead of this one.
 
 
 New Settings Event
@@ -2861,7 +3041,7 @@ New Signature Resolving Key Event
 				Key {
 					Address (6 Octets)
 					Address_Type (1 Octet)
-					Master (1 Octet)
+					Type (1 Octet)
 					Value (16 Octets)
 				}
 
@@ -2871,17 +3051,20 @@ New Signature Resolving Key Event
 	The Store_Hint parameter indicates whether the host is expected
 	to store the key persistently or not.
 
-	When the Master parameter is set to 0x01, then the signature
-	resolving key from the remote peer device is provided. It is
-	the key that is used for signature verification.
+	The Type parameter has the following possible values:
 
-	When the Master parameter is set to 0x00, then it is the local
-	signature resolving key that is used to sign data. The remote
-	peer device will be using it for signature verification.
+		0x00	Unauthenticated local CSRK
+		0x01	Unauthenticated remote CSRK
+		0x02	Authenticated local CSRK
+		0x03	Authenticated remote CSRK
+
+	The local keys are used for signing data to be sent to the
+	remote device, whereas the remote keys are used to verify
+	signatures received from the remote device.
 
 	The local signature resolving key will be generated with each
-	pairing request. Only after receiving this event with Master
-	parameter set to 0x00 it is possible to use ATT Signed Write
+	pairing request. Only after receiving this event with the Type
+	indicating a local key is it possible to use ATT Signed Write
 	procedures.
 
 	Possible values for the Address_Type parameter:
@@ -2980,6 +3163,10 @@ Unconfigured Index Added Event
 	be announced with this event. If it supports configuration, but
 	does not require it, then an Index Added event will be used.
 
+	Once the Read Extended Controller Index List command has been
+	used at least once, the Extended Index Added event will be
+	send instead of this one.
+
 
 Unconfigured Index Removed Event
 ================================
@@ -2991,6 +3178,10 @@ Unconfigured Index Removed Event
 	This event indicates that an unconfigured controller has been
 	removed from the system.
 
+	Once the Read Extended Controller Index List command has been
+	used at least once, the Extended Index Removed event will be
+	send instead of this one.
+
 
 New Configuration Options Event
 ===============================
@@ -3001,3 +3192,33 @@ New Configuration Options Event
 
 	This event indicates that one or more of the options for the
 	controller configuration has changed.
+
+
+Extended Index Added Event
+==========================
+
+	Event Code:		0x0020
+	Controller Index:	<controller id>
+	Event Parameters:	Controller_Type (1 Octet)
+
+	This event indicates that a new controller index has been
+	added to the system.
+
+	This event will only be used after Read Extended Controller Index
+	List has been used at least once. If it has not been used, then
+	Index Added and Unconfigured Index Added are send instead.
+
+
+Extended Index Removed Event
+============================
+
+	Event Code:		0x0021
+	Controller Index:	<controller id>
+	Event Parameters:	Controller_Type (1 Octet)
+
+	This event indicates that an existing controller index has been
+	removed from the system.
+
+	This event will only be used after Read Extended Controller Index
+	List has been used at least once. If it has not been used, then
+	Index Removed and Unconfigured Index Removed are send instead.
