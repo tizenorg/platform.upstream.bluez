@@ -39,21 +39,21 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
-
 #include <glib.h>
 #include <dbus/dbus.h>
-#include <gdbus/gdbus.h>
 
+#include "bluetooth/bluetooth.h"
+#include "bluetooth/sdp.h"
+#include "bluetooth/sdp_lib.h"
 #include "lib/uuid.h"
+
+#include "gdbus/gdbus.h"
+
 #include "src/plugin.h"
 #include "src/adapter.h"
 #include "src/device.h"
 #include "src/profile.h"
 #include "src/service.h"
-
 #include "src/log.h"
 #include "src/error.h"
 #include "src/sdpd.h"
@@ -257,7 +257,8 @@ struct control_pdu_handler {
 static GSList *servers = NULL;
 static unsigned int avctp_id = 0;
 #ifdef __TIZEN_PATCH__
-static uint16_t adapter_avrcp_ver = 0;
+static uint16_t adapter_avrcp_tg_ver = 0;
+static uint16_t adapter_avrcp_ct_ver = 0;
 #endif
 
 /* Company IDs supported by this device */
@@ -282,12 +283,23 @@ static sdp_record_t *avrcp_ct_record(void)
 	sdp_record_t *record;
 	sdp_data_t *psm[2], *version, *features;
 	uint16_t lp = AVCTP_CONTROL_PSM, ap = AVCTP_BROWSING_PSM;
+#ifdef __TIZEN_PATCH__
+	uint16_t avrcp_ver = 0x0103, avctp_ver = 0x0104;
+	uint16_t feat = 0;
+#ifdef ENABLE_AVRCP_CATEGORY1
+	feat = AVRCP_FEATURE_CATEGORY_1;
+#endif
+#ifdef ENABLE_AVRCP_CATEGORY2
+	feat = feat | AVRCP_FEATURE_CATEGORY_2;
+#endif
+#else
 	uint16_t avrcp_ver = 0x0105, avctp_ver = 0x0103;
 	uint16_t feat = ( AVRCP_FEATURE_CATEGORY_1 |
 						AVRCP_FEATURE_CATEGORY_2 |
 						AVRCP_FEATURE_CATEGORY_3 |
 						AVRCP_FEATURE_CATEGORY_4 |
 						AVRCP_FEATURE_BROWSING);
+#endif
 
 	record = sdp_record_alloc();
 	if (!record)
@@ -338,6 +350,9 @@ static sdp_record_t *avrcp_ct_record(void)
 	/* Bluetooth Profile Descriptor List */
 	sdp_uuid16_create(&profile[0].uuid, AV_REMOTE_PROFILE_ID);
 	profile[0].version = avrcp_ver;
+#ifdef __TIZEN_PATCH__
+	adapter_avrcp_ct_ver = avrcp_ver;
+#endif
 	pfseq = sdp_list_append(NULL, &profile[0]);
 	sdp_set_profile_descs(record, pfseq);
 
@@ -372,13 +387,22 @@ static sdp_record_t *avrcp_tg_record(void)
 	sdp_list_t *aproto_control, *proto_control[2];
 	sdp_record_t *record;
 	sdp_data_t *psm_control, *version, *features, *psm_browsing;
-	sdp_list_t *aproto_browsing, *proto_browsing[2] = {0};
+#ifndef __TIZEN_PATCH__
+	sdp_list_t *aproto_browsing;
+#endif
+	sdp_list_t *proto_browsing[2] = {0};
 	uint16_t lp = AVCTP_CONTROL_PSM;
 	uint16_t lp_browsing = AVCTP_BROWSING_PSM;
 #ifdef __TIZEN_PATCH__
 	uint16_t avrcp_ver = 0x0103, avctp_ver = 0x0104;
-	uint16_t feat = AVRCP_FEATURE_CATEGORY_1 |
-					AVRCP_FEATURE_PLAYER_SETTINGS;
+	uint16_t feat = 0;
+#ifdef ENABLE_AVRCP_CATEGORY1
+	feat = AVRCP_FEATURE_CATEGORY_1 |
+		AVRCP_FEATURE_PLAYER_SETTINGS;
+#endif
+#ifdef ENABLE_AVRCP_CATEGORY2
+	feat = feat | AVRCP_FEATURE_CATEGORY_2;
+#endif
 #else
 	uint16_t avrcp_ver = 0x0104, avctp_ver = 0x0103;
 	uint16_t feat = ( AVRCP_FEATURE_CATEGORY_1 |
@@ -434,7 +458,7 @@ static sdp_record_t *avrcp_tg_record(void)
 	sdp_uuid16_create(&profile[0].uuid, AV_REMOTE_PROFILE_ID);
 	profile[0].version = avrcp_ver;
 #ifdef __TIZEN_PATCH__
-	adapter_avrcp_ver = avrcp_ver;
+	adapter_avrcp_tg_ver = avrcp_ver;
 #endif
 	pfseq = sdp_list_append(NULL, &profile[0]);
 	sdp_set_profile_descs(record, pfseq);
@@ -448,7 +472,9 @@ static sdp_record_t *avrcp_tg_record(void)
 	sdp_list_free(proto_browsing[0], NULL);
 	sdp_list_free(proto_browsing[1], NULL);
 	sdp_list_free(apseq_browsing, NULL);
+#ifndef __TIZEN_PATCH__
 	sdp_list_free(aproto_browsing, NULL);
+#endif
 
 	free(psm_control);
 	free(version);
@@ -3409,10 +3435,12 @@ static gboolean avrcp_get_capabilities_resp(struct avctp *conn,
 		case AVRCP_EVENT_STATUS_CHANGED:
 		case AVRCP_EVENT_TRACK_CHANGED:
 		case AVRCP_EVENT_SETTINGS_CHANGED:
+#ifndef __TIZEN_PATCH__
 		case AVRCP_EVENT_ADDRESSED_PLAYER_CHANGED:
 		case AVRCP_EVENT_UIDS_CHANGED:
 		case AVRCP_EVENT_AVAILABLE_PLAYERS_CHANGED:
 		case AVRCP_EVENT_VOLUME_CHANGED:
+#endif
 			avrcp_register_notification(session, event);
 			break;
 		}
@@ -3578,7 +3606,7 @@ static void target_init(struct avrcp *session)
 		return;
 
 #ifdef __TIZEN_PATCH__
-	if (adapter_avrcp_ver < 0x0104)
+	if (adapter_avrcp_tg_ver < 0x0104)
 		return;
 #endif
 
@@ -3602,12 +3630,24 @@ static void controller_init(struct avrcp *session)
 		return;
 
 	controller = data_init(session, AVRCP_TARGET_UUID);
+#ifdef __TIZEN_PATCH__
+	/* Fix : NULL_RETURNS */
+	if (controller == NULL) {
+		error("controller is NULL");
+		return;
+	}
+#endif
 	session->controller = controller;
 
 	DBG("%p version 0x%04x", controller, controller->version);
 
+#ifdef __TIZEN_PATCH__
+	if ((controller->version >= 0x0104) && (adapter_avrcp_ct_ver >= 0x0104))
+		session->supported_events |= (1 << AVRCP_EVENT_VOLUME_CHANGED);
+#else
 	if (controller->version >= 0x0104)
 		session->supported_events |= (1 << AVRCP_EVENT_VOLUME_CHANGED);
+#endif
 
 	service = btd_device_get_service(session->dev, AVRCP_TARGET_UUID);
 	if (service != NULL)
@@ -3628,6 +3668,11 @@ static void controller_init(struct avrcp *session)
 
 	if (controller->version < 0x0104)
 		return;
+
+#ifdef __TIZEN_PATCH__
+	if (adapter_avrcp_ct_ver < 0x0104)
+		return;
+#endif
 
 	if (!(controller->features & AVRCP_FEATURE_BROWSING))
 		return;
@@ -4031,12 +4076,8 @@ done:
 
 static struct btd_profile avrcp_target_profile = {
 	.name		= "audio-avrcp-target",
-	.version	= 0x0105,
 
 	.remote_uuid	= AVRCP_TARGET_UUID,
-	.local_uuid	= AVRCP_REMOTE_UUID,
-	.auth_uuid	= AVRCP_REMOTE_UUID,
-
 	.device_probe	= avrcp_target_probe,
 	.device_remove	= avrcp_target_remove,
 
@@ -4118,12 +4159,8 @@ done:
 
 static struct btd_profile avrcp_controller_profile = {
 	.name		= "avrcp-controller",
-	.version	= 0x0104,
 
 	.remote_uuid	= AVRCP_REMOTE_UUID,
-	.local_uuid	= AVRCP_TARGET_UUID,
-	.auth_uuid	= AVRCP_REMOTE_UUID,
-
 	.device_probe	= avrcp_controller_probe,
 	.device_remove	= avrcp_controller_remove,
 
@@ -4135,16 +4172,31 @@ static struct btd_profile avrcp_controller_profile = {
 
 static int avrcp_init(void)
 {
+#ifdef __TIZEN_PATCH__
+#ifdef SUPPORT_AVRCP_CONTROL
+	btd_profile_register(&avrcp_controller_profile);
+#else
+	btd_profile_register(&avrcp_target_profile);
+#endif
+#else
 	btd_profile_register(&avrcp_controller_profile);
 	btd_profile_register(&avrcp_target_profile);
-
+#endif
 	return 0;
 }
 
 static void avrcp_exit(void)
 {
+#ifdef __TIZEN_PATCH__
+#ifdef SUPPORT_AVRCP_CONTROL
+	btd_profile_unregister(&avrcp_controller_profile);
+#else
+	btd_profile_unregister(&avrcp_target_profile);
+#endif
+#else
 	btd_profile_unregister(&avrcp_controller_profile);
 	btd_profile_unregister(&avrcp_target_profile);
+#endif
 }
 
 BLUETOOTH_PLUGIN_DEFINE(avrcp, VERSION, BLUETOOTH_PLUGIN_PRIORITY_DEFAULT,

@@ -30,11 +30,9 @@ struct btd_service;
 struct btd_profile {
 	const char *name;
 	int priority;
-	uint16_t version;
 
 	const char *local_uuid;
 	const char *remote_uuid;
-	const char *auth_uuid;
 
 	bool auto_connect;
 
@@ -73,6 +71,10 @@ bool btd_profile_add_custom_prop(const char *uuid, const char *type,
 					btd_profile_prop_get get,
 					void *user_data);
 bool btd_profile_remove_custom_prop(const char *uuid, const char *name);
+
+#ifdef __TIZEN_PATCH__
+gboolean ext_profile_is_registered_as_client_role(struct btd_profile *p);
+#endif
 
 void btd_profile_init(void);
 void btd_profile_cleanup(void);

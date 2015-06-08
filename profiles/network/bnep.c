@@ -36,15 +36,15 @@
 #include <net/if.h>
 #include <linux/sockios.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/l2cap.h>
-#include <bluetooth/bnep.h>
-
 #include <glib.h>
+
+#include "lib/bluetooth.h"
+#include "lib/l2cap.h"
+#include "lib/bnep.h"
+#include "lib/uuid.h"
 
 #include "src/log.h"
 #include "src/shared/util.h"
-#include "lib/uuid.h"
 #include "btio/btio.h"
 
 #include "bnep.h"
@@ -97,31 +97,6 @@ struct bnep {
 	bnep_disconnect_cb disconn_cb;
 	void	*disconn_data;
 };
-
-uint16_t bnep_service_id(const char *svc)
-{
-	int i;
-	uint16_t id;
-
-	/* Friendly service name */
-	for (i = 0; __svc[i].name; i++) {
-		if (!strcasecmp(svc, __svc[i].name))
-			return __svc[i].id;
-	}
-
-	/* UUID 128 string */
-	for (i = 0; __svc[i].uuid128; i++) {
-		if (!strcasecmp(svc, __svc[i].uuid128))
-			return __svc[i].id;
-	}
-
-	/* Try convert to HEX */
-	id = strtol(svc, NULL, 16);
-	if ((id < BNEP_SVC_PANU) || (id > BNEP_SVC_GN))
-		return 0;
-
-	return id;
-}
 
 const char *bnep_uuid(uint16_t id)
 {
@@ -559,8 +534,9 @@ static int bnep_add_to_bridge(const char *devname, const char *bridge)
 		err = -errno;
 		error("bnep: Can't add %s to the bridge %s: %s(%d)",
 					devname, bridge, strerror(-err), -err);
-	} else
-		info("bridge %s: interface %s added", bridge, devname);
+	} else {
+		info("bnep: bridge %s: interface %s added", bridge, devname);
+	}
 
 	close(sk);
 
@@ -591,8 +567,9 @@ static int bnep_del_from_bridge(const char *devname, const char *bridge)
 		err = -errno;
 		error("bnep: Can't delete %s from the bridge %s: %s(%d)",
 					devname, bridge, strerror(-err), -err);
-	} else
-		info("bridge %s: interface %s removed", bridge, devname);
+	} else {
+		info("bnep: bridge %s: interface %s removed", bridge, devname);
+	}
 
 	close(sk);
 
@@ -643,26 +620,6 @@ ssize_t bnep_send_ctrl_rsp(int sk, uint8_t type, uint8_t ctrl, uint16_t resp)
 	return send(sk, &rsp, sizeof(rsp), 0);
 }
 
-uint16_t bnep_setup_chk(uint16_t dst, uint16_t src)
-{
-	/* Allowed PAN Profile scenarios */
-	switch (dst) {
-	case BNEP_SVC_NAP:
-	case BNEP_SVC_GN:
-		if (src == BNEP_SVC_PANU)
-			return 0;
-		return BNEP_CONN_INVALID_SRC;
-	case BNEP_SVC_PANU:
-		if (src == BNEP_SVC_PANU ||  src == BNEP_SVC_GN ||
-							src == BNEP_SVC_NAP)
-			return 0;
-
-		return BNEP_CONN_INVALID_SRC;
-	}
-
-	return BNEP_CONN_INVALID_DST;
-}
-
 uint16_t bnep_setup_decode(struct bnep_setup_conn_req *req, uint16_t *dst,
 								uint16_t *src)
 {
@@ -707,7 +664,22 @@ uint16_t bnep_setup_decode(struct bnep_setup_conn_req *req, uint16_t *dst,
 		return BNEP_CONN_INVALID_SVC;
 	}
 
-	return BNEP_SUCCESS;
+	/* Allowed PAN Profile scenarios */
+	switch (*dst) {
+	case BNEP_SVC_NAP:
+	case BNEP_SVC_GN:
+		if (*src == BNEP_SVC_PANU)
+			return BNEP_SUCCESS;
+		return BNEP_CONN_INVALID_SRC;
+	case BNEP_SVC_PANU:
+		if (*src == BNEP_SVC_PANU || *src == BNEP_SVC_GN ||
+							*src == BNEP_SVC_NAP)
+			return BNEP_SUCCESS;
+
+		return BNEP_CONN_INVALID_SRC;
+	}
+
+	return BNEP_CONN_INVALID_DST;
 }
 
 #ifdef  __TIZEN_PATCH__

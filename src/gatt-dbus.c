@@ -1,3 +1,4 @@
+#ifdef __TIZEN_PATCH__
 /*
  *
  *  BlueZ - Bluetooth protocol stack for Linux
@@ -69,9 +70,6 @@ struct proxy_write_data {
  * ATT operations to its external characteristic proxy.
  */
 static GHashTable *proxy_hash;
-
-static DBusMessage *get_service(DBusConnection *conn,
-                                        DBusMessage *msg, void *user_data);
 
 static GSList *external_services;
 
@@ -244,7 +242,7 @@ static void proxy_prop_changed(GDBusProxy *proxy, const char *name,
 	const char *str;
 	bt_uuid_t uuid;
 	uint8_t *value;
-	size_t len;
+	int len;
 
 	if (dbus_message_iter_get_arg_type(iter) != DBUS_TYPE_ARRAY)
 		return;
@@ -267,21 +265,70 @@ static void proxy_prop_changed(GDBusProxy *proxy, const char *name,
 	 * send notification or indication if CCC is set */
 	btd_gatt_update_char(&uuid, value, len);
 }
-#endif
 
+static DBusMessage *__bt_gatt_dbus_method_send(const char *path, const char *svc_path,
+			const char *interface, const char *method, DBusError *err, int type, ...)
+{
+	DBusMessage *msg;
+	DBusMessage *reply;
+	va_list args;
+	int timeout = -1;
+	struct external_service *esvc;
+	GSList *list;
+
+	list = g_slist_find_custom(external_services, svc_path,
+						external_service_path_cmp);
+	if (!list) {
+		return NULL;
+	}
+
+	esvc = list->data;
+	msg = dbus_message_new_method_call(esvc->owner,
+			svc_path, interface, method);
+	if (!msg) {
+		DBG("Unable to allocate new D-Bus %s message \n", method);
+		return NULL;
+	}
+
+	va_start(args, type);
+
+	if (!dbus_message_append_args_valist(msg, type, args)) {
+		dbus_message_unref(msg);
+		va_end(args);
+		return NULL;
+	}
+
+	va_end(args);
+
+	dbus_error_init(err);
+	reply = dbus_connection_send_with_reply_and_block(btd_get_dbus_connection(),
+		msg, timeout, err);
+	dbus_message_unref(msg);
+
+	return reply;
+}
+#endif
 #ifdef __TIZEN_PATCH__
-static uint8_t proxy_read_cb(struct btd_attribute *attr,
+static uint8_t proxy_read_cb(struct btd_attribute *attr, bdaddr_t *bdaddr,
 				btd_attr_read_result_t result, void *user_data)
 #else
 static void proxy_read_cb(struct btd_attribute *attr,
 				btd_attr_read_result_t result, void *user_data)
 #endif
 {
-	DBusMessageIter iter, array;
 	GDBusProxy *proxy;
-	uint8_t *value;
-	int len;
-
+	uint8_t *value = NULL;
+	int len = 0;
+#ifdef __TIZEN_PATCH__
+	char dstaddr[18] = { 0 };
+	char *addr_value = NULL;
+	DBusMessage *reply;
+	DBusError err;
+	uint8_t request_id = 1;
+	uint16_t offset = 0;
+	const char *path = NULL;
+	const char *svc_path = NULL;
+#endif
 	/*
 	 * Remote device is trying to read the informed attribute,
 	 * "Value" should be read from the proxy. GDBusProxy tracks
@@ -297,7 +344,7 @@ static void proxy_read_cb(struct btd_attribute *attr,
 		return;
 #endif
 	}
-
+#ifndef __TIZEN_PATCH__
 	if (!g_dbus_proxy_get_property(proxy, "Value", &iter)) {
 		/* Unusual situation, read property will checked earlier */
 #ifdef __TIZEN_PATCH__
@@ -320,7 +367,55 @@ static void proxy_read_cb(struct btd_attribute *attr,
 
 	dbus_message_iter_recurse(&iter, &array);
 	dbus_message_iter_get_fixed_array(&array, &value, &len);
+#else
+	ba2str(bdaddr, dstaddr);
+	addr_value = g_strdup(dstaddr);
+	path = btd_get_attrib_path(attr);
+	if (!path) {
+		/* Fix : RESOURCE_LEAK */
+		if (addr_value)
+			g_free(addr_value);
+		return result(-EPERM, NULL, 0, user_data);
+	}
+	svc_path = btd_find_service_from_attr(attr);
+	if (!svc_path) {
+		/* Fix : RESOURCE_LEAK */
+		if (addr_value)
+			g_free(addr_value);
+		return result(-EPERM, NULL, 0, user_data);
+	}
+	reply = __bt_gatt_dbus_method_send(path, svc_path,
+			DBUS_INTERFACE_PROPERTIES,
+			"ReadValue", &err,
+			DBUS_TYPE_STRING, &addr_value,
+			DBUS_TYPE_STRING, &path,
+			DBUS_TYPE_BYTE, &request_id,
+			DBUS_TYPE_UINT16, &offset,
+			DBUS_TYPE_INVALID);
+	if (!reply) {
+		DBG("Error returned in method call\n");
+		if (dbus_error_is_set(&err))
+			DBG("Error = %s", err.message);
+		/* Fix : RESOURCE_LEAK */
+		if (addr_value)
+			g_free(addr_value);
+		return result(-EPERM, NULL, 0, user_data);
+	} else {
+		DBusMessageIter iter, array;
+		uint8_t *value = NULL;
+		int len;
+		dbus_message_iter_init(reply, &iter);
 
+		if (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_ARRAY) {
+			dbus_message_iter_recurse(&iter, &array);
+			dbus_message_iter_get_fixed_array(&array, &value, &len);
+			if (len > 0)
+				return result(0, value, len, user_data);
+			else
+				return result(-ENOENT, NULL, 0, user_data);
+		}
+	}
+#endif
 	DBG("attribute: %p read %d bytes", attr, len);
 
 #ifdef __TIZEN_PATCH__
@@ -813,3 +908,5 @@ void gatt_dbus_manager_unregister(void)
 	g_dbus_unregister_interface(btd_get_dbus_connection(), "/org/bluez",
 							GATT_MGR_IFACE);
 }
+
+#endif

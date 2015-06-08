@@ -1,3 +1,4 @@
+#ifdef __TIZEN_PATCH__
 /*
  *
  *  BlueZ - Bluetooth protocol stack for Linux
@@ -48,6 +49,7 @@
 #include "attrib/gatt.h"
 #include "src/attrib-server.h"
 #include "src/device.h"
+#include "dbus-common.h"
 #endif
 
 /* Common GATT UUIDs */
@@ -218,7 +220,7 @@ static void store_start_end_handle(bt_uuid_t *uuid, uint16_t start_handle,
 	attrib->attr_start_handle = start_handle;
 	attrib->attr_end_handle = end_handle;
 
-	g_list_insert_sorted (local_attribute_db, attrib, attribute_cmp);
+	local_attribute_db = g_list_insert_sorted (local_attribute_db, attrib, attribute_cmp);
 
 	return;
 }
@@ -275,12 +277,6 @@ static uint8_t read_result(int err, uint8_t *value, size_t len,
 	return status;
 }
 
-static uint8_t write_result(int err, void *user_data)
-{
-	DBG(" ");
-	return err;
-}
-
 static uint8_t read_desc_attr_db_value(struct attribute *a,
 						struct btd_device *device,
 						gpointer user_data)
@@ -290,7 +286,8 @@ static uint8_t read_desc_attr_db_value(struct attribute *a,
 
 	local_attr = find_local_attr(&a->uuid);
 	if (local_attr && local_attr->read_cb) {
-		status = local_attr->read_cb(local_attr, read_result, a);
+		bdaddr_t *bdaddr = (bdaddr_t *)device_get_address(device);
+		status = local_attr->read_cb(local_attr, bdaddr, read_result, a);
 	} else
 		return -ENOENT;
 
@@ -306,7 +303,8 @@ static uint8_t read_char_attr_db_value(struct attribute *a,
 
 	local_attr = find_local_attr(&a->uuid);
 	if (local_attr && local_attr->read_cb) {
-		status = local_attr->read_cb(local_attr, read_result, a);
+		bdaddr_t *bdaddr = (bdaddr_t *)device_get_address(device);
+		status = local_attr->read_cb(local_attr, bdaddr, read_result, a);
 	} else
 		return -ENOENT;
 
@@ -357,7 +355,6 @@ static unsigned int get_attr_char_size(void)
 	GList *l;
 	uint16_t nex_hndl = 0x0001;
 	struct pending_hndl *temp_list;
-	struct btd_attribute *local_attr;
 	unsigned int attr_size = 0;
 
 	/* Calculate the size of the char attributes to be added to attribute DB */
@@ -367,7 +364,6 @@ static unsigned int get_attr_char_size(void)
 					GUINT_TO_POINTER(nex_hndl),
 					handle_cmp);
 		if (l) {
-			local_attr = l->data;
 			if (temp_list->type == GATT_TYPE_CHARAC_SVC) {
 				attr_size += 2;
 			}
@@ -423,7 +419,7 @@ bool gatt_send_service_changed_ind(struct btd_adapter *adapter, bt_uuid_t *uuid,
 
     do {
 		l = g_list_find_custom(connections, GUINT_TO_POINTER(NULL),
-						is_connected);
+						(GCompareFunc)is_connected);
 
 		if (l) {
 			dev = l->data;
@@ -546,10 +542,18 @@ bool btd_gatt_update_attr_db(void)
 				if (!svc_added) {
 					new_service_add = FALSE;
 					new_char_desc_add = FALSE;
+					/* Fix : RESOURCE_LEAK */
+					if (temp_att) {
+						free(temp_att);
+						temp_att = NULL;
+					}
 					break;
 				} else {
 					new_service_add = TRUE;
 				}
+			}
+			/* Fix : RESOURCE_LEAK */
+			if (temp_att) {
 				free(temp_att);
 				temp_att = NULL;
 			}
@@ -625,6 +629,36 @@ char *btd_get_service_path(bt_uuid_t uuid)
 	return attrib->path;
 }
 
+const char *btd_get_attrib_path(struct btd_attribute *attrib)
+{
+	if(attrib)
+		return attrib->path;
+	else
+		return NULL;
+}
+
+const char *btd_find_service_from_attr(struct btd_attribute *attrib)
+{
+	struct btd_attribute *svc_attrib = NULL;
+	GList *list;
+
+	for (list = local_attribute_db; list; list = g_list_next(list)) {
+		struct btd_attribute *attr = list->data;
+		if (attr && (attr->type.value.u16 == GATT_PRIM_SVC_UUID ||
+			attr->type.value.u16 == GATT_SND_SVC_UUID)) {
+			svc_attrib = attr;
+		} else {
+			if (attr && !attribute_cmp(attrib, attr))
+				break;
+			else
+				continue;
+		}
+	}
+	if (svc_attrib)
+		return svc_attrib->path;
+	else
+		return NULL;
+}
 DBusMessage *service_append_dict(bt_uuid_t uuid, DBusMessage *msg)
 {
 	GList *list;
@@ -690,7 +724,7 @@ DBusMessage *service_append_dict(bt_uuid_t uuid, DBusMessage *msg)
 
 static void remove_attr_service(struct btd_attribute *service)
 {
-	uint16_t start_handle, end_handle;
+	uint16_t start_handle = 0, end_handle = 0;
 	bt_uuid_t prim_uuid;
 	struct btd_adapter *adapter;
 
@@ -708,8 +742,38 @@ void btd_gatt_set_notify_indicate_flag(struct btd_attribute *attrib,
 						bool notify_indicate)
 {
 	attrib->notify_indicate = notify_indicate;
-	g_list_insert_sorted (local_attribute_db, attrib,
+	local_attribute_db = g_list_insert_sorted (local_attribute_db, attrib,
 					attribute_cmp);
+}
+
+gboolean gatt_register_internet_protocol_service(struct btd_adapter *adapter)
+{
+	bt_uuid_t uuid;
+
+	bt_uuid16_create(&uuid, GATT_IPSP_UUID);
+
+	return gatt_service_add(adapter, GATT_PRIM_SVC_UUID, &uuid,
+			GATT_OPT_INVALID);
+}
+
+gboolean gatt_unregister_internet_protocol_service(struct btd_adapter *adapter)
+{
+	bt_uuid_t uuid;
+	struct attribute *a;
+
+	bt_uuid16_create(&uuid, GATT_IPSP_UUID);
+
+	a = attribute_find(adapter, &uuid);
+	if (!a) {
+		error("Attribute not found for handle 0x%04x", a->handle);
+		return FALSE;
+	}
+
+	if (attrib_db_del(adapter, a->handle) < 0) {
+		error("Can't delete handle 0x%04x", a->handle);
+		return FALSE;
+	}
+	return TRUE;
 }
 #endif
 
@@ -829,7 +893,7 @@ bool btd_gatt_update_char(const bt_uuid_t *uuid, uint8_t *value, size_t len)
 
 	attrib = l->data;
 	notify_indicate = attrib->notify_indicate;
-	g_list_insert_sorted (local_attribute_db, attrib, attribute_cmp);
+	local_attribute_db = g_list_insert_sorted (local_attribute_db, attrib, attribute_cmp);
 
 	l = g_list_find_custom(local_attribute_db,
 				GUINT_TO_POINTER(attrib->handle - 1),
@@ -986,6 +1050,9 @@ struct btd_attribute *btd_gatt_add_char(const bt_uuid_t *uuid,
 
 fail:
 #ifdef __TIZEN_PATCH__
+	/* Fix : RESOURCE_LEAK */
+	if (char_decl->path)
+		g_free(char_decl->path);
 	if (char_decl)
 		free(char_decl);
 	if (char_value)
@@ -1063,3 +1130,5 @@ void gatt_cleanup(void)
 
 	gatt_dbus_manager_unregister();
 }
+
+#endif

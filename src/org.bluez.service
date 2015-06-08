@@ -3,6 +3,3 @@ Name=org.bluez
 Exec=/bin/false
 User=root
 SystemdService=dbus-org.bluez.service
-#test
-#SystemdService=bluetooth.service
-

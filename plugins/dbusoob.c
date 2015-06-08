@@ -28,7 +28,7 @@
 #endif
 
 #include <errno.h>
-#include <gdbus.h>
+#include "gdbus/gdbus.h"
 
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/hci.h>

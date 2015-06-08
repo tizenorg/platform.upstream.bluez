@@ -35,20 +35,19 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-#include <bluetooth/bluetooth.h>
-
 #include <glib.h>
 
-#include "src/log.h"
-
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
 #include "lib/uuid.h"
+
+#include "src/log.h"
 #include "src/adapter.h"
 #include "src/device.h"
 #include "src/profile.h"
 #include "src/service.h"
 #include "src/shared/util.h"
 #include "src/shared/uhid.h"
-
 #include "src/plugin.h"
 
 #include "suspend.h"
@@ -221,7 +220,6 @@ static void discover_descriptor_cb(uint8_t status, GSList *descs,
 		switch (desc->uuid16) {
 		case GATT_CLIENT_CHARAC_CFG_UUID:
 			report = user_data;
-			attrib = report->hogdev->attrib;
 			write_ccc(desc->handle, report);
 			break;
 		case GATT_REPORT_REFERENCE:

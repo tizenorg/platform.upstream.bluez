@@ -1,3 +1,4 @@
+#ifdef __TIZEN_PATCH__
 /*
  *
  *  BlueZ - Bluetooth protocol stack for Linux
@@ -47,12 +48,13 @@ typedef void (*btd_attr_read_result_t) (int err, uint8_t *value, size_t len,
  * Service implementation callback passed to core (ATT layer). It manages read
  * operations received from remote devices.
  * @attr:	reference of the attribute to be read.
+ * @bdaddr: Remote device address, which requets read value
  * @result:	callback called from the service implementation informing the
  *		value of attribute read.
  * @user_data:	user_data passed in btd_attr_read_result_t callback.
  */
 #ifdef __TIZEN_PATCH__
-typedef uint8_t (*btd_attr_read_t) (struct btd_attribute *attr,
+typedef uint8_t (*btd_attr_read_t) (struct btd_attribute *attr, bdaddr_t *bdaddr,
 						btd_attr_read_result_t result,
 						void *user_data);
 #else
@@ -118,6 +120,16 @@ bool btd_gatt_update_attr_db(void);
  * btd_get_service_path - Gets the Service object path if registerd.
  */
 char *btd_get_service_path(bt_uuid_t uuid);
+
+/*
+ * btd_get_attrib_path - Gets the attribute path if registerd.
+ */
+const char *btd_get_attrib_path(struct btd_attribute *attrib);
+
+/*
+ * btd_find_service_from_attr - Gets the Service from attribute if registerd.
+ */
+const char *btd_find_service_from_attr(struct btd_attribute *attrib);
 
 /*
  * service_append_dict - Prepare the dictionar entry for a Service
@@ -202,4 +214,6 @@ struct btd_attribute *btd_gatt_add_char_desc(const bt_uuid_t *uuid,
  * Returns a TRUE or FALSE.
  */
 bool btd_gatt_update_char(const bt_uuid_t *uuid, uint8_t *value, size_t len);
+#endif
+
 #endif

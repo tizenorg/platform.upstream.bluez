@@ -29,14 +29,16 @@
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
+
 #include <glib.h>
-#include <gdbus/gdbus.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/sdp.h>
-#include <gobex/gobex-apparam.h>
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
 
-#include "log.h"
+#include "gobex/gobex-apparam.h"
+#include "gdbus/gdbus.h"
+
+#include "obexd/src/log.h"
 
 #include "transfer.h"
 #include "session.h"
@@ -224,6 +226,11 @@ static char *build_phonebook_path(const char *location, const char *item)
 		g_free(tmp);
 	} else
 		return NULL;
+
+#ifdef __TIZEN_PATCH__
+	if (!g_ascii_strcasecmp(item, "nil"))
+		return path;
+#endif
 
 	if (!g_ascii_strcasecmp(item, "pb") ||
 		!g_ascii_strcasecmp(item, "ich") ||
@@ -747,9 +754,16 @@ static DBusMessage *pbap_select(DBusConnection *connection,
 	}
 
 	request = pending_request_new(pbap, message);
-
-	obc_session_setpath(pbap->session, path, pbap_setpath_cb, request,
-									&err);
+#ifdef __TIZEN_PATCH__
+	if (pbap->path == NULL || strlen(pbap->path) == 0)
+		obc_session_setpath(pbap->session, path + 1, pbap_setpath_cb, request,
+										&err);
+	else
+		obc_session_setpath(pbap->session, path, pbap_setpath_cb, request,
+										&err);
+#else
+	obc_session_setpath(pbap->session, path, pbap_setpath_cb, request, &err);
+#endif
 	if (err != NULL) {
 		DBusMessage *reply;
 		reply =  g_dbus_create_error(message, ERROR_INTERFACE ".Failed",
@@ -880,6 +894,9 @@ static DBusMessage *pbap_list(DBusConnection *connection,
 	struct pbap_data *pbap = user_data;
 	GObexApparam *apparam;
 	DBusMessageIter args;
+#ifdef __TIZEN_PATCH__
+	const char *pb_folder;
+#endif
 
 	if (!pbap->path)
 		return g_dbus_create_error(message,
@@ -887,6 +904,15 @@ static DBusMessage *pbap_list(DBusConnection *connection,
 					"Call Select first of all");
 
 	dbus_message_iter_init(message, &args);
+
+#ifdef __TIZEN_PATCH__
+	if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_STRING)
+		return g_dbus_create_error(message,
+				ERROR_INTERFACE ".InvalidArguments", NULL);
+
+	dbus_message_iter_get_basic(&args, &pb_folder);
+	dbus_message_iter_next(&args);
+#endif
 
 	apparam = g_obex_apparam_set_uint16(NULL, MAXLISTCOUNT_TAG,
 							DEFAULT_COUNT);
@@ -899,7 +925,11 @@ static DBusMessage *pbap_list(DBusConnection *connection,
 				ERROR_INTERFACE ".InvalidArguments", NULL);
 	}
 
+#ifdef __TIZEN_PATCH__
+	return pull_vcard_listing(pbap, message, pb_folder, apparam);
+#else
 	return pull_vcard_listing(pbap, message, "", apparam);
+#endif
 }
 
 static GObexApparam *parse_attribute(GObexApparam *apparam, const char *field)
@@ -1059,7 +1089,11 @@ static const GDBusMethodTable pbap_methods[] = {
 					{ "properties", "a{sv}" }),
 			pbap_pull_vcard) },
 	{ GDBUS_ASYNC_METHOD("List",
-			GDBUS_ARGS({ "filters", "a{sv}" }),
+#ifdef __TIZEN_PATCH__
+                        GDBUS_ARGS({ "folder", "s" }, {"filters", "a{sv}" }),
+#else
+                        GDBUS_ARGS({"filters", "a{sv}" }),
+#endif
 			GDBUS_ARGS({ "vcard_listing", "a(ss)" }),
 			pbap_list) },
 	{ GDBUS_ASYNC_METHOD("Search",

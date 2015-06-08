@@ -29,18 +29,19 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <errno.h>
-
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/bnep.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
 #include <netinet/in.h>
 
 #include <glib.h>
-#include <gdbus/gdbus.h>
+
+#include "lib/bluetooth.h"
+#include "lib/bnep.h"
+#include "lib/sdp.h"
+#include "lib/sdp_lib.h"
+#include "lib/uuid.h"
+
+#include "gdbus/gdbus.h"
 
 #include "btio/btio.h"
-#include "lib/uuid.h"
 #include "src/dbus-common.h"
 #include "src/adapter.h"
 #include "src/log.h"
@@ -325,7 +326,7 @@ static gboolean server_disconnected_cb(GIOChannel *chan,
 {
 	struct network_server *ns = NULL;
 	struct network_session *session = NULL;
-	char address[24] = {0};
+	char address[20] = {0};
 	const char* paddr = address;
 	char *name_str = NULL;
 
@@ -373,7 +374,7 @@ static gboolean bnep_setup(GIOChannel *chan,
 			GIOCondition cond, gpointer user_data)
 {
 	struct network_adapter *na = user_data;
-	struct network_server *ns = NULL;
+	struct network_server *ns;
 	uint8_t packet[BNEP_MTU];
 	struct bnep_setup_conn_req *req = (void *) packet;
 	uint16_t src_role, dst_role, rsp = BNEP_CONN_NOT_ALLOWED;
@@ -415,11 +416,7 @@ static gboolean bnep_setup(GIOChannel *chan,
 		return FALSE;
 
 	rsp = bnep_setup_decode(req, &dst_role, &src_role);
-	if (rsp)
-		goto reply;
-
-	rsp = bnep_setup_chk(dst_role, src_role);
-	if (rsp)
+	if (rsp != BNEP_SUCCESS)
 		goto reply;
 
 	rsp = BNEP_CONN_NOT_ALLOWED;
@@ -550,13 +547,7 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 	}
 
 	ns = find_server(na->servers, BNEP_SVC_NAP);
-	if (!ns)
-		goto drop;
-
-	if (!ns->record_id)
-		goto drop;
-
-	if (!ns->bridge)
+	if (!ns || !ns->record_id || !ns->bridge)
 		goto drop;
 
 	na->setup = g_new0(struct network_session, 1);
@@ -564,7 +555,7 @@ static void confirm_event(GIOChannel *chan, gpointer user_data)
 	na->setup->io = g_io_channel_ref(chan);
 
 	ret = btd_request_authorization(&src, &dst, BNEP_SVC_UUID,
-					auth_cb, na, 0);
+					auth_cb, na);
 	if (ret == 0) {
 		error("Refusing connect from %s", address);
 		setup_destroy(na);
@@ -611,26 +602,11 @@ static void server_remove_sessions(struct network_server *ns)
 
 	for (list = ns->sessions; list; list = list->next) {
 		struct network_session *session = list->data;
-		char address[24] = {0};
-		char *paddr = address;
-		const char *name_str = NULL;
 
 		if (*session->dev == '\0')
 			continue;
 
 		bnep_server_delete(ns->bridge, session->dev, &session->dst);
-
-		name_str = session->dev;
-		ba2str(&session->dst, paddr);
-
-		DBG("send peerdisconnected signal");
-
-		g_dbus_emit_signal(btd_get_dbus_connection(),
-			adapter_get_path(ns->na->adapter),
-			NETWORK_SERVER_INTERFACE, "PeerDisconnected",
-			DBUS_TYPE_STRING, &name_str,
-			DBUS_TYPE_STRING, &paddr,
-			DBUS_TYPE_INVALID);
 	}
 
 #ifndef __TIZEN_PATCH__
@@ -885,8 +861,7 @@ static struct network_adapter *create_adapter(struct btd_adapter *adapter)
 	na = g_new0(struct network_adapter, 1);
 	na->adapter = btd_adapter_ref(adapter);
 
-	na->io = bt_io_listen(NULL, confirm_event, na,
-				NULL, &err,
+	na->io = bt_io_listen(NULL, confirm_event, na, NULL, &err,
 				BT_IO_OPT_SOURCE_BDADDR,
 				btd_adapter_get_address(adapter),
 				BT_IO_OPT_PSM, BNEP_PSM,

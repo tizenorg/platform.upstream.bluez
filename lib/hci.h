@@ -56,6 +56,10 @@ extern "C" {
 #define HCI_PCI		5
 #define HCI_SDIO	6
 
+#ifdef __TIZEN_PATCH__
+#define HCI_SMD		7
+#endif
+
 /* HCI controller types */
 #define HCI_BREDR	0x00
 #define HCI_AMP		0x01

@@ -30,15 +30,17 @@ if EXPERIMENTAL
 if TIZEN_UNUSED_PLUGIN
 builtin_modules += neard
 builtin_sources += plugins/neard.c
+endif
 
+if TIZEN_SAP_PLUGIN
 builtin_modules += sap
 builtin_sources += profiles/sap/main.c profiles/sap/manager.h \
 			profiles/sap/manager.c profiles/sap/server.h \
 			profiles/sap/server.c profiles/sap/sap.h \
-			profiles/sap/sap-dummy.c
+			profiles/sap/sap-u8500.c
 
-noinst_LIBRARIES += profiles/sap/libsap.a
-profiles_sap_libsap_a_SOURCES = profiles/sap/sap.h profiles/sap/sap-u8500.c
+#noinst_LIBRARIES += profiles/sap/libsap.a
+#profiles_sap_libsap_a_SOURCES = profiles/sap/sap.h profiles/sap/sap-u8500
 endif
 endif
 
@@ -84,7 +86,7 @@ endif
 endif
 
 if EXPERIMENTAL
-if TIZEN_UNUSED_PLUGIN
+if TIZEN_HEALTH_PLUGIN
 builtin_modules += health
 builtin_sources += profiles/health/mcap.h profiles/health/mcap.c \
 			profiles/health/hdp_main.c profiles/health/hdp_types.h \
@@ -141,12 +143,4 @@ plugins_sixaxis_la_SOURCES = plugins/sixaxis.c
 plugins_sixaxis_la_LDFLAGS = $(AM_LDFLAGS) -module -avoid-version \
 						-no-undefined @UDEV_LIBS@
 plugins_sixaxis_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden @UDEV_CFLAGS@
-endif
-
-if SERVICE
-plugin_LTLIBRARIES += plugins/service.la
-plugins_service_la_SOURCES = plugins/service.c
-plugins_service_la_LDFLAGS = $(AM_LDFLAGS) -module -avoid-version \
-								-no-undefined
-plugins_service_la_CFLAGS = $(AM_CFLAGS) -fvisibility=hidden
 endif

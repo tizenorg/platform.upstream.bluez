@@ -1,7 +1,7 @@
 #%define with_libcapng --enable-capng
 Name:       	bluez
 Summary:    	Bluetooth Stack for Linux
-Version:    	5.27
+Version:    	5.28
 Release:    	0
 Group:      	Network & Connectivity/Bluetooth
 License:    	GPL-2.0+
@@ -46,8 +46,6 @@ BuildRequires:  pkgconfig(libnl-1)
 BuildRequires:  libical-devel
 BuildRequires:  pkgconfig(libtzplatform-config)
 
-%define cups_lib_dir %{_prefix}/lib/cups
-
 %description
 The Bluetooth stack for Linux.
 
@@ -68,24 +66,6 @@ Group:          Network & Connectivity/Bluetooth
 
 %description -n libbluetooth
 Bluetooth protocol stack libraries.
-
-%package -n libbluetooth-plugins-service
-Summary:        Bluetooth Plugins
-License:        GPL-2.0+
-Group:          Network & Connectivity/Bluetooth
-
-%description -n libbluetooth-plugins-service
-Bluetooth protocol stack plugins.
-
-%package cups
-Summary:        CUPS Driver for Bluetooth Printers
-License:        GPL-2.0+
-Group:          Network & Connectivity/Bluetooth
-Requires:       libbluetooth = %{version}
-
-%description cups
-Contains the files required by CUPS for printing to Bluetooth-connected
-printers.
 
 %package -n obexd
 Summary:        OBEX Server A basic OBEX server implementation
@@ -114,60 +94,43 @@ cp %{SOURCE1001} .
 %build
 autoreconf -fiv
 
-export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__"
+export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__ -DBLUEZ5_27_GATT_CLIENT"
 
 export LDFLAGS=" -lncurses -Wl,--as-needed "
 export CFLAGS+=" -DPBAP_SIM_ENABLE"
-#%reconfigure --with-pic \
-%reconfigure --with-pic \
-		--libexecdir=/lib \
-		--disable-usb	\
-		--enable-test	\
-		--enable-library \
-		--enable-experimental	\
-		--enable-readline	\
-		--enable-service \
-		--with-systemdunitdir=%{_unitdir} \
-#			--disable-static \
-#			--sysconfdir=%{_sysconfdir} \
-#			--localstatedir=%{_localstatedir} \
-#			--disable-systemd \
-#			--enable-debug \
-#			--enable-pie \
-#%if "%{?tizen_profile_name}" == "mobile"
-#			--enable-network \
-#%endif
-#			--enable-serial \
-#			--enable-input \
-#			--disable-usb \
-#			--enable-tools \
-#			--disable-bccmd \
-#			--disable-pcmcia \
-#			--disable-hid2hci \
-#			--disable-alsa \
-#			--enable-gstreamer=no \
-#			--disable-dfutool \
-#			--disable-cups \
-#			--enable-health \
-#			--enable-dbusoob \
-#			--enable-test \
-#			--with-telephony=tizen \
-#			--enable-obex \
-#			--enable-library \
-#%if "%{?tizen_profile_name}" == "wearable"
-#			--enable-gatt \
-#			--enable-wearable \
-#%endif
-#%if "%{?tizen_profile_name}" == "common"
-#			--enable-usbbt \
-#%endif
-#			--enable-experimental \
-#			--enable-readline	\
-#3			--enable-service \
-#			--with-systemdunitdir=%{_unitdir} \
-#			%{?with_libcapng}
-#			--disable-autopair \
-#			--disable-tizenunusedplugin
+%reconfigure --disable-static \
+			--sysconfdir=%{_sysconfdir} \
+			--localstatedir=%{_localstatedir} \
+			--with-systemdsystemunitdir=%{_libdir}/systemd/system \
+			--with-systemduserunitdir=%{_libdir}/systemd/user \
+			--libexecdir=%{_libdir} \
+			--enable-debug \
+			--enable-pie \
+			--enable-serial \
+			--enable-input \
+			--enable-usb=no \
+			--enable-tools \
+			--disable-bccmd \
+			--enable-pcmcia=no \
+			--enable-hid2hci=no \
+			--enable-alsa=no \
+			--enable-gstreamer=no \
+			--disable-dfutool \
+			--disable-cups \
+			--enable-health=yes \
+			--enable-dbusoob \
+			--enable-test \
+			--with-telephony=tizen \
+			--enable-obex \
+			--enable-library \
+			--enable-gatt \
+			--enable-experimental \
+			--enable-autopair=no \
+			--enable-network \
+			--enable-hid=yes \
+			--enable-tizenunusedplugin=no
+
+
 make %{?_smp_mflags} all V=1
 
 %check
@@ -181,12 +144,7 @@ echo "%{_libdir}"
 rm -rvf $RPM_BUILD_ROOT/%{_libdir}/gstreamer-*
 install --mode=0755 -D %{S:4} $RPM_BUILD_ROOT/usr/lib/udev/bluetooth.sh
 install --mode=0644 -D %{S:7} $RPM_BUILD_ROOT/%{_sysconfdir}/modprobe.d/50-bluetooth.conf
-if ! test -e %{buildroot}%{cups_lib_dir}/backend/bluetooth
-then if test -e %{buildroot}%{_libdir}/cups/backend/bluetooth
-     then mkdir -p %{buildroot}%{cups_lib_dir}/backend
-          mv %{buildroot}%{_libdir}/cups/backend/bluetooth %{buildroot}%{cups_lib_dir}/backend/bluetooth
-     fi
-fi
+
 # no idea why this is suddenly necessary...
 install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 
@@ -204,7 +162,7 @@ install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_c
 install -D -m 0755 %SOURCE103 %{buildroot}%{_bindir}/obex.sh
 install -D -m 0755 tools/btiotest $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/bluetooth-player $RPM_BUILD_ROOT/%{_bindir}/
-install -D -m 0755 tools/mpris-player $RPM_BUILD_ROOT/%{_bindir}/
+#install -D -m 0755 tools/mpris-player $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/btmgmt $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/scotest $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/bluemoon $RPM_BUILD_ROOT/%{_bindir}/
@@ -220,10 +178,6 @@ ln -sf bluetooth.service %{buildroot}%{_unitdir}/dbus-org.bluez.service
 
 %postun -n libbluetooth -p /sbin/ldconfig
 
-%post -n libbluetooth-plugins-service -p /sbin/ldconfig
-
-%postun -n libbluetooth-plugins-service -p /sbin/ldconfig
-
 %files
 %manifest %{name}.manifest
 %defattr(-, root, root)
@@ -238,12 +192,13 @@ ln -sf bluetooth.service %{buildroot}%{_unitdir}/dbus-org.bluez.service
 %{_bindir}/l2ping
 %{_bindir}/obexctl
 %{_bindir}/rfcomm
+%{_bindir}/mpris-proxy
 %{_bindir}/sdptool
 %{_bindir}/ciptool
 #%{_bindir}/dfutool
 %{_bindir}/hciattach
 %{_bindir}/hciconfig
-/lib/bluetooth/bluetoothd
+%{_libdir}/bluetooth/bluetoothd
 %{_bindir}/bccmd
 #%{_sbindir}/hid2hci
 %dir /usr/lib/udev
@@ -258,7 +213,6 @@ ln -sf bluetooth.service %{buildroot}%{_unitdir}/dbus-org.bluez.service
 %dir /var/lib/bluetooth
 %dir %{_sysconfdir}/modprobe.d
 %config(noreplace) %{_sysconfdir}/modprobe.d/50-bluetooth.conf
-%{_unitdir}/bluetooth.service
 
 
 
@@ -274,25 +228,11 @@ ln -sf bluetooth.service %{buildroot}%{_unitdir}/dbus-org.bluez.service
 %manifest %{name}.manifest
 %defattr(-, root, root)
 %{_libdir}/libbluetooth.so.*
-%{_libdir}/bluetooth/plugins/*.so
 %license COPYING
-
-%files -n libbluetooth-plugins-service
-%manifest %{name}.manifest
-%defattr(-, root, root)
-%{_libdir}/bluetooth/plugins/*.so
-%license COPYING
-
-%files cups
-%manifest %{name}.manifest
-%defattr(-,root,root)
-%dir %{cups_lib_dir}
-%dir %{cups_lib_dir}/backend
-%{cups_lib_dir}/backend/bluetooth
 
 %files -n obexd
 %defattr(-,root,root,-)
-/lib/bluetooth/obexd
+%{_libdir}/bluetooth/obexd
 %{_unitdir_user}/obex.service
 %{_datadir}/dbus-1/services/org.bluez.obex.service
 %{_sysconfdir}/obex/root-setup.d/000_create-symlinks
@@ -308,7 +248,7 @@ ln -sf bluetooth.service %{buildroot}%{_unitdir}/dbus-org.bluez.service
 %{_bindir}/rctest
 %{_bindir}/bluetoothctl
 %{_bindir}/btiotest
-%{_bindir}/mpris-player
+#%{_bindir}/mpris-player
 %{_bindir}/bluetooth-player
 %{_bindir}/btmon
 %{_bindir}/hcidump
@@ -316,7 +256,8 @@ ln -sf bluetooth.service %{buildroot}%{_unitdir}/dbus-org.bluez.service
 %{_bindir}/scotest
 %{_bindir}/bluemoon
 %{_bindir}/gatttool
-
+%{_bindir}/hex2hcd
+%exclude /usr/lib/debug/*
 
 %docs_package
 

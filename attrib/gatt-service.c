@@ -28,9 +28,12 @@
 
 #include <glib.h>
 
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+#include "lib/uuid.h"
+
 #include "src/adapter.h"
 #include "src/shared/util.h"
-#include "lib/uuid.h"
 #include "attrib/gattrib.h"
 #include "attrib/att.h"
 #include "attrib/gatt.h"
@@ -75,6 +78,10 @@ static GSList *parse_opts(gatt_option opt1, va_list args)
 	struct attrib_cb *cb;
 	GSList *l = NULL;
 
+#ifdef __TIZEN_PATCH__
+	if (opt == GATT_OPT_INVALID)
+		return NULL;
+#endif
 	info = g_new0(struct gatt_info, 1);
 	l = g_slist_append(l, info);
 
@@ -380,19 +387,15 @@ static void service_attr_del(struct btd_adapter *adapter, uint16_t start_handle,
 {
 	uint16_t handle;
 
-	/* When handles are assigned for primary servies of 128 bit categary,
-	 * handles are assigned from (0xffff - num_elements),
-	 * ex: start handle 0xfffb, end handle 0xffff
-	 * the below conditions enters infinite loop once the handle value reaches to 0xffff,
-	 * in the next increament it becomes 0x0000, which is always less than end handle(0xffff),
-	 * hence starts deleting the attributes from 0x0000 to 0xffff */
-#ifdef __TIZEN_PATCH__
-	for (handle = start_handle; (handle != 0 && handle <= end_handle); handle++)
-#else
-	for (handle = start_handle; handle <= end_handle; handle++)
-#endif
+	/* For a 128-bit category primary service below handle should be checked
+	 * for both non-zero as well as >= 0xffff. As on last iteration the
+	 * handle will turn to 0 from 0xffff and loop will be infinite.
+	 */
+	for (handle = start_handle; (handle != 0 && handle <= end_handle);
+								handle++) {
 		if (attrib_db_del(adapter, handle) < 0)
 			error("Can't delete handle 0x%04x", handle);
+	}
 }
 
 #ifdef __TIZEN_PATCH__
@@ -406,7 +409,7 @@ static int is_gatt_connected(gconstpointer a1, gconstpointer a2)
 		return -1;
 }
 
-bool gatt_send_noty_ind(struct btd_adapter *adapter, bt_uuid_t *uuid,
+bool gatt_send_noty_ind(struct btd_adapter *adapter, const bt_uuid_t *uuid,
 					uint8_t *value, size_t len)
 {
 	struct attribute *a;

@@ -36,9 +36,9 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 #include <glib.h>
-#include <gdbus.h>
 
-#include <client/display.h>
+#include "gdbus/gdbus.h"
+#include "client/display.h"
 
 /* String display constants */
 #define COLORED_NEW	COLOR_GREEN "NEW" COLOR_OFF
@@ -654,7 +654,6 @@ static void cmd_show(int argc, char *argv[])
 	rl_printf("Player %s\n", g_dbus_proxy_get_path(proxy));
 
 	print_property(proxy, "Name");
-	print_property(proxy, "Searchable");
 	print_property(proxy, "Repeat");
 	print_property(proxy, "Equalizer");
 	print_property(proxy, "Shuffle");

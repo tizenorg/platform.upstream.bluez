@@ -40,9 +40,9 @@
 #include <sys/socket.h>
 #include <signal.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/hci_lib.h>
+#include "lib/bluetooth.h"
+#include "lib/hci.h"
+#include "lib/hci_lib.h"
 
 #include "src/oui.h"
 
@@ -966,6 +966,9 @@ static void cmd_info(int dev_id, int argc, char **argv)
 	if ((di.features[7] & LMP_EXT_FEAT) && (features[7] & LMP_EXT_FEAT))
 		hci_read_remote_ext_features(dd, handle, 0, &max_page,
 							features, 20000);
+
+	if (max_page < 1 && (features[6] & LMP_SIMPLE_PAIR))
+		max_page = 1;
 
 	printf("\tFeatures%s: 0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x "
 				"0x%2.2x 0x%2.2x 0x%2.2x 0x%2.2x\n",
@@ -2404,9 +2407,7 @@ failed:
 
 static int print_advertising_devices(int dd, uint8_t filter_type)
 {
-	unsigned char buf_array[HCI_MAX_EVENT_SIZE+1] = {0};
-	unsigned char *buf = buf_array;
-	unsigned char *ptr = NULL;
+	unsigned char buf[HCI_MAX_EVENT_SIZE], *ptr;
 	struct hci_filter nf, of;
 	struct sigaction sa;
 	socklen_t olen;
@@ -2433,14 +2434,11 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 	sigaction(SIGINT, &sa, NULL);
 
 	while (1) {
-		evt_le_meta_event *meta = NULL;
-		le_advertising_info *info = NULL;
-		char addr_array[18];
-		char *addr = addr_array;
+		evt_le_meta_event *meta;
+		le_advertising_info *info;
+		char addr[18];
 
-		buf[HCI_MAX_EVENT_SIZE] = 0;
-
-		while ((len = read(dd, buf, HCI_MAX_EVENT_SIZE)) < 0) {
+		while ((len = read(dd, buf, sizeof(buf))) < 0) {
 			if (errno == EINTR && signal_received == SIGINT) {
 				len = 0;
 				goto done;
@@ -2462,16 +2460,14 @@ static int print_advertising_devices(int dd, uint8_t filter_type)
 		/* Ignoring multiple reports */
 		info = (le_advertising_info *) (meta->data + 1);
 		if (check_report_filter(filter_type, info)) {
-			char name_array[30];
-			char *name = name_array;
+			char name[30];
 
-			memset(name, 0, 30);
+			memset(name, 0, sizeof(name));
 
 			ba2str(&info->bdaddr, addr);
 			eir_parse_name(info->data, info->length,
-							name, 29);
+							name, sizeof(name) - 1);
 
-			name[29] = '\0';
 			printf("%s %s\n", addr, name);
 		}
 	}
@@ -3300,18 +3296,19 @@ static const char *lecup_help =
 	"Usage:\n"
 	"\tlecup <handle> <min> <max> <latency> <timeout>\n"
 	"\tOptions:\n"
-	"\t    -H, --handle <0xXXXX>  LE connection handle\n"
-	"\t    -m, --min <interval>   Range: 0x0006 to 0x0C80\n"
-	"\t    -M, --max <interval>   Range: 0x0006 to 0x0C80\n"
-	"\t    -l, --latency <range>  Slave latency. Range: 0x0000 to 0x03E8\n"
-	"\t    -t, --timeout  <time>  N * 10ms. Range: 0x000A to 0x0C80\n"
+	"\t    --handle=<0xXXXX>  LE connection handle\n"
+	"\t    --min=<interval>   Range: 0x0006 to 0x0C80\n"
+	"\t    --max=<interval>   Range: 0x0006 to 0x0C80\n"
+	"\t    --latency=<range>  Slave latency. Range: 0x0000 to 0x03E8\n"
+	"\t    --timeout=<time>   N * 10ms. Range: 0x000A to 0x0C80\n"
 	"\n\t min/max range: 7.5ms to 4s. Multiply factor: 1.25ms"
 	"\n\t timeout range: 100ms to 32.0s. Larger than max interval\n";
 
 static void cmd_lecup(int dev_id, int argc, char **argv)
 {
 	uint16_t handle = 0, min, max, latency, timeout;
-	int opt, dd, base;
+	int opt, dd;
+	int options = 0;
 
 	/* Aleatory valid values */
 	min = 0x0C8;
@@ -3320,31 +3317,38 @@ static void cmd_lecup(int dev_id, int argc, char **argv)
 	timeout = 0x0C80;
 
 	for_each_opt(opt, lecup_options, NULL) {
-		if (optarg && strncasecmp("0x", optarg, 2) == 0)
-			base = 16;
-		else
-			base = 10;
-
 		switch (opt) {
 		case 'H':
-			handle = strtoul(optarg, NULL, base);
+			handle = strtoul(optarg, NULL, 0);
 			break;
 		case 'm':
-			min = strtoul(optarg, NULL, base);
+			min = strtoul(optarg, NULL, 0);
 			break;
 		case 'M':
-			max = strtoul(optarg, NULL, base);
+			max = strtoul(optarg, NULL, 0);
 			break;
 		case 'l':
-			latency = strtoul(optarg, NULL, base);
+			latency = strtoul(optarg, NULL, 0);
 			break;
 		case 't':
-			timeout = strtoul(optarg, NULL, base);
+			timeout = strtoul(optarg, NULL, 0);
 			break;
 		default:
 			printf("%s", lecup_help);
 			return;
 		}
+
+		options = 1;
+	}
+
+	if (options == 0) {
+		helper_arg(5, 5, &argc, &argv, lecup_help);
+
+		handle = strtoul(argv[0], NULL, 0);
+		min = strtoul(argv[1], NULL, 0);
+		max = strtoul(argv[2], NULL, 0);
+		latency = strtoul(argv[3], NULL, 0);
+		timeout = strtoul(argv[4], NULL, 0);
 	}
 
 	if (handle == 0) {

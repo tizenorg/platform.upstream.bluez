@@ -35,10 +35,19 @@
 #include <sys/stat.h>
 #include <sys/param.h>
 
-#include "monitor/mainloop.h"
 #include "monitor/bt.h"
+#include "src/shared/mainloop.h"
 #include "src/shared/util.h"
 #include "src/shared/hci.h"
+
+#define CMD_RESET		0xfc01
+struct cmd_reset {
+	uint8_t  reset_type;
+	uint8_t  patch_enable;
+	uint8_t  otp_ddc_reload;
+	uint8_t  boot_option;
+	uint32_t boot_addr;
+} __attribute__ ((packed));
 
 #define CMD_NO_OPERATION	0xfc02
 
@@ -126,6 +135,11 @@ struct cmd_act_deact_traces {
 	uint8_t  rx_trace;
 } __attribute__ ((packed));
 
+#define CMD_TRIGGER_EXCEPTION	0xfc4d
+struct cmd_trigger_exception {
+	uint8_t  type;
+} __attribute__ ((packed));
+
 #define CMD_MEMORY_WRITE	0xfc8e
 
 static struct bt_hci *hci_dev;
@@ -146,7 +160,9 @@ static const char *check_firmware_value = NULL;
 uint8_t manufacturer_mode_reset = 0x00;
 static bool use_manufacturer_mode = false;
 static bool set_traces = false;
+static bool set_exception = false;
 static bool reset_on_exit = false;
+static bool cold_boot = false;
 
 static void reset_complete(const void *data, uint8_t size, void *user_data)
 {
@@ -155,6 +171,25 @@ static void reset_complete(const void *data, uint8_t size, void *user_data)
 	if (status) {
 		fprintf(stderr, "Failed to reset (0x%02x)\n", status);
 		mainloop_quit();
+		return;
+	}
+
+	mainloop_quit();
+}
+
+static void cold_boot_complete(const void *data, uint8_t size, void *user_data)
+{
+	uint8_t status = *((uint8_t *) data);
+
+	if (status) {
+		fprintf(stderr, "Failed to cold boot (0x%02x)\n", status);
+		mainloop_quit();
+		return;
+	}
+
+	if (reset_on_exit) {
+		bt_hci_send(hci_dev, BT_HCI_CMD_RESET, NULL, 0,
+						reset_complete, NULL, NULL);
 		return;
 	}
 
@@ -284,6 +319,18 @@ static void act_deact_traces(void)
 
 	bt_hci_send(hci_dev, CMD_ACT_DEACT_TRACES, &cmd, sizeof(cmd),
 					act_deact_traces_complete, NULL, NULL);
+}
+
+static void trigger_exception(void)
+{
+	struct cmd_trigger_exception cmd;
+
+	cmd.type = 0x00;
+
+	bt_hci_send(hci_dev, CMD_TRIGGER_EXCEPTION, &cmd, sizeof(cmd),
+							NULL, NULL, NULL);
+
+	shutdown_device();
 }
 
 static void write_bd_data_complete(const void *data, uint8_t size,
@@ -423,6 +470,11 @@ static void enter_manufacturer_mode_complete(const void *data, uint8_t size,
 
 	if (set_traces) {
 		act_deact_traces();
+		return;
+	}
+
+	if (set_exception) {
+		trigger_exception();
 		return;
 	}
 
@@ -601,6 +653,20 @@ static void read_version_complete(const void *data, uint8_t size,
 		return;
 	}
 
+	if (cold_boot) {
+		struct cmd_reset cmd;
+
+		cmd.reset_type = 0x01;
+		cmd.patch_enable = 0x00;
+		cmd.otp_ddc_reload = 0x01;
+		cmd.boot_option = 0x00;
+		cmd.boot_addr = cpu_to_le32(0x00000000);
+
+		bt_hci_send(hci_dev, CMD_RESET, &cmd, sizeof(cmd),
+					cold_boot_complete, NULL, NULL);
+		return;
+	}
+
 	if (load_firmware) {
 		if (load_firmware_value) {
 			printf("Firmware: %s\n", load_firmware_value);
@@ -733,7 +799,6 @@ static void analyze_firmware(const char *path)
 	if (len != st.st_size) {
 		fprintf(stderr, "Failed to read complete firmware file\n");
 		goto done;
-		return;
 	}
 
 	if ((size_t) len < sizeof(*css)) {
@@ -767,7 +832,7 @@ static void analyze_firmware(const char *path)
 	printf("\n");
 
 
-	if (len != le32_to_cpu(css->size) * 4) {
+	if ((size_t) len != le32_to_cpu(css->size) * 4) {
 		fprintf(stderr, "CSS.size does not match file length\n");
 		goto done;
 	}
@@ -830,6 +895,8 @@ static void usage(void)
 		"\t-F, --firmware [file]  Load firmware\n"
 		"\t-C, --check <file>     Check firmware image\n"
 		"\t-R, --reset            Reset controller\n"
+		"\t-B, --coldboot         Cold boot controller\n"
+		"\t-E, --exception        Trigger exception\n"
 		"\t-i, --index <num>      Use specified controller\n"
 		"\t-h, --help             Show help options\n");
 }
@@ -841,7 +908,10 @@ static const struct option main_options[] = {
 	{ "check",    required_argument, NULL, 'C' },
 	{ "traces",   no_argument,       NULL, 'T' },
 	{ "reset",    no_argument,       NULL, 'R' },
+	{ "coldboot", no_argument,       NULL, 'B' },
+	{ "exception",no_argument,       NULL, 'E' },
 	{ "index",    required_argument, NULL, 'i' },
+	{ "raw",      no_argument,       NULL, 'r' },
 	{ "version",  no_argument,       NULL, 'v' },
 	{ "help",     no_argument,       NULL, 'h' },
 	{ }
@@ -850,13 +920,14 @@ static const struct option main_options[] = {
 int main(int argc, char *argv[])
 {
 	const char *str;
+	bool use_raw = false;
 	sigset_t mask;
 	int exit_status;
 
 	for (;;) {
 		int opt;
 
-		opt = getopt_long(argc, argv, "A::DF::C:TRi:vh",
+		opt = getopt_long(argc, argv, "A::DF::C:TRBEi:rvh",
 						main_options, NULL);
 		if (opt < 0)
 			break;
@@ -881,12 +952,19 @@ int main(int argc, char *argv[])
 			check_firmware_value = optarg;
 			check_firmware = true;
 			break;
+		case 'E':
+			use_manufacturer_mode = true;
+			set_exception = true;
+			break;
 		case 'T':
 			use_manufacturer_mode = true;
 			set_traces = true;
 			break;
 		case 'R':
 			reset_on_exit = true;
+			break;
+		case 'B':
+			cold_boot = true;
 			break;
 		case 'i':
 			if (strlen(optarg) > 3 && !strncmp(optarg, "hci", 3))
@@ -898,6 +976,9 @@ int main(int argc, char *argv[])
 				return EXIT_FAILURE;
 			}
 			hci_index = atoi(str);
+			break;
+		case 'r':
+			use_raw = true;
 			break;
 		case 'v':
 			printf("%s\n", VERSION);
@@ -930,10 +1011,18 @@ int main(int argc, char *argv[])
 		return EXIT_SUCCESS;
 	}
 
-	hci_dev = bt_hci_new_user_channel(hci_index);
-	if (!hci_dev) {
-		fprintf(stderr, "Failed to open HCI user channel\n");
-		return EXIT_FAILURE;
+	if (use_raw) {
+		hci_dev = bt_hci_new_raw_device(hci_index);
+		if (!hci_dev) {
+			fprintf(stderr, "Failed to open HCI raw device\n");
+			return EXIT_FAILURE;
+		}
+	} else {
+		hci_dev = bt_hci_new_user_channel(hci_index);
+		if (!hci_dev) {
+			fprintf(stderr, "Failed to open HCI user channel\n");
+			return EXIT_FAILURE;
+		}
 	}
 
 	bt_hci_send(hci_dev, CMD_READ_VERSION, NULL, 0,

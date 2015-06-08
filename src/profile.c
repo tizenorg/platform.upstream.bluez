@@ -32,14 +32,15 @@
 
 #include <glib.h>
 #include <dbus/dbus.h>
-#include <gdbus/gdbus.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+#include "lib/sdp_lib.h"
+#include "lib/uuid.h"
+
+#include "gdbus/gdbus.h"
 
 #include "btio/btio.h"
-#include "lib/uuid.h"
 #include "sdpd.h"
 #include "log.h"
 #include "error.h"
@@ -67,6 +68,11 @@
 
 #define BTD_PROFILE_PSM_AUTO	-1
 #define BTD_PROFILE_CHAN_AUTO	-1
+
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+#define HID_DEVICE_INTR_PSM 17
+#define HID_DEVICE_CTRL_PSM 19
+#endif
 
 #define HFP_HF_RECORD							\
 	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
@@ -713,6 +719,109 @@
 		</attribute>						\
 	</record>"
 
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+#define HID_DEVICE_RECORD	\
+	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>	\
+	<record>	\
+	<attribute id=\"0x0001\">	\
+		<sequence>	\
+			<uuid value=\"0x1124\" />	\
+		</sequence>	\
+	</attribute>	\
+	<attribute id=\"0x0004\">	\
+		<sequence>	\
+			<sequence>	\
+				<uuid value=\"0x0100\" />	\
+				<uint16 value=\"0x0011\" />	\
+			</sequence>	\
+			<sequence>	\
+				<uuid value=\"0x0011\" />	\
+			</sequence>	\
+		</sequence>	\
+	</attribute>	\
+	<attribute id=\"0x0005\">	\
+		<sequence>	\
+			<uuid value=\"0x1002\" />	\
+		</sequence>	\
+	</attribute>	\
+	<attribute id=\"0x0006\">	\
+		<sequence>	\
+			<uint16 value=\"0x656e\" />	\
+			<uint16 value=\"0x006a\" />	\
+			<uint16 value=\"0x0100\" />	\
+		</sequence>	\
+	</attribute>	\
+	<attribute id=\"0x0009\">	\
+		<sequence>	\
+			<sequence>	\
+				<uuid value=\"0x0011\" />	\
+				<uint16 value=\"0x0100\" />	\
+			</sequence>	\
+		</sequence>	\
+	</attribute>	\
+	<attribute id=\"0x000d\">	\
+		<sequence>	\
+			<sequence>	\
+				<sequence>	\
+					<uuid value=\"0x0100\" />	\
+					<uint16 value=\"0x0013\" />	\
+				</sequence>	\
+				<sequence>	\
+					<uuid value=\"0x0011\" />	\
+				</sequence>	\
+			</sequence>	\
+		</sequence>	\
+	</attribute>	\
+	<attribute id=\"0x0100\">	\
+		<text value=\"Bluez Mouse\" />	\
+	</attribute>	\
+	<attribute id=\"0x0101\">	\
+		<text value=\"Mouse\" />	\
+	</attribute>	\
+	<attribute id=\"0x0200\">	\
+		<uint16 value=\"0x0100\" />	\
+	</attribute>	\
+	<attribute id=\"0x0201\">	\
+		<uint16 value=\"0x0111\" />	\
+	</attribute>	\
+	<attribute id=\"0x0202\">	\
+		<uint8 value=\"0x40\" />		\
+	</attribute>	\
+	<attribute id=\"0x0203\">	\
+		<uint8 value=\"0x00\" />		\
+	</attribute>	\
+	<attribute id=\"0x0204\">	\
+		<boolean value=\"true\" />	\
+	</attribute>	\
+	<attribute id=\"0x0205\">	\
+		<boolean value=\"true\" />	\
+	</attribute>	\
+	<attribute id=\"0x0206\">	\
+		<sequence>	\
+			<sequence>	\
+				<uint8 value=\"0x22\" />		\
+				<text encoding=\"hex\" value=\"05010902a10185010901a1000509190129031500250175019503810275059501810105010930093109381581257f750895028106c0c005010906a1018502a100050719e029e71500250175019508810295087508150025650507190029658100c0c0\" />	\
+			</sequence>	\
+		</sequence>	\
+	</attribute>	\
+	<attribute id=\"0x0207\">	\
+		<sequence>	\
+			<sequence>	\
+				<uint16 value=\"0x0409\" />	\
+				<uint16 value=\"0x0100\" />	\
+			</sequence>	\
+		</sequence>	\
+	</attribute>	\
+	<attribute id=\"0x020b\">	\
+		<uint16 value=\"0x0100\" />	\
+	</attribute>	\
+	<attribute id=\"0x020e\">	\
+		<boolean value=\"true\" />	\
+	</attribute>	\
+	</record>"
+#endif
+
+
 struct ext_io;
 
 struct ext_profile {
@@ -724,7 +833,6 @@ struct ext_profile {
 	char *uuid;
 	char *service;
 	char *role;
-
 	char *record;
 	char *(*get_record)(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm);
@@ -754,6 +862,13 @@ struct ext_profile {
 	GSList *conns;
 
 	GSList *connects;
+#ifdef __TIZEN_PATCH__
+	char *destination;
+	char *app_path;
+#endif
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+	bool local_connect;
+#endif
 };
 
 struct ext_io {
@@ -796,6 +911,11 @@ static GSList *custom_props = NULL;
 
 static GSList *profiles = NULL;
 static GSList *ext_profiles = NULL;
+
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+static int connect_io(struct ext_io *conn, const bdaddr_t *src,
+							const bdaddr_t *dst);
+#endif
 
 void btd_profile_foreach(void (*func)(struct btd_profile *p, void *data),
 								void *data)
@@ -1056,7 +1176,7 @@ static bool send_new_connection(struct ext_profile *ext, struct ext_io *conn)
 	const sdp_record_t *rec;
 	const char *path;
 	int fd;
-
+	DBG("Sending New Connection owner %s path %s", ext->owner, ext->path);
 	msg = dbus_message_new_method_call(ext->owner, ext->path,
 							"org.bluez.Profile1",
 							"NewConnection");
@@ -1109,6 +1229,16 @@ static bool send_new_connection(struct ext_profile *ext, struct ext_io *conn)
 	return true;
 }
 
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+static int check_connection_psm(gconstpointer a, gconstpointer b)
+{
+	const struct ext_io *conn = a;
+	const int *psm = b;
+	DBG("conn->psm %d, psm %d", conn->psm, *psm);
+	return (conn->psm == *psm ? 0 : -1);
+}
+#endif
+
 static void ext_connect(GIOChannel *io, GError *err, gpointer user_data)
 {
 	struct ext_io *conn = user_data;
@@ -1143,7 +1273,31 @@ static void ext_connect(GIOChannel *io, GError *err, gpointer user_data)
 		conn->io_id = g_io_add_watch(io, cond, ext_io_disconnected,
 									conn);
 	}
-
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+	if (g_strcmp0(ext->uuid, HID_UUID) == 0 && ext->local_connect == TRUE) {
+		GSList *l = NULL;
+		int psm = HID_DEVICE_CTRL_PSM;
+		ext->local_connect = FALSE;
+		l = g_slist_find_custom(ext->conns, &psm, check_connection_psm);
+		if (l == NULL) {
+			struct ext_io *conn1 = g_new0(struct ext_io, 1);
+			int error = 0;
+			ext->remote_psm = psm;
+			conn1->ext = ext;
+			conn1->psm = ext->remote_psm;
+			conn1->chan = ext->remote_chan;
+			error = connect_io(conn1, btd_adapter_get_address(conn->adapter),
+							device_get_address(conn->device));
+			DBG("error from connect_io %d", error);
+			conn1->adapter = btd_adapter_ref(conn->adapter);
+			conn1->device = btd_device_ref(conn->device);
+			conn1->service = btd_service_ref(conn->service);
+			ext->conns = g_slist_append(ext->conns, conn1);
+		} else {
+			DBG("Connection Already there");
+		}
+	}
+#endif
 	if (send_new_connection(ext, conn))
 		return;
 
@@ -1253,7 +1407,6 @@ static void ext_confirm(GIOChannel *io, gpointer user_data)
 	GError *gerr = NULL;
 	bdaddr_t src, dst;
 	char addr[18];
-	int fd;
 
 	bt_io_get(io, &gerr,
 			BT_IO_OPT_SOURCE_BDADDR, &src,
@@ -1273,9 +1426,8 @@ static void ext_confirm(GIOChannel *io, gpointer user_data)
 	if (conn == NULL)
 		return;
 
-	fd = g_io_channel_unix_get_fd(conn->io);
 	conn->auth_id = btd_request_authorization(&src, &dst, uuid, ext_auth,
-									conn, fd);
+									conn);
 	if (conn->auth_id == 0) {
 		error("%s authorization failure", ext->name);
 		ext_io_destroy(conn);
@@ -1354,11 +1506,17 @@ static uint32_t ext_start_servers(struct ext_profile *ext,
 						struct btd_adapter *adapter)
 {
 	struct ext_io *l2cap = NULL;
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+	struct ext_io *l2cap1 = NULL;
+#endif
 	struct ext_io *rfcomm = NULL;
 	BtIOConfirm confirm;
 	BtIOConnect connect;
 	GError *err = NULL;
 	GIOChannel *io;
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+	GIOChannel *io1;
+#endif
 
 	if (ext->authorize) {
 		confirm = ext_confirm;
@@ -1404,6 +1562,26 @@ static uint32_t ext_start_servers(struct ext_profile *ext,
 			ext->servers = g_slist_append(ext->servers, l2cap);
 			DBG("%s listening on PSM %u", ext->name, psm);
 		}
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+		if (g_strcmp0(ext->uuid , HID_UUID) == 0) {
+			psm = HID_DEVICE_CTRL_PSM;
+			l2cap1 = g_new0(struct ext_io, 1);
+			l2cap1->ext = ext;
+			io1 = bt_io_listen(connect, confirm, l2cap, NULL, &err,
+						BT_IO_OPT_SOURCE_BDADDR,
+						btd_adapter_get_address(adapter),
+						BT_IO_OPT_MODE, ext->mode,
+						BT_IO_OPT_PSM, psm,
+						BT_IO_OPT_SEC_LEVEL, ext->sec_level,
+						BT_IO_OPT_INVALID);
+			l2cap1->io = io1;
+			l2cap1->proto = BTPROTO_L2CAP;
+			l2cap1->psm = psm;
+			l2cap1->adapter = btd_adapter_ref(adapter);
+			ext->servers = g_slist_append(ext->servers, l2cap1);
+			DBG("%s listening on PSM %u", ext->name, psm);
+		}
+#endif
 	}
 
 	if (ext->local_chan) {
@@ -1704,7 +1882,7 @@ static void record_cb(sdp_list_t *recs, int err, gpointer user_data)
 
 		DBG("profile uuid %s port uuid %s", profile_uuid, ext->remote_uuid);
 
-		if (g_strncasecmp(profile_uuid, ext->remote_uuid,
+		if (g_ascii_strncasecmp(profile_uuid, ext->remote_uuid,
 						strlen(profile_uuid)) != 0) {
 			free(profile_uuid);
 			continue;
@@ -1804,7 +1982,7 @@ static int ext_connect_dev(struct btd_service *service)
 
 	conn = g_new0(struct ext_io, 1);
 	conn->ext = ext;
-
+#ifndef TIZEN_BT_HID_DEVICE_ENABLE
 	if (ext->remote_psm || ext->remote_chan) {
 		conn->psm = ext->remote_psm;
 		conn->chan = ext->remote_chan;
@@ -1817,7 +1995,28 @@ static int ext_connect_dev(struct btd_service *service)
 
 	if (err < 0)
 		goto failed;
-
+#else
+	if (g_strcmp0(ext->uuid, HID_UUID) == 0) {
+		ext->local_connect = TRUE;
+		ext->remote_psm = HID_DEVICE_INTR_PSM;
+		conn->psm = ext->remote_psm;
+		conn->chan = ext->remote_chan;
+		err = connect_io(conn, btd_adapter_get_address(adapter),
+						device_get_address(dev));
+	} else {
+		if (ext->remote_psm || ext->remote_chan) {
+			conn->psm = ext->remote_psm;
+			conn->chan = ext->remote_chan;
+			err = connect_io(conn, btd_adapter_get_address(adapter),
+							device_get_address(dev));
+		} else {
+			err = resolve_service(conn, btd_adapter_get_address(adapter),
+							device_get_address(dev));
+		}
+	}
+	if (err < 0)
+		goto failed;
+#endif
 	conn->adapter = btd_adapter_ref(adapter);
 	conn->device = btd_device_ref(dev);
 	conn->service = btd_service_ref(service);
@@ -1875,6 +2074,7 @@ static int ext_disconnect_dev(struct btd_service *service)
 	if (!ext)
 		return -ENOENT;
 
+#ifndef TIZEN_BT_HID_DEVICE_ENABLE
 	conn = find_connection(ext, dev);
 	if (!conn || !conn->connected)
 		return -ENOTCONN;
@@ -1885,7 +2085,30 @@ static int ext_disconnect_dev(struct btd_service *service)
 	err = send_disconn_req(ext, conn);
 	if (err < 0)
 		return err;
+#else
+	if (g_strcmp0(ext->uuid, HID_UUID) != 0) {
+		conn = find_connection(ext, dev);
+		if (!conn || !conn->connected)
+			return -ENOTCONN;
 
+		if (conn->pending)
+			return -EBUSY;
+
+		err = send_disconn_req(ext, conn);
+		if (err < 0)
+			return err;
+	} else {
+		GSList *l;
+		/* As HID will be using two psm we need to send disconnect
+		  * request for both the psms */
+		for (l = ext->conns; l != NULL; l = g_slist_next(l)) {
+			struct ext_io *conn1 = l->data;
+			if (conn1->device == dev) {
+				err = send_disconn_req(ext, conn1);
+			}
+		}
+	}
+#endif
 	return 0;
 }
 
@@ -1987,15 +2210,25 @@ static char *get_sync_record(struct ext_profile *ext, struct ext_io *l2cap,
 	return g_strdup_printf(SYNC_RECORD, rfcomm->chan, ext->version,
 								ext->name);
 }
-
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+static char *get_hid_device_record(struct ext_profile *ext, struct ext_io *l2cap,
+							struct ext_io *rfcomm)
+{
+	return g_strdup(HID_DEVICE_RECORD);
+}
+#endif
 static char *get_opp_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
 {
+#ifndef __TIZEN_PATCH__
 	uint16_t psm = 0;
+#endif
 	uint8_t chan = 0;
 
+#ifndef __TIZEN_PATCH__
 	if (l2cap)
 		psm = l2cap->psm;
+#endif
 	if (rfcomm)
 		chan = rfcomm->chan;
 
@@ -2101,11 +2334,7 @@ static struct default_settings {
 		.channel	= SPP_DEFAULT_CHANNEL,
 		.authorize	= true,
 		.get_record	= get_spp_record,
-#ifdef __TIZEN_PATCH__
-		.version    	= 0x0100,
-#else
 		.version	= 0x0102,
-#endif
 	}, {
 		.uuid		= DUN_GW_UUID,
 		.name		= "Dial-Up Networking",
@@ -2207,7 +2436,18 @@ static struct default_settings {
 		.authorize	= true,
 		.get_record	= get_mns_record,
 		.version	= 0x0102
+#ifdef TIZEN_BT_HID_DEVICE_ENABLE
+	}, {
+		.uuid		= HID_UUID,
+		.name		= "HID Device",
+		.psm		= HID_DEVICE_INTR_PSM,
+		.authorize	= TRUE,
+		.get_record	= get_hid_device_record,
+		.version		= 0x0100,
 	},
+#else
+	},
+#endif
 };
 
 static void ext_set_defaults(struct ext_profile *ext)
@@ -2390,6 +2630,89 @@ static void set_service(struct ext_profile *ext)
 	}
 }
 
+#ifdef __TIZEN_PATCH__
+static struct ext_profile *create_ext2(const char *owner, const char *path,
+					const char *uuid, const char *destination, const char *app_path,
+					DBusMessageIter *opts)
+{
+	struct btd_profile *p;
+	struct ext_profile *ext;
+
+	ext = g_new0(struct ext_profile, 1);
+
+	ext->uuid = bt_name2string(uuid);
+	if (ext->uuid == NULL) {
+		g_free(ext);
+		return NULL;
+	}
+
+	ext->owner = g_strdup(destination);
+	ext->path = g_strdup(app_path);
+	ext->destination = g_strdup(destination);
+	ext->app_path = g_strdup(app_path);
+	DBG("VALUES Dest %s, path2 %s", destination, app_path);
+	ext_set_defaults(ext);
+
+	while (dbus_message_iter_get_arg_type(opts) == DBUS_TYPE_DICT_ENTRY) {
+		DBusMessageIter value, entry;
+		const char *key;
+
+		dbus_message_iter_recurse(opts, &entry);
+		dbus_message_iter_get_basic(&entry, &key);
+
+		dbus_message_iter_next(&entry);
+		dbus_message_iter_recurse(&entry, &value);
+
+		if (parse_ext_opt(ext, key, &value) < 0)
+			error("Invalid value for profile option %s", key);
+
+		dbus_message_iter_next(opts);
+	}
+
+	if (!ext->service)
+		set_service(ext);
+
+	if (ext->enable_server && !(ext->record || ext->get_record))
+		ext->get_record = get_generic_record;
+
+	if (!ext->name)
+		ext->name = g_strdup_printf("%s%s/%s", owner, path, uuid);
+
+	if (!ext->remote_uuid) {
+		if (ext->service)
+			ext->remote_uuid = g_strdup(ext->service);
+		else
+			ext->remote_uuid = g_strdup(ext->uuid);
+	}
+
+	p = &ext->p;
+
+	p->name = ext->name;
+	p->local_uuid = ext->service ? ext->service : ext->uuid;
+	p->remote_uuid = ext->remote_uuid;
+
+	if (ext->enable_server) {
+		p->adapter_probe = ext_adapter_probe;
+		p->adapter_remove = ext_adapter_remove;
+	}
+
+	if (ext->enable_client) {
+		p->device_probe = ext_device_probe;
+		p->device_remove = ext_device_remove;
+		p->connect = ext_connect_dev;
+		p->disconnect = ext_disconnect_dev;
+	}
+
+	DBG("Created \"%s\"", ext->name);
+
+	ext_profiles = g_slist_append(ext_profiles, ext);
+
+	adapter_foreach(adapter_add_profile, &ext->p);
+
+	return ext;
+}
+#endif
+
 static struct ext_profile *create_ext(const char *owner, const char *path,
 					const char *uuid,
 					DBusMessageIter *opts)
@@ -2565,6 +2888,54 @@ static DBusMessage *unregister_profile(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 
+#ifdef __TIZEN_PATCH__
+static DBusMessage *register_profile2(DBusConnection *conn,
+					DBusMessage *msg, void *user_data)
+{
+	const char *path, *sender, *uuid;
+	DBusMessageIter args, opts;
+	struct ext_profile *ext;
+	const char *destination, *app_path;
+	sender = dbus_message_get_sender(msg);
+
+	DBG("sender %s", sender);
+
+	dbus_message_iter_init(msg, &args);
+
+	dbus_message_iter_get_basic(&args, &path);
+	dbus_message_iter_next(&args);
+	DBG("path %s", path);
+
+	DBG("path %s", path);
+	dbus_message_iter_get_basic(&args, &uuid);
+	dbus_message_iter_next(&args);
+	DBG("uuid %s", uuid);
+	dbus_message_iter_get_basic(&args, &destination);
+	dbus_message_iter_next(&args);
+	DBG("destination %s", destination);
+	dbus_message_iter_get_basic(&args, &app_path);
+	dbus_message_iter_next(&args);
+	DBG("path2 %s", app_path);
+	ext = find_ext_profile(destination, path);
+	if (ext)
+		return btd_error_already_exists(msg);
+	if (dbus_message_iter_get_arg_type(&args) != DBUS_TYPE_ARRAY)
+		return btd_error_invalid_args(msg);
+	DBG("interator");
+	dbus_message_iter_recurse(&args, &opts);
+
+	ext = create_ext2(sender, path, uuid, destination, app_path, &opts);
+	if (!ext)
+		return btd_error_invalid_args(msg);
+#if 0
+	ext->id = g_dbus_add_disconnect_watch(conn, sender, ext_exited, ext,
+									NULL);
+#endif
+
+	return dbus_message_new_method_return(msg);
+}
+#endif
+
 static const GDBusMethodTable methods[] = {
 	{ GDBUS_METHOD("RegisterProfile",
 			GDBUS_ARGS({ "profile", "o"}, { "UUID", "s" },
@@ -2576,6 +2947,11 @@ static const GDBusMethodTable methods[] = {
 			GDBUS_ARGS({ "profile", "o"}, { "UUID", "s" },
 						{ "options", "a{sv}" }),
 			NULL, register_profile) },
+	{ GDBUS_METHOD("RegisterProfile2",
+			GDBUS_ARGS({"profile", "o"}, { "UUID", "s" },
+						{"destination", "s"}, {"path", "s"},
+						{ "options", "a{sv}"}),
+			NULL, register_profile2) },
 #endif
 
 	{ GDBUS_METHOD("UnregisterProfile", GDBUS_ARGS({ "profile", "o" }),

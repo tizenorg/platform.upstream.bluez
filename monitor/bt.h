@@ -675,6 +675,62 @@ struct bt_hci_cmd_flow_spec_modify {
 	uint8_t  rx_flow_spec[16];
 } __attribute__ ((packed));
 
+#define BT_HCI_CMD_ENHANCED_SETUP_SYNC_CONN	0x043d
+struct bt_hci_cmd_enhanced_setup_sync_conn {
+	uint16_t handle;
+	uint32_t tx_bandwidth;
+	uint32_t rx_bandwidth;
+	uint8_t  tx_coding_format[5];
+	uint8_t  rx_coding_format[5];
+	uint16_t tx_codec_frame_size;
+	uint16_t rx_codec_frame_size;
+	uint32_t input_bandwidth;
+	uint32_t output_bandwidth;
+	uint8_t  input_coding_format[5];
+	uint8_t  output_coding_format[5];
+	uint16_t input_coded_data_size;
+	uint16_t output_coded_data_size;
+	uint8_t  input_pcm_data_format;
+	uint8_t  output_pcm_data_format;
+	uint8_t  input_pcm_msb_position;
+	uint8_t  output_pcm_msb_position;
+	uint8_t  input_data_path;
+	uint8_t  output_data_path;
+	uint8_t  input_unit_size;
+	uint8_t  output_unit_size;
+	uint16_t max_latency;
+	uint16_t pkt_type;
+	uint8_t  retrans_effort;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_ENHANCED_ACCEPT_SYNC_CONN_REQUEST	0x043e
+struct bt_hci_cmd_enhanced_accept_sync_conn_request {
+	uint8_t  bdaddr[6];
+	uint32_t tx_bandwidth;
+	uint32_t rx_bandwidth;
+	uint8_t  tx_coding_format[5];
+	uint8_t  rx_coding_format[5];
+	uint16_t tx_codec_frame_size;
+	uint16_t rx_codec_frame_size;
+	uint32_t input_bandwidth;
+	uint32_t output_bandwidth;
+	uint8_t  input_coding_format[5];
+	uint8_t  output_coding_format[5];
+	uint16_t input_coded_data_size;
+	uint16_t output_coded_data_size;
+	uint8_t  input_pcm_data_format;
+	uint8_t  output_pcm_data_format;
+	uint8_t  input_pcm_msb_position;
+	uint8_t  output_pcm_msb_position;
+	uint8_t  input_data_path;
+	uint8_t  output_data_path;
+	uint8_t  input_unit_size;
+	uint8_t  output_unit_size;
+	uint16_t max_latency;
+	uint16_t pkt_type;
+	uint8_t  retrans_effort;
+} __attribute__ ((packed));
+
 #define BT_HCI_CMD_TRUNCATED_PAGE		0x043f
 struct bt_hci_cmd_truncated_page {
 	uint8_t  bdaddr[6];
@@ -1114,6 +1170,13 @@ struct bt_hci_cmd_host_buffer_size {
 	uint16_t sco_max_pkt;
 } __attribute__ ((packed));
 
+#define BT_HCI_CMD_HOST_NUM_COMPLETED_PACKETS	0x0c35
+struct bt_hci_cmd_host_num_completed_packets {
+	uint8_t  num_handles;
+	uint16_t handle;
+	uint16_t count;
+} __attribute__ ((packed));
+
 #define BT_HCI_CMD_READ_LINK_SUPV_TIMEOUT	0x0c36
 struct bt_hci_cmd_read_link_supv_timeout {
 	uint16_t handle;
@@ -1271,6 +1334,17 @@ struct bt_hci_cmd_write_inquiry_tx_power {
 	int8_t   level;
 } __attribute__ ((packed));
 
+#define BT_HCI_CMD_READ_ERRONEOUS_REPORTING	0x0c5a
+struct bt_hci_rsp_read_erroneous_reporting {
+	uint8_t  status;
+	uint8_t  mode;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_WRITE_ERRONEOUS_REPORTING	0x0c5b
+struct bt_hci_cmd_write_erroneous_reporting {
+	uint8_t  mode;
+} __attribute__ ((packed));
+
 #define BT_HCI_CMD_ENHANCED_FLUSH		0x0c5f
 struct bt_hci_cmd_enhanced_flush {
 	uint16_t handle;
@@ -1317,6 +1391,25 @@ struct bt_hci_rsp_read_flow_control_mode {
 
 #define BT_HCI_CMD_WRITE_FLOW_CONTROL_MODE	0x0c67
 struct bt_hci_cmd_write_flow_control_mode {
+	uint8_t  mode;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_READ_ENHANCED_TX_POWER	0x0c68
+struct bt_hci_cmd_read_enhanced_tx_power {
+	uint16_t handle;
+	uint8_t  type;
+} __attribute__ ((packed));
+struct bt_hci_rsp_read_enhanced_tx_power {
+	uint8_t  status;
+	uint16_t handle;
+	int8_t   level_gfsk;
+	int8_t   level_dqpsk;
+	int8_t   level_8dpsk;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_SHORT_RANGE_MODE		0x0c6b
+struct bt_hci_cmd_short_range_mode {
+	uint8_t  phy_handle;
 	uint8_t  mode;
 } __attribute__ ((packed));
 
@@ -1420,6 +1513,28 @@ struct bt_hci_rsp_read_local_oob_ext_data {
 	uint8_t  randomizer192[16];
 	uint8_t  hash256[16];
 	uint8_t  randomizer256[16];
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_READ_EXT_PAGE_TIMEOUT	0x0c7e
+struct bt_hci_rsp_read_ext_page_timeout {
+	uint8_t  status;
+	uint16_t timeout;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_WRITE_EXT_PAGE_TIMEOUT	0x0c7f
+struct bt_hci_cmd_write_ext_page_timeout {
+	uint16_t timeout;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_READ_EXT_INQUIRY_LENGTH	0x0c80
+struct bt_hci_rsp_read_ext_inquiry_length {
+	uint8_t  status;
+	uint16_t interval;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_WRITE_EXT_INQUIRY_LENGTH	0x0c81
+struct bt_hci_cmd_write_ext_inquiry_length {
+	uint16_t interval;
 } __attribute__ ((packed));
 
 #define BT_HCI_CMD_READ_LOCAL_VERSION		0x1001
@@ -1617,6 +1732,17 @@ struct bt_hci_cmd_set_triggered_clock_capture {
 	uint8_t  type;
 	uint8_t  lpo_allowed;
 	uint8_t  num_filter;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_READ_LOOPBACK_MODE		0x1801
+struct bt_hci_rsp_read_loopback_mode {
+	uint8_t  status;
+	uint8_t  mode;
+} __attribute__ ((packed));
+
+#define BT_HCI_CMD_WRITE_LOOPBACK_MODE		0x1802
+struct bt_hci_cmd_write_loopback_mode {
+	uint8_t  mode;
 } __attribute__ ((packed));
 
 #define BT_HCI_CMD_ENABLE_DUT_MODE		0x1803
@@ -2380,6 +2506,14 @@ struct bt_hci_evt_short_range_mode_change {
 struct bt_hci_evt_amp_status_change {
 	uint8_t  status;
 	uint8_t  amp_status;
+} __attribute__ ((packed));
+
+#define BT_HCI_EVT_TRIGGERED_CLOCK_CAPTURE	0x4e
+struct bt_hci_evt_triggered_clock_capture {
+	uint16_t handle;
+	uint8_t  type;
+	uint32_t clock;
+	uint16_t clock_offset;
 } __attribute__ ((packed));
 
 #define BT_HCI_EVT_SYNC_TRAIN_COMPLETE		0x4f

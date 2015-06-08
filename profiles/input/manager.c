@@ -28,14 +28,13 @@
 #include <errno.h>
 #include <stdbool.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+#include "lib/sdp_lib.h"
+#include "lib/uuid.h"
 
 #include "src/log.h"
 #include "src/plugin.h"
-
-#include "lib/uuid.h"
 #include "src/adapter.h"
 #include "src/device.h"
 #include "src/profile.h"
@@ -57,8 +56,6 @@ static void hid_server_remove(struct btd_profile *p,
 
 static struct btd_profile input_profile = {
 	.name		= "input-hid",
-	.version	= 0x0101,
-
 	.local_uuid	= HID_UUID,
 	.remote_uuid	= HID_UUID,
 

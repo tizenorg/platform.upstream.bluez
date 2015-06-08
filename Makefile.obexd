@@ -7,15 +7,6 @@ dbussessionbusdir = @DBUS_SESSIONBUSDIR@
 dbussessionbus_DATA = obexd/src/org.bluez.obex.service
 endif
 
-# Start of __TIZEN_PATCH__
-
-# Even though systemd is not used,
-# obexd should be launched using dbus auto activation.
-dbussessionbusdir = @DBUS_SESSIONBUSDIR@
-dbussessionbus_DATA = obexd/src/org.bluez.obex.service
-
-# End of __TIZEN_PATCH__
-
 EXTRA_DIST += obexd/src/obex.service.in obexd/src/org.bluez.obex.service
 
 obex_plugindir = $(libdir)/obex/plugins
@@ -98,7 +89,7 @@ obexd_src_obexd_LDFLAGS = -Wl,--export-dynamic
 obexd_src_obexd_CFLAGS = $(AM_CFLAGS) @GLIB_CFLAGS@ @DBUS_CFLAGS@ \
 				@ICAL_CFLAGS@ -DOBEX_PLUGIN_BUILTIN \
 				-DPLUGINDIR=\""$(obex_plugindir)"\" \
-				-fPIC -D_FILE_OFFSET_BITS=64
+				-fPIC -D_FILE_OFFSET_BITS=64 -pie
 
 obexd_src_obexd_CPPFLAGS = -I$(builddir)/lib -I$(builddir)/obexd/src  \
 				-I$(srcdir)/obexd/src -I$(srcdir)/btio \

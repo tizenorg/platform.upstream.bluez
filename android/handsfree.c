@@ -127,7 +127,7 @@ struct hf_device {
 	int num_active;
 	int num_held;
 	int setup_state;
-	bool call_hanging_up;
+	guint call_hanging_up;
 
 	uint8_t negotiated_codec;
 	uint8_t proposed_codec;
@@ -258,8 +258,13 @@ static void device_destroy(struct hf_device *dev)
 	if (dev->audio_state == HAL_EV_HANDSFREE_AUDIO_STATE_CONNECTED)
 		bt_sco_disconnect(sco);
 
-	g_source_remove(dev->ring);
+	if (dev->ring)
+		g_source_remove(dev->ring);
+
 	g_free(dev->clip);
+
+	if (dev->call_hanging_up)
+		g_source_remove(dev->call_hanging_up);
 
 	set_audio_state(dev, HAL_EV_HANDSFREE_AUDIO_STATE_DISCONNECTED);
 	set_state(dev, HAL_EV_HANDSFREE_CONN_STATE_DISCONNECTED);
@@ -313,22 +318,17 @@ static void at_cmd_unknown(const char *command, void *user_data)
 	uint8_t buf[IPC_MTU];
 	struct hal_ev_handsfree_unknown_at *ev = (void *) buf;
 
-	if (dev->state != HAL_EV_HANDSFREE_CONN_STATE_SLC_CONNECTED) {
-		hfp_gw_send_result(dev->gw, HFP_RESULT_ERROR);
-		hfp_gw_disconnect(dev->gw);
-		return;
-	}
-
 	bdaddr2android(&dev->bdaddr, ev->bdaddr);
 
 	/* copy while string including terminating NULL */
 	ev->len = strlen(command) + 1;
-	memcpy(ev->buf, command, ev->len);
 
 	if (ev->len > IPC_MTU - sizeof(*ev)) {
 		hfp_gw_send_result(dev->gw, HFP_RESULT_ERROR);
 		return;
 	}
+
+	memcpy(ev->buf, command, ev->len);
 
 	ipc_send_notif(hal_ipc, HAL_SERVICE_ID_HANDSFREE,
 			HAL_EV_HANDSFREE_UNKNOWN_AT, sizeof(*ev) + ev->len, ev);
@@ -971,24 +971,21 @@ static void connect_sco_cb(enum sco_status status, const bdaddr_t *addr)
 		return;
 	}
 
-	if (status != SCO_STATUS_OK) {
-		error("handsfree: audio connect failed");
-
-		set_audio_state(dev, HAL_EV_HANDSFREE_AUDIO_STATE_DISCONNECTED);
-
-		if (!codec_negotiation_supported(dev))
-			return;
-
-		/* If other failed, try connecting with CVSD */
-		if (dev->negotiated_codec != CODEC_ID_CVSD) {
-			info("handsfree: trying fallback with CVSD");
-			select_codec(dev, CODEC_ID_CVSD);
-		}
-
+	if (status == SCO_STATUS_OK) {
+		set_audio_state(dev, HAL_EV_HANDSFREE_AUDIO_STATE_CONNECTED);
 		return;
 	}
 
-	set_audio_state(dev, HAL_EV_HANDSFREE_AUDIO_STATE_CONNECTED);
+	/* Try fallback to CVSD first */
+	if (codec_negotiation_supported(dev) &&
+				dev->negotiated_codec != CODEC_ID_CVSD) {
+		info("handsfree: trying fallback with CVSD");
+		select_codec(dev, CODEC_ID_CVSD);
+		return;
+	}
+
+	error("handsfree: audio connect failed");
+	set_audio_state(dev, HAL_EV_HANDSFREE_AUDIO_STATE_DISCONNECTED);
 }
 
 static bool connect_sco(struct hf_device *dev)
@@ -1145,6 +1142,8 @@ static void at_cmd_ckpd(struct hfp_context *result, enum hfp_gw_cmd_type type,
 
 static void register_post_slc_at(struct hf_device *dev)
 {
+	hfp_gw_set_command_handler(dev->gw, at_cmd_unknown, dev, NULL);
+
 	if (dev->hsp) {
 		hfp_gw_register(dev->gw, at_cmd_ckpd, "+CKPD", dev, NULL);
 		hfp_gw_register(dev->gw, at_cmd_vgs, "+VGS", dev, NULL);
@@ -1199,10 +1198,13 @@ static void at_cmd_cmer(struct hfp_context *result, enum hfp_gw_cmd_type type,
 		if (!hfp_context_get_number(result, &val) || val > 1)
 			break;
 
+		dev->indicators_enabled = val;
+
+		/* skip bfr if present */
+		hfp_context_get_number(result, &val);
+
 		if (hfp_context_has_next(result))
 			break;
-
-		dev->indicators_enabled = val;
 
 		hfp_gw_send_result(dev->gw, HFP_RESULT_OK);
 
@@ -1466,7 +1468,6 @@ static void connect_cb(GIOChannel *chan, GError *err, gpointer user_data)
 	g_io_channel_set_close_on_unref(chan, FALSE);
 
 	hfp_gw_set_close_on_unref(dev->gw, true);
-	hfp_gw_set_command_handler(dev->gw, at_cmd_unknown, dev, NULL);
 	hfp_gw_set_disconnect_handler(dev->gw, disconnect_watch, dev, NULL);
 
 	if (dev->hsp) {
@@ -1534,10 +1535,10 @@ drop:
 static void sdp_hsp_search_cb(sdp_list_t *recs, int err, gpointer data)
 {
 	struct hf_device *dev = data;
-	sdp_list_t *protos, *classes;
+	sdp_list_t *protos;
 	GError *gerr = NULL;
 	GIOChannel *io;
-	uuid_t uuid;
+	uuid_t class;
 	int channel;
 
 	DBG("");
@@ -1548,34 +1549,28 @@ static void sdp_hsp_search_cb(sdp_list_t *recs, int err, gpointer data)
 		goto fail;
 	}
 
-	if (!recs || !recs->data) {
-		info("handsfree: no HSP SDP records found");
-		goto fail;
+	sdp_uuid16_create(&class, HEADSET_SVCLASS_ID);
+
+	/* Find record with proper service class */
+	for (; recs; recs = recs->next) {
+		sdp_record_t *rec = recs->data;
+
+		if (rec && !sdp_uuid_cmp(&rec->svclass, &class))
+			break;
 	}
 
-	if (sdp_get_service_classes(recs->data, &classes) < 0 || !classes) {
-		error("handsfree: unable to get service classes from record");
+	if (!recs || !recs->data) {
+		info("handsfree: no valid HSP SDP records found");
 		goto fail;
 	}
 
 	if (sdp_get_access_protos(recs->data, &protos) < 0) {
 		error("handsfree: unable to get access protocols from record");
-		sdp_list_free(classes, free);
 		goto fail;
 	}
 
 	/* TODO read remote version? */
 	/* TODO read volume control support */
-
-	memcpy(&uuid, classes->data, sizeof(uuid));
-	sdp_list_free(classes, free);
-
-	if (!sdp_uuid128_to_uuid(&uuid) || uuid.type != SDP_UUID16 ||
-			uuid.value.uuid16 != HEADSET_SVCLASS_ID) {
-		sdp_list_free(protos, NULL);
-		error("handsfree: invalid service record or not HSP");
-		goto fail;
-	}
 
 	channel = sdp_get_proto_port(protos, RFCOMM_UUID);
 	sdp_list_foreach(protos, (sdp_list_func_t) sdp_list_free, NULL);
@@ -1619,10 +1614,10 @@ static int sdp_search_hsp(struct hf_device *dev)
 static void sdp_hfp_search_cb(sdp_list_t *recs, int err, gpointer data)
 {
 	struct hf_device *dev = data;
-	sdp_list_t *protos, *classes;
+	sdp_list_t *protos;
 	GError *gerr = NULL;
 	GIOChannel *io;
-	uuid_t uuid;
+	uuid_t class;
 	int channel;
 
 	DBG("");
@@ -1631,6 +1626,16 @@ static void sdp_hfp_search_cb(sdp_list_t *recs, int err, gpointer data)
 		error("handsfree: unable to get SDP record: %s",
 								strerror(-err));
 		goto fail;
+	}
+
+	sdp_uuid16_create(&class, HANDSFREE_SVCLASS_ID);
+
+	/* Find record with proper service class */
+	for (; recs; recs = recs->next) {
+		sdp_record_t *rec = recs->data;
+
+		if (rec && !sdp_uuid_cmp(&rec->svclass, &class))
+			break;
 	}
 
 	if (!recs || !recs->data) {
@@ -1644,26 +1649,8 @@ static void sdp_hfp_search_cb(sdp_list_t *recs, int err, gpointer data)
 		return;
 	}
 
-	if (sdp_get_service_classes(recs->data, &classes) < 0 || !classes) {
-		error("handsfree: unable to get service classes from record");
-		goto fail;
-	}
-
 	if (sdp_get_access_protos(recs->data, &protos) < 0) {
 		error("handsfree: unable to get access protocols from record");
-		sdp_list_free(classes, free);
-		goto fail;
-	}
-
-	/* TODO read remote version? */
-
-	memcpy(&uuid, classes->data, sizeof(uuid));
-	sdp_list_free(classes, free);
-
-	if (!sdp_uuid128_to_uuid(&uuid) || uuid.type != SDP_UUID16 ||
-			uuid.value.uuid16 != HANDSFREE_SVCLASS_ID) {
-		sdp_list_free(protos, NULL);
-		error("handsfree: invalid service record or not HFP");
 		goto fail;
 	}
 
@@ -1674,6 +1661,8 @@ static void sdp_hfp_search_cb(sdp_list_t *recs, int err, gpointer data)
 		error("handsfree: unable to get RFCOMM channel from record");
 		goto fail;
 	}
+
+	/* TODO read remote version? */
 
 	io = bt_io_connect(connect_cb, dev, NULL, &gerr,
 				BT_IO_OPT_SOURCE_BDADDR, &adapter_addr,
@@ -2262,6 +2251,11 @@ static gboolean ring_cb(gpointer user_data)
 static void phone_state_dialing(struct hf_device *dev, int num_active,
 								int num_held)
 {
+	if (dev->call_hanging_up) {
+		g_source_remove(dev->call_hanging_up);
+		dev->call_hanging_up = 0;
+	}
+
 	update_indicator(dev, IND_CALLSETUP, 2);
 
 	if (num_active == 0 && num_held > 0)
@@ -2274,6 +2268,11 @@ static void phone_state_dialing(struct hf_device *dev, int num_active,
 static void phone_state_alerting(struct hf_device *dev, int num_active,
 								int num_held)
 {
+	if (dev->call_hanging_up) {
+		g_source_remove(dev->call_hanging_up);
+		dev->call_hanging_up = 0;
+	}
+
 	update_indicator(dev, IND_CALLSETUP, 3);
 }
 
@@ -2305,6 +2304,9 @@ static void phone_state_incoming(struct hf_device *dev, int num_active,
 	if (dev->setup_state == HAL_HANDSFREE_CALL_STATE_INCOMING) {
 		if (dev->num_active != num_active ||
 						dev->num_held != num_held) {
+			if (dev->num_active == num_held &&
+						dev->num_held == num_active)
+				return;
 			/*
 			 * calls changed while waiting call ie. due to
 			 * termination of active call
@@ -2348,6 +2350,17 @@ static void phone_state_incoming(struct hf_device *dev, int num_active,
 	}
 }
 
+static gboolean hang_up_cb(gpointer user_data)
+{
+	struct hf_device *dev = user_data;
+
+	DBG("");
+
+	dev->call_hanging_up = 0;
+
+	return FALSE;
+}
+
 static void phone_state_idle(struct hf_device *dev, int num_active,
 								int num_held)
 {
@@ -2370,14 +2383,16 @@ static void phone_state_idle(struct hf_device *dev, int num_active,
 				connect_audio(dev);
 		}
 
-		if (num_held > dev->num_held)
+		if (num_held >= dev->num_held && num_held != 0)
 			update_indicator(dev, IND_CALLHELD, 1);
 
 		update_indicator(dev, IND_CALLSETUP, 0);
 
-		if (num_active == dev->num_active && num_held == dev->num_held)
-			dev->call_hanging_up = true;
-
+		if (num_active == 0 && num_held == 0 &&
+				num_active == dev->num_active &&
+				num_held == dev->num_held)
+			dev->call_hanging_up = g_timeout_add(800, hang_up_cb,
+									dev);
 		break;
 	case HAL_HANDSFREE_CALL_STATE_DIALING:
 	case HAL_HANDSFREE_CALL_STATE_ALERTING:
@@ -2388,11 +2403,15 @@ static void phone_state_idle(struct hf_device *dev, int num_active,
 					num_held ? (num_active ? 1 : 2) : 0);
 
 		update_indicator(dev, IND_CALLSETUP, 0);
+
+		/* disconnect SCO if we hang up while dialing or alerting */
+		if (num_active == 0 && num_held == 0)
+			disconnect_sco(dev);
 		break;
 	case HAL_HANDSFREE_CALL_STATE_IDLE:
-
 		if (dev->call_hanging_up) {
-			dev->call_hanging_up = false;
+			g_source_remove(dev->call_hanging_up);
+			dev->call_hanging_up = 0;
 			return;
 		}
 
@@ -2532,7 +2551,7 @@ static void handle_configure_wbs(const void *buf, uint16_t len)
 		/* TODO */
 	default:
 		status = HAL_STATUS_FAILED;
-		break;
+		goto done;
 	}
 
 	/*

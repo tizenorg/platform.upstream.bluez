@@ -32,8 +32,11 @@
 
 #include <glib.h>
 
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
 #include "lib/uuid.h"
 #include "lib/mgmt.h"
+
 #include "src/log.h"
 #include "src/plugin.h"
 #include "src/adapter.h"
@@ -44,6 +47,7 @@
 
 #ifdef __TIZEN_PATCH__
 #define CONTROL_CONNECT_TIMEOUT 4
+#define TARGET_CONNECT_TIMEOUT 1
 #else
 #define CONTROL_CONNECT_TIMEOUT 2
 #endif
@@ -218,6 +222,11 @@ static void sink_cb(struct btd_service *service, btd_service_state_t old_state,
 
 	switch (new_state) {
 	case BTD_SERVICE_STATE_UNAVAILABLE:
+		if (data->sink_timer > 0) {
+			g_source_remove(data->sink_timer);
+			data->sink_timer = 0;
+		}
+		break;
 	case BTD_SERVICE_STATE_DISCONNECTED:
 		if (old_state == BTD_SERVICE_STATE_CONNECTING) {
 			int err = btd_service_get_error(service);
@@ -290,9 +299,15 @@ static void policy_set_tg_timer(struct policy_data *data)
 	if (data->tg_timer > 0)
 		g_source_remove(data->tg_timer);
 
+#ifdef __TIZEN_PATCH__
+	data->tg_timer = g_timeout_add_seconds(TARGET_CONNECT_TIMEOUT,
+							policy_connect_tg,
+							data);
+#else
 	data->tg_timer = g_timeout_add_seconds(CONTROL_CONNECT_TIMEOUT,
 							policy_connect_tg,
 							data);
+#endif
 }
 
 static gboolean policy_connect_source(gpointer user_data)
@@ -336,6 +351,11 @@ static void source_cb(struct btd_service *service,
 
 	switch (new_state) {
 	case BTD_SERVICE_STATE_UNAVAILABLE:
+		if (data->source_timer > 0) {
+			g_source_remove(data->source_timer);
+			data->source_timer = 0;
+		}
+		break;
 	case BTD_SERVICE_STATE_DISCONNECTED:
 		if (old_state == BTD_SERVICE_STATE_CONNECTING) {
 			int err = btd_service_get_error(service);
@@ -394,6 +414,11 @@ static void controller_cb(struct btd_service *service,
 
 	switch (new_state) {
 	case BTD_SERVICE_STATE_UNAVAILABLE:
+		if (data->ct_timer > 0) {
+			g_source_remove(data->ct_timer);
+			data->ct_timer = 0;
+		}
+		break;
 	case BTD_SERVICE_STATE_DISCONNECTED:
 		break;
 	case BTD_SERVICE_STATE_CONNECTING:
@@ -422,6 +447,11 @@ static void target_cb(struct btd_service *service,
 
 	switch (new_state) {
 	case BTD_SERVICE_STATE_UNAVAILABLE:
+		if (data->tg_timer > 0) {
+			g_source_remove(data->tg_timer);
+			data->tg_timer = 0;
+		}
+		break;
 	case BTD_SERVICE_STATE_DISCONNECTED:
 		break;
 	case BTD_SERVICE_STATE_CONNECTING:

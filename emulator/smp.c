@@ -35,8 +35,8 @@
 #include <stdbool.h>
 #include <sys/socket.h>
 
-#include "bluetooth/bluetooth.h"
-#include "bluetooth/hci.h"
+#include "lib/bluetooth.h"
+#include "lib/hci.h"
 
 #include "src/shared/util.h"
 #include "src/shared/crypto.h"
@@ -46,6 +46,8 @@
 
 #define SMP_CID		0x0006
 #define SMP_BREDR_CID	0x0007
+
+#define L2CAP_FC_SMP_BREDR	0x80
 
 #define SMP_PASSKEY_ENTRY_FAILED	0x01
 #define SMP_OOB_NOT_AVAIL		0x02
@@ -392,6 +394,9 @@ static void distribute_keys(struct smp_conn *conn)
 
 	if (conn->local_key_dist & DIST_ID_KEY) {
 		memset(buf, 0, sizeof(buf));
+		smp_send(conn, BT_L2CAP_SMP_IDENT_INFO, buf, sizeof(buf));
+
+		memset(buf, 0, sizeof(buf));
 
 		if (conn->out) {
 			buf[0] = conn->ia_type;
@@ -400,10 +405,8 @@ static void distribute_keys(struct smp_conn *conn)
 			buf[0] = conn->ra_type;
 			memcpy(&buf[1], conn->ra, 6);
 		}
-		smp_send(conn, BT_L2CAP_SMP_IDENT_ADDR_INFO, buf, 7);
 
-		memset(buf, 0, sizeof(buf));
-		smp_send(conn, BT_L2CAP_SMP_IDENT_INFO, buf, sizeof(buf));
+		smp_send(conn, BT_L2CAP_SMP_IDENT_ADDR_INFO, buf, 7);
 	}
 
 	if (conn->local_key_dist & DIST_SIGN) {
@@ -461,6 +464,13 @@ static void pairing_rsp(struct smp_conn *conn, const void *data, uint16_t len)
 
 	conn->local_key_dist = conn->prsp[5];
 	conn->remote_key_dist = conn->prsp[6];
+
+	if (conn->addr_type == BDADDR_BREDR) {
+		conn->local_key_dist &= ~SC_NO_DIST;
+		conn->remote_key_dist &= ~SC_NO_DIST;
+		distribute_keys(conn);
+		return;
+	}
 
 	if (((conn->prsp[3] & 0x08) && (conn->preq[3] & 0x08)) ||
 					conn->addr_type == BDADDR_BREDR) {
@@ -788,12 +798,43 @@ int smp_get_ltk(void *smp_data, uint64_t rand, uint16_t ediv, uint8_t *ltk)
 	return 0;
 }
 
+static void smp_conn_bredr(struct smp_conn *conn, uint8_t encrypt)
+{
+	struct smp *smp = conn->smp;
+	struct bt_l2cap_smp_pairing_request req;
+	uint64_t fixed_chan;
+
+	if (encrypt != 0x02)
+		return;
+
+	conn->sc = true;
+
+	if (!conn->out)
+		return;
+
+	fixed_chan = bthost_conn_get_fixed_chan(smp->bthost, conn->handle);
+	if (!(fixed_chan & L2CAP_FC_SMP_BREDR))
+		return;
+
+	memset(&req, 0, sizeof(req));
+	req.max_key_size = 0x10;
+	req.init_key_dist = KEY_DIST;
+	req.resp_key_dist = KEY_DIST;
+
+	smp_send(conn, BT_L2CAP_SMP_PAIRING_REQUEST, &req, sizeof(req));
+}
+
 void smp_conn_encrypted(void *conn_data, uint8_t encrypt)
 {
 	struct smp_conn *conn = conn_data;
 
 	if (!encrypt)
 		return;
+
+	if (conn->addr_type == BDADDR_BREDR) {
+		smp_conn_bredr(conn, encrypt);
+		return;
+	}
 
 	if (conn->out && conn->remote_key_dist)
 		return;

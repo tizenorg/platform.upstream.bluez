@@ -124,13 +124,18 @@ void __hci_attach_log_init(void)
 {
 	int option = LOG_NDELAY | LOG_PID;
 
-	enabled = g_strsplit_set(g_strdup("*"), ":, ", 0);
+	/* Fix : RESOURCE_LEAK */
+	char *str = g_strdup("*");
+
+	enabled = g_strsplit_set(str, ":, ", 0);
 
 	__btd_enable_debug(__start___debug, __stop___debug);
 
 	openlog("hciattach", option, LOG_DAEMON);
 
 	syslog(LOG_INFO, "hciattach daemon for debugging");
+
+	g_free(str);
 }
 #endif
 

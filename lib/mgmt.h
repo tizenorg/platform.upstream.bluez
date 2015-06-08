@@ -98,6 +98,7 @@ struct mgmt_rp_read_index_list {
 #define MGMT_SETTING_DEBUG_KEYS		0x00001000
 #define MGMT_SETTING_PRIVACY		0x00002000
 #define MGMT_SETTING_CONFIGURATION	0x00004000
+#define MGMT_SETTING_STATIC_ADDRESS	0x00008000
 
 #define MGMT_OP_READ_INFO		0x0004
 struct mgmt_rp_read_info {
@@ -602,7 +603,7 @@ struct mgmt_ev_new_irk {
 
 struct mgmt_csrk_info {
 	struct mgmt_addr_info addr;
-	uint8_t master;
+	uint8_t type;
 	uint8_t val[16];
 } __packed;
 
@@ -779,7 +780,7 @@ struct mgmt_cp_set_advertising_params {
 
 #define MGMT_OP_SET_ADVERTISING_DATA		(TIZEN_OP_CODE_BASE + 0x02)
 struct mgmt_cp_set_advertising_data {
-	uint8_t data[MGMT_MAX_ADVERTISING_LENGTH - 3];	/* Except flag */
+	uint8_t data[MGMT_MAX_ADVERTISING_LENGTH];
 } __packed;
 
 #define MGMT_OP_SET_SCAN_RSP_DATA		(TIZEN_OP_CODE_BASE + 0x03)
@@ -887,7 +888,28 @@ struct mgmt_cp_set_voice_setting {
 	uint16_t voice_setting;
 } __packed;
 
+#define MGMT_OP_GET_ADV_TX_POWER		(TIZEN_OP_CODE_BASE + 0x11)
+struct mgmt_rp_get_adv_tx_power {
+	int8_t adv_tx_power;
+} __packed;
+
+#define MGMT_OP_ENABLE_6LOWPAN		(TIZEN_OP_CODE_BASE + 0x12)
+struct mgmt_cp_enable_6lowpan {
+	uint8_t enable_6lowpan;
+} __packed;
+
+#define MGMT_OP_CONNECT_6LOWPAN	(TIZEN_OP_CODE_BASE + 0x13)
+struct mgmt_cp_connect_6lowpan {
+	struct mgmt_addr_info addr;
+} __packed;
+
+#define MGMT_OP_DISCONNECT_6LOWPAN	(TIZEN_OP_CODE_BASE + 0x14)
+struct mgmt_cp_disconnect_6lowpan {
+	struct mgmt_addr_info addr;
+} __packed;
+
 /*  Currently there is no support in kernel for below MGMT cmd opcodes. */
+#if 0 // Not defined in kernel
 #define MGMT_OP_READ_RSSI			(TIZEN_OP_CODE_BASE + 0x11)
 struct mgmt_cp_read_rssi {
 	bdaddr_t bdaddr;
@@ -939,6 +961,8 @@ struct mgmt_rp_read_auth_payload_timeout {
 	uint8_t status;
 	uint16_t auth_payload_timeout;
 } __packed;
+#endif
+
 
 /* BEGIN TIZEN_Bluetooth :: name update changes */
 #define MGMT_EV_DEVICE_NAME_UPDATE		(TIZEN_EV_BASE + 0x01)
@@ -1002,10 +1026,26 @@ struct mgmt_ev_le_device_found {
 	uint8_t eir[0];
 } __packed;
 
+#define MGMT_EV_MULTI_ADV_STATE_CHANGED			(TIZEN_EV_BASE + 0x0b)
+struct mgmt_ev_vendor_specific_multi_adv_state_changed {
+	uint8_t	adv_instance;
+	uint8_t	state_change_reason;
+	int16_t	connection_handle;
+} __packed;
+
+#define MGMT_EV_6LOWPAN_CONN_STATE_CHANGED		(TIZEN_EV_BASE + 0x0c)
+struct mgmt_ev_6lowpan_conn_state_changed {
+	struct	mgmt_addr_info addr;
+	uint8_t	connected;
+} __packed;
+
+/*  Currently there is no support in kernel for below MGMT events. */
+#if 0 // Not defined in kernel
 #define MGMT_EV_NEW_LOCAL_IRK			(TIZEN_EV_BASE + 0x0b)
 struct mgmt_ev_new_local_irk {
 	uint8_t    irk[16];
 } __packed;
+#endif
 
 static const char *mgmt_tizen_op[] = {
 	"<0x0000>",
@@ -1024,7 +1064,10 @@ static const char *mgmt_tizen_op[] = {
 	"LE Connection Update",
 	"Set Manufacturer Data",
 	"LE Set Scan Parameters",
-	"Set Voice Setting"
+	"Set Voice Setting",
+	"Get Adv Tx Power",
+	"Connect BT 6LOWPAN",
+	"Disconnect BT 6LOWPAN"
 };
 
 static const char *mgmt_tizen_ev[] = {
@@ -1039,7 +1082,8 @@ static const char *mgmt_tizen_ev[] = {
 	"LE Connection Updated",
 	"LE Connection Update Failed",
 	"LE Device Found",
-	"New Local IRK Generated",
+	"Multi Adv State Change",
+	"BT 6LOWPAN state Change"
 };
 #endif /* End of __TIZEN_PATCH__ */
 

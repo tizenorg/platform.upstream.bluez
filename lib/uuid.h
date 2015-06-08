@@ -30,7 +30,9 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#ifdef __TIZEN_PATCH__
 #include <bluetooth/bluetooth.h>
+#endif
 
 #define GENERIC_AUDIO_UUID	"00001203-0000-1000-8000-00805f9b34fb"
 
@@ -140,6 +142,11 @@ extern "C" {
 #define GATT_EXTERNAL_REPORT_REFERENCE			0x2907
 #define GATT_REPORT_REFERENCE				0x2908
 
+#ifdef __TIZEN_PATCH__
+/* GATT Service UUIDs : Defined  by SIG */
+#define GATT_IPSP_UUID		0x1820
+#endif
+
 typedef struct {
 	enum {
 		BT_UUID_UNSPEC = 0,
@@ -167,6 +174,8 @@ void bt_uuid_to_uuid128(const bt_uuid_t *src, bt_uuid_t *dst);
 
 int bt_uuid_to_string(const bt_uuid_t *uuid, char *str, size_t n);
 int bt_string_to_uuid(bt_uuid_t *uuid, const char *string);
+
+int bt_uuid_to_le(const bt_uuid_t *uuid, void *dst);
 
 static inline int bt_uuid_len(const bt_uuid_t *uuid)
 {
