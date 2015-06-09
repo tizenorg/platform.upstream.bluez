@@ -5,12 +5,13 @@ Documentation=man:bluetoothd(8)
 [Service]
 Type=dbus
 BusName=org.bluez
-ExecStart=@libexecdir@/bluetoothd
+ExecStart=@libexecdir@/bluetoothd -nEd
 NotifyAccess=main
 #WatchdogSec=10
 #Restart=on-failure
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
 LimitNPROC=1
+SmackExecLabel=User
 
 [Install]
 WantedBy=bluetooth.target
