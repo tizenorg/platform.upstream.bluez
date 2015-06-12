@@ -140,7 +140,6 @@ make check
 %make_install
 
 # bluez-test
-echo "%{_libdir}"
 rm -rvf $RPM_BUILD_ROOT/%{_libdir}/gstreamer-*
 install --mode=0755 -D %{S:4} $RPM_BUILD_ROOT/usr/lib/udev/bluetooth.sh
 install --mode=0644 -D %{S:7} $RPM_BUILD_ROOT/%{_sysconfdir}/modprobe.d/50-bluetooth.conf
@@ -172,7 +171,7 @@ install -D -m 0755 attrib/gatttool $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 
 #test
-ln -sf bluetooth.service %{buildroot}%{_unitdir}/dbus-org.bluez.service
+ln -sf bluetooth.service %{buildroot}%{_libdir}/systemd/system/dbus-org.bluez.service
 
 %post -n libbluetooth -p /sbin/ldconfig
 
@@ -205,8 +204,8 @@ ln -sf bluetooth.service %{buildroot}%{_unitdir}/dbus-org.bluez.service
 /usr/lib/udev/*
 
 #test -2
-%{_unitdir}/bluetooth.service
-%{_unitdir}/dbus-org.bluez.service
+%{_libdir}/systemd/system/bluetooth.service
+%{_libdir}/systemd/system/dbus-org.bluez.service
 
 %{_datadir}/dbus-1/system-services/org.bluez.service
 %config %{_sysconfdir}/dbus-1/system.d/bluetooth.conf
@@ -233,7 +232,7 @@ ln -sf bluetooth.service %{buildroot}%{_unitdir}/dbus-org.bluez.service
 %files -n obexd
 %defattr(-,root,root,-)
 %{_libdir}/bluetooth/obexd
-%{_unitdir_user}/obex.service
+%{_libdir}/systemd/user/obex.service
 %{_datadir}/dbus-1/services/org.bluez.obex.service
 %{_sysconfdir}/obex/root-setup.d/000_create-symlinks
 %{_bindir}/obex-root-setup
