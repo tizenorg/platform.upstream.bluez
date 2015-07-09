@@ -103,7 +103,7 @@ export CFLAGS+=" -DPBAP_SIM_ENABLE"
 			--localstatedir=%{_localstatedir} \
 			--with-systemdsystemunitdir=%{_libdir}/systemd/system \
 			--with-systemduserunitdir=%{_libdir}/systemd/user \
-			--libexecdir=%{_libdir} \
+			--libexecdir=%{_libexecdir} \
 			--enable-debug \
 			--enable-pie \
 			--enable-serial \
@@ -197,7 +197,7 @@ ln -sf bluetooth.service %{buildroot}%{_libdir}/systemd/system/dbus-org.bluez.se
 #%{_bindir}/dfutool
 %{_bindir}/hciattach
 %{_bindir}/hciconfig
-%{_libdir}/bluetooth/bluetoothd
+%{_libexecdir}/bluetooth/bluetoothd
 %{_bindir}/bccmd
 #%{_sbindir}/hid2hci
 %dir /usr/lib/udev
@@ -231,7 +231,7 @@ ln -sf bluetooth.service %{buildroot}%{_libdir}/systemd/system/dbus-org.bluez.se
 
 %files -n obexd
 %defattr(-,root,root,-)
-%{_libdir}/bluetooth/obexd
+%{_libexecdir}/bluetooth/obexd
 %{_libdir}/systemd/user/obex.service
 %{_datadir}/dbus-1/services/org.bluez.obex.service
 %{_sysconfdir}/obex/root-setup.d/000_create-symlinks
