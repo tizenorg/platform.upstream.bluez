@@ -310,7 +310,9 @@ struct btd_device {
 	uint8_t		last_bdaddr_type;
 	gboolean		le_auto_connect;
 	guint		auto_id;
+#ifdef IPSP_SUPPORT
 	gboolean	ipsp_connected; /* IPSP Connection state */
+#endif
 #endif
 };
 
@@ -1227,7 +1229,7 @@ static gboolean dev_property_get_last_addr_type(const GDBusPropertyTable *proper
 
 	return TRUE;
 }
-
+#ifdef IPSP_SUPPORT
 static gboolean dev_property_get_ipsp_conn_state(const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
 {
@@ -1244,6 +1246,7 @@ static gboolean dev_property_get_ipsp_conn_state(const GDBusPropertyTable *prope
 
 	return TRUE;
 }
+#endif
 #endif
 
 static gboolean dev_property_get_connected(const GDBusPropertyTable *property,
@@ -2956,6 +2959,7 @@ static DBusMessage *disconnect_le(DBusConnection *conn, DBusMessage *msg,
 	return dbus_message_new_method_return(msg);
 }
 
+#ifdef IPSP_SUPPORT
 static DBusMessage *connect_ipsp(DBusConnection *conn, DBusMessage *msg,
 							void *user_data)
 {
@@ -3004,6 +3008,7 @@ static DBusMessage *disconnect_ipsp(DBusConnection *conn, DBusMessage *msg,
 
 	return dbus_message_new_method_return(msg);;
 }
+#endif
 
 static DBusMessage *is_connected_profile(DBusConnection *conn, DBusMessage *msg,
 									void *user_data)
@@ -3133,8 +3138,10 @@ static const GDBusMethodTable device_methods[] = {
 			GDBUS_ARGS({ "pattern", "s" }), NULL,
 				discover_services) },
 	{ GDBUS_METHOD("CancelDiscovery", NULL, NULL, cancel_discover) },
+#ifdef IPSP_SUPPORT
 	{ GDBUS_ASYNC_METHOD("ConnectIpsp", NULL, NULL, connect_ipsp) },
 	{ GDBUS_ASYNC_METHOD("DisconnectIpsp", NULL, NULL, disconnect_ipsp) },
+#endif
 #endif
 	{ }
 };
@@ -3177,7 +3184,9 @@ static const GDBusPropertyTable device_properties[] = {
 	{ "GattConnected", "b", dev_property_get_gatt_connected },
 	{ "PayloadTimeout", "q", dev_property_get_payload},
 	{ "LastAddrType", "y", dev_property_get_last_addr_type},
+#ifdef IPSP_SUPPORT
 	{ "IpspConnected", "b", dev_property_get_ipsp_conn_state },
+#endif
 #endif
 	{ }
 };
@@ -5714,6 +5723,7 @@ void device_set_last_addr_type(struct btd_device *device, uint8_t type)
 	device->last_bdaddr_type = type;
 }
 
+#ifdef IPSP_SUPPORT
 void device_set_ipsp_connected(struct btd_device *device, gboolean connected)
 {
 	if (device == NULL) {
@@ -5731,6 +5741,7 @@ void device_set_ipsp_connected(struct btd_device *device, gboolean connected)
 	g_dbus_emit_property_changed(dbus_conn, device->path,
 			DEVICE_INTERFACE, "IpspConnected");
 }
+#endif
 #endif
 
 int device_discover_services(struct btd_device *device)

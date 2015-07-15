@@ -227,7 +227,9 @@ struct btd_adapter {
 	bool le_privacy_enabled;	/* whether LE Privacy feature enabled */
 	char local_irk[MGMT_IRK_SIZE];	/* adapter local IRK */
 	uint8_t disc_type;
+#ifdef IPSP_SUPPORT
 	bool ipsp_intialized;		/* Ipsp Initialization state */
+#endif
 #endif
 
 	bool discovering;		/* discovering property state */
@@ -4302,7 +4304,7 @@ static gboolean property_get_supported_le_features(
 
 	return TRUE;
 }
-
+#ifdef IPSP_SUPPORT
 static gboolean property_get_ipsp_init_state(
 					const GDBusPropertyTable *property,
 					DBusMessageIter *iter, void *data)
@@ -4321,6 +4323,7 @@ static gboolean property_get_ipsp_init_state(
 
 	return TRUE;
 }
+#endif
 #endif
 
 static gboolean property_get_uuids(const GDBusPropertyTable *property,
@@ -4485,6 +4488,7 @@ static DBusMessage *find_device(DBusConnection *conn, DBusMessage *msg,
 	return reply;
 }
 
+#ifdef IPSP_SUPPORT
 static void adapter_set_ipsp_init_state(struct btd_adapter *adapter, gboolean initialized)
 {
 	if (adapter->ipsp_intialized == initialized)
@@ -4622,6 +4626,7 @@ static DBusMessage *adapter_deinitialize_ipsp(DBusConnection *conn,
 	return dbus_message_new_method_return(msg);
 }
 #endif
+#endif
 
 static DBusMessage *remove_device(DBusConnection *conn,
 					DBusMessage *msg, void *user_data)
@@ -4719,12 +4724,14 @@ static const GDBusMethodTable adapter_methods[] = {
 	{ GDBUS_ASYNC_METHOD("scan_filter_enable",
 			GDBUS_ARGS({ "client_if", "i" }, { "enable", "b" }), NULL,
 			adapter_le_scan_filter_enable) },
+#ifdef IPSP_SUPPORT
 	{ GDBUS_ASYNC_METHOD("InitializeIpsp",
 			NULL, NULL,
 			adapter_initialize_ipsp) },
 	{ GDBUS_ASYNC_METHOD("DeinitializeIpsp",
 			NULL, NULL,
 			adapter_deinitialize_ipsp) },
+#endif
 	{ GDBUS_METHOD("SetScanRespData",
 			GDBUS_ARGS({ "value", "ay" },
 				{ "slot_id", "i" }), NULL,
@@ -4835,7 +4842,9 @@ static const GDBusPropertyTable adapter_properties[] = {
 					property_set_connectable },
 	{ "Version", "s", property_get_version },
 	{ "SupportedLEFeatures", "as", property_get_supported_le_features},
+#ifdef IPSP_SUPPORT
 	{ "IpspInitStateChanged", "b", property_get_ipsp_init_state},
+#endif
 #endif
 
 	{ }
@@ -7351,7 +7360,9 @@ static void update_found_devices(struct btd_adapter *adapter,
 	}
 
 	device_set_last_addr_type(dev, bdaddr_type);
+#ifdef IPSP_SUPPORT
 	device_set_ipsp_connected(dev, FALSE);
+#endif
 #else
 	if (device_is_temporary(dev) && !adapter->discovery_list) {
 		eir_data_free(&eir_data);
@@ -8515,8 +8526,9 @@ static void bt_6lowpan_conn_state_change_callback(uint16_t index, uint16_t lengt
 		connected = TRUE;
 	else
 		connected = FALSE;
-
+#ifdef IPSP_SUPPORT
 	device_set_ipsp_connected(device, connected);
+#endif
 }
 #endif
 
@@ -10052,6 +10064,7 @@ static bool set_privacy(struct btd_adapter *adapter, bool privacy)
 	return false;
 }
 
+#ifdef IPSP_SUPPORT
 int btd_adapter_connect_ipsp(struct btd_adapter *adapter,
 						const bdaddr_t *bdaddr,
 						uint8_t bdaddr_type)
@@ -10089,6 +10102,7 @@ int btd_adapter_disconnect_ipsp(struct btd_adapter *adapter,
 
 	return -EIO;
 }
+#endif
 #endif
 
 static void clear_devices_complete(uint8_t status, uint16_t length,
