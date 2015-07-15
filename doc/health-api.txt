@@ -87,19 +87,6 @@ Methods		boolean Echo()
 					 org.bluez.Error.NotFound
 				         org.bluez.Error.NotAllowed
 
-Signals		void ChannelConnected(object channel)
-
-			This signal is launched when a new data channel is
-			created or when a known data channel is reconnected.
-
-		void ChannelDeleted(object channel)
-
-			This signal is launched when a data channel is deleted.
-
-			After this signal the data channel path will not be
-			valid and its path can be reused for future data
-			channels.
-
 Properties	object MainChannel [readonly]
 
 			The first reliable channel opened. It is needed by
