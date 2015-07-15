@@ -115,6 +115,7 @@ struct hdp_channel {
 	uint16_t		omtu;		/* Channel outgoing MTU */
 	struct hdp_echo_data	*edata;		/* private data used by echo channels */
 	int			ref;		/* Reference counter */
+	gboolean		connected;	/* Connected status */
 };
 
 #endif /* __HDP_TYPES_H__ */

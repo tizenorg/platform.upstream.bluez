@@ -464,6 +464,16 @@ static gboolean channel_property_get_type(const GDBusPropertyTable *property,
 	return TRUE;
 }
 
+static gboolean channel_property_get_connected(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct hdp_channel *chan = data;
+
+	dbus_message_iter_append_basic(iter, DBUS_TYPE_BOOLEAN, &chan->connected);
+
+	return TRUE;
+}
+
 static void hdp_tmp_dc_data_destroy(gpointer data)
 {
 	struct hdp_tmp_dc_data *hdp_conn = data;
@@ -516,6 +526,11 @@ static void hdp_mdl_reconn_cb(struct mcap_mdl *mdl, GError *err, gpointer data)
 	reply = g_dbus_create_reply(dc_data->msg, DBUS_TYPE_UNIX_FD,
 							&fd, DBUS_TYPE_INVALID);
 	g_dbus_send_message(conn, reply);
+
+	dc_data->hdp_chann->connected = TRUE;
+
+	g_dbus_emit_property_changed(conn, dc_data->hdp_chann->path,
+							HEALTH_CHANNEL, "Connected");
 }
 
 static void hdp_get_dcpsm_cb(uint16_t dcpsm, gpointer user_data, GError *err)
@@ -704,6 +719,14 @@ static void health_channel_destroy(void *data)
 
 	dev->channels = g_slist_remove(dev->channels, hdp_chan);
 
+	if (hdp_chan->mdep != HDP_MDEP_ECHO) {
+		hdp_chan->connected = FALSE;
+
+		g_dbus_emit_property_changed(btd_get_dbus_connection(),
+						hdp_chan->path,
+						HEALTH_CHANNEL, "Connected");
+	}
+
 	if (hdp_chan == dev->fr) {
 		hdp_channel_unref(dev->fr);
 		dev->fr = NULL;
@@ -725,6 +748,7 @@ static const GDBusPropertyTable health_channels_properties[] = {
 	{ "Device", "o",  channel_property_get_device },
 	{ "Application", "o", channel_property_get_application },
 	{ "Type", "s", channel_property_get_type },
+	{ "Connected", "b", channel_property_get_connected },
 	{ }
 };
 
@@ -960,6 +984,11 @@ static void hdp_mcap_mdl_connected_cb(struct mcap_mdl *mdl, void *data)
 		goto end;
 	}
 
+	chan->connected = TRUE;
+
+	g_dbus_emit_property_changed(btd_get_dbus_connection(), chan->path,
+							HEALTH_CHANNEL, "Connected");
+
 	if (dev->fr != NULL)
 		goto end;
 
@@ -1019,6 +1048,14 @@ static void hdp_mcap_mdl_aborted_cb(struct mcap_mdl *mdl, void *data)
 	if (g_slist_find(dev->channels, dev->ndc) == NULL)
 		dev->channels = g_slist_prepend(dev->channels,
 						hdp_channel_ref(dev->ndc));
+
+	if (dev->ndc->mdep != HDP_MDEP_ECHO) {
+		dev->ndc->connected = TRUE;
+
+		g_dbus_emit_property_changed(btd_get_dbus_connection(),
+					dev->ndc->path,
+					HEALTH_CHANNEL, "Connected");
+	}
 
 	hdp_channel_unref(dev->ndc);
 	dev->ndc = NULL;
@@ -1241,6 +1278,15 @@ static void mcl_disconnected(struct mcap_mcl *mcl, gpointer data)
 
 	hdp_device = l->data;
 	hdp_device->mcl_conn = FALSE;
+
+	/* Set channel connected status to false */
+	if (hdp_device->fr) {
+		hdp_device->fr->connected = FALSE;
+
+		g_dbus_emit_property_changed(btd_get_dbus_connection(),
+					hdp_device->fr->path,
+					HEALTH_CHANNEL, "Connected");
+	}
 
 	DBG("Mcl disconnected %s", device_get_path(hdp_device->dev));
 }
@@ -1624,6 +1670,16 @@ static void abort_mdl_connection_cb(GError *err, gpointer data)
 
 	if (err != NULL)
 		error("Aborting error: %s", err->message);
+
+	/* Connection operation has failed but we have to */
+	/* notify the channel created at MCAP level */
+	if (hdp_chann->mdep != HDP_MDEP_ECHO) {
+		hdp_chann->connected = TRUE;
+
+		g_dbus_emit_property_changed(btd_get_dbus_connection(),
+					hdp_chann->path,
+					HEALTH_CHANNEL, "Connected");
+	}
 }
 
 static void hdp_mdl_conn_cb(struct mcap_mdl *mdl, GError *err, gpointer data)
@@ -1658,6 +1714,11 @@ static void hdp_mdl_conn_cb(struct mcap_mdl *mdl, GError *err, gpointer data)
 					DBUS_TYPE_OBJECT_PATH, &hdp_chann->path,
 					DBUS_TYPE_INVALID);
 	g_dbus_send_message(conn, reply);
+
+	hdp_chann->connected = TRUE;
+
+	g_dbus_emit_property_changed(btd_get_dbus_connection(), hdp_chann->path,
+					HEALTH_CHANNEL, "Connected");
 
 	if (!check_channel_conf(hdp_chann)) {
 		close_mdl(hdp_chann);

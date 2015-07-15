@@ -137,3 +137,9 @@ Properties	string Type [readonly]
 			Identifies the HealthApplication to which this channel
 			is related to (which indirectly defines its role and
 			data type).
+
+		boolean Connected [readonly]
+
+			Indicates if the HealthChannel is currently connected.
+			A PropertiesChanged signal indicate changes to this
+			status
