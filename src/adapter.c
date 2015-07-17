@@ -9539,9 +9539,11 @@ static void read_local_oob_data_complete(uint8_t status, uint16_t length,
 						mgmt_errstr(status), status);
 		hash = NULL;
 		randomizer = NULL;
+#ifndef __TIZEN_PATCH__
 	} else if (length < sizeof(*rp)) {
 		error("Too small read local OOB data response");
 		return;
+#endif
 	} else {
 		hash = rp->hash;
 		randomizer = rp->randomizer;
