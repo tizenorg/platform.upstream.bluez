@@ -101,8 +101,8 @@ export CFLAGS+=" -DPBAP_SIM_ENABLE"
 %reconfigure --disable-static \
 			--sysconfdir=%{_sysconfdir} \
 			--localstatedir=%{_localstatedir} \
-			--with-systemdsystemunitdir=%{_libdir}/systemd/system \
-			--with-systemduserunitdir=%{_libdir}/systemd/user \
+			--with-systemdsystemunitdir=%{_unitdir} \
+			--with-systemduserunitdir=/usr/lib/systemd/user \
 			--libexecdir=%{_libexecdir} \
 			--enable-debug \
 			--enable-pie \
@@ -147,7 +147,6 @@ install --mode=0644 -D %{S:7} $RPM_BUILD_ROOT/%{_sysconfdir}/modprobe.d/50-bluet
 # no idea why this is suddenly necessary...
 install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
 
-
 #install -D -m 0644 src/bluetooth.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/bluetooth.conf
 #install -D -m 0644 profiles/audio/audio.conf %{buildroot}%{_sysconfdir}/bluetooth/audio.conf
 #install -D -m 0644 profiles/network/network.conf %{buildroot}%{_sysconfdir}/bluetooth/network.conf
@@ -171,7 +170,7 @@ install -D -m 0755 attrib/gatttool $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 
 #test
-ln -sf bluetooth.service %{buildroot}%{_libdir}/systemd/system/dbus-org.bluez.service
+ln -sf bluetooth.service %{buildroot}%{_unitdir}/dbus-org.bluez.service
 
 %post -n libbluetooth -p /sbin/ldconfig
 
@@ -204,8 +203,8 @@ ln -sf bluetooth.service %{buildroot}%{_libdir}/systemd/system/dbus-org.bluez.se
 /usr/lib/udev/*
 
 #test -2
-%{_libdir}/systemd/system/bluetooth.service
-%{_libdir}/systemd/system/dbus-org.bluez.service
+%{_unitdir}/bluetooth.service
+%{_unitdir}/dbus-org.bluez.service
 
 %{_datadir}/dbus-1/system-services/org.bluez.service
 %config %{_sysconfdir}/dbus-1/system.d/bluetooth.conf
@@ -232,7 +231,7 @@ ln -sf bluetooth.service %{buildroot}%{_libdir}/systemd/system/dbus-org.bluez.se
 %files -n obexd
 %defattr(-,root,root,-)
 %{_libexecdir}/bluetooth/obexd
-%{_libdir}/systemd/user/obex.service
+/usr/lib/systemd/user/obex.service
 %{_datadir}/dbus-1/services/org.bluez.obex.service
 %{_sysconfdir}/obex/root-setup.d/000_create-symlinks
 %{_bindir}/obex-root-setup
