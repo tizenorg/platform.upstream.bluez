@@ -1,4 +1,5 @@
 #%define with_libcapng --enable-capng
+%define _libpath /usr/lib
 Name:       	bluez
 Summary:    	Bluetooth Stack for Linux
 Version:    	5.28
@@ -101,8 +102,8 @@ export CFLAGS+=" -DPBAP_SIM_ENABLE"
 %reconfigure --disable-static \
 			--sysconfdir=%{_sysconfdir} \
 			--localstatedir=%{_localstatedir} \
-			--with-systemdsystemunitdir=%{_libdir}/systemd/system \
-			--with-systemduserunitdir=%{_libdir}/systemd/user \
+			--with-systemdsystemunitdir=%{_libpath}/systemd/system \
+			--with-systemduserunitdir=%{_libpath}/systemd/user \
 			--libexecdir=%{_libexecdir} \
 			--enable-debug \
 			--enable-pie \
@@ -171,7 +172,7 @@ install -D -m 0755 attrib/gatttool $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 
 #test
-ln -sf bluetooth.service %{buildroot}%{_libdir}/systemd/system/dbus-org.bluez.service
+ln -sf bluetooth.service %{buildroot}%{_libpath}/systemd/system/dbus-org.bluez.service
 
 %post -n libbluetooth -p /sbin/ldconfig
 
@@ -204,8 +205,8 @@ ln -sf bluetooth.service %{buildroot}%{_libdir}/systemd/system/dbus-org.bluez.se
 /usr/lib/udev/*
 
 #test -2
-%{_libdir}/systemd/system/bluetooth.service
-%{_libdir}/systemd/system/dbus-org.bluez.service
+%{_libpath}/systemd/system/bluetooth.service
+%{_libpath}/systemd/system/dbus-org.bluez.service
 
 %{_datadir}/dbus-1/system-services/org.bluez.service
 %config %{_sysconfdir}/dbus-1/system.d/bluetooth.conf
@@ -232,7 +233,7 @@ ln -sf bluetooth.service %{buildroot}%{_libdir}/systemd/system/dbus-org.bluez.se
 %files -n obexd
 %defattr(-,root,root,-)
 %{_libexecdir}/bluetooth/obexd
-%{_libdir}/systemd/user/obex.service
+%{_libpath}/systemd/user/obex.service
 %{_datadir}/dbus-1/services/org.bluez.obex.service
 %{_sysconfdir}/obex/root-setup.d/000_create-symlinks
 %{_bindir}/obex-root-setup
