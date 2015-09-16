@@ -275,4 +275,34 @@ int btd_adapter_disconnect_ipsp(struct btd_adapter *adapter,
 						const bdaddr_t *bdaddr,
 						uint8_t bdaddr_type);
 #endif
+
+typedef void (*read_max_data_length_cb_t) (struct btd_adapter *adapter,
+					uint16_t max_txOctects,
+					uint16_t max_txTime,
+					uint16_t max_rxOctects,
+					uint16_t max_rxTime,
+					int32_t read_error,
+					void *user_data);
+
+struct le_data_length_read_handler {
+	read_max_data_length_cb_t read_callback;
+	void *user_data;
+};
+
+typedef void (*read_host_suggested_default_data_length_cb_t) (struct btd_adapter *adapter,
+					uint16_t def_txOctects,
+					uint16_t def_txTime,
+					int32_t read_error,
+					void *user_data);
+
+struct le_data_length_read_default_data_length_handler {
+	read_host_suggested_default_data_length_cb_t read_callback;
+	void *user_data;
+};
+
+int btd_adapter_le_set_data_length(struct btd_adapter *adapter, bdaddr_t *bdaddr,
+			uint16_t max_tx_octets, uint16_t max_tx_time);
+void device_le_data_length_changed(struct btd_device *device, uint16_t max_tx_octets,
+			uint16_t max_tx_time, uint16_t max_rx_octets, uint16_t max_rx_time);
+
 #endif
