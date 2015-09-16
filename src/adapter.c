@@ -194,6 +194,16 @@ struct adv_info {
 	int slot_id;	/* Reservied slot id is 0 (Single adv) */
 	bool status;		/* Advertising status */
 };
+
+static GSList *read_requests = NULL;
+
+struct le_data_length_read_request {
+	struct btd_adapter *adapter;
+	DBusMessage *msg;
+};
+
+static GSList *read_host_requests = NULL;
+
 #endif
 
 struct btd_adapter {
@@ -230,6 +240,8 @@ struct btd_adapter {
 #ifdef IPSP_SUPPORT
 	bool ipsp_intialized;		/* Ipsp Initialization state */
 #endif
+	struct le_data_length_read_handler *read_handler;
+	struct le_data_length_read_default_data_length_handler *def_read_handler;
 #endif
 
 	bool discovering;		/* discovering property state */
@@ -3666,6 +3678,384 @@ static DBusMessage *set_nb_parameters(DBusConnection *conn,
 
 	return dbus_message_new_method_return(msg);
 }
+#endif /* __BROADCOM_PATCH__ */
+
+#ifdef __TIZEN_PATCH__
+void btd_adapter_set_read_le_data_length_handler(
+			struct btd_adapter *adapter,
+			struct le_data_length_read_handler *handler)
+{
+	adapter->read_handler = handler;
+}
+
+static void le_read_maximum_data_length_return_param_complete(
+			uint8_t status, uint16_t length,
+			const void *param, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	const struct mgmt_rp_le_read_maximum_data_length *rp = param;
+	uint16_t max_tx_octects, max_tx_time;
+	uint16_t max_rx_octects, max_rx_time;
+	int32_t err;
+
+	if (status != MGMT_STATUS_SUCCESS) {
+		error("le read maximum data length failed: %s (0x%02x)",
+			mgmt_errstr(status), status);
+		max_tx_octects = 0;
+		max_tx_time =0;
+		max_rx_octects = 0;
+		max_rx_time = 0;
+		err = -EIO;
+	}
+
+	if (length < sizeof(*rp)) {
+		error("Too small le read maximum data length response");
+		max_tx_octects = 0;
+		max_tx_time =0;
+		max_rx_octects = 0;
+		max_rx_time = 0;
+		err = -EIO;
+	} else {
+		max_tx_octects = rp->max_tx_octets;
+		max_tx_time =rp->max_tx_time;
+		max_rx_octects = rp->max_rx_octets;
+		max_rx_time = rp->max_rx_time;
+		err = 0;
+	}
+
+	if (!adapter->read_handler ||
+		!adapter->read_handler->read_callback) {
+		g_free(adapter->read_handler);
+		return;
+	}
+
+	adapter->read_handler->read_callback(adapter,
+			max_tx_octects, max_tx_time,
+			max_rx_octects, max_rx_time,
+			err, adapter->read_handler->user_data);
+
+	g_free(adapter->read_handler);
+	adapter->read_handler = NULL;
+}
+
+int btd_adapter_le_read_maximum_data_length(
+	struct btd_adapter *adapter)
+{
+	if (mgmt_send(adapter->mgmt,
+			 MGMT_OP_LE_READ_MAXIMUM_DATA_LENGTH,
+			 adapter->dev_id, 0, NULL,
+			 le_read_maximum_data_length_return_param_complete,
+			 adapter, NULL) > 0)
+		return 0;
+
+	return -EIO;
+}
+
+static gint read_request_cmp(gconstpointer a, gconstpointer b)
+{
+	const struct le_data_length_read_request *data = a;
+	const struct btd_adapter *adapter = b;
+
+	return data->adapter !=  adapter;
+}
+
+static struct le_data_length_read_request *find_read_le_data_length_request(
+	struct btd_adapter *adapter)
+{
+	GSList *match;
+
+	match = g_slist_find_custom(read_requests, adapter, read_request_cmp);
+
+	if (match)
+		return match->data;
+
+	return NULL;
+}
+
+static void le_read_data_length_complete(
+			struct btd_adapter *adapter,
+			uint16_t max_tx_octects, uint16_t max_tx_time,
+			uint16_t max_rx_octects, uint16_t max_rx_time,
+			int32_t err, void *user_data)
+{
+	DBusMessage *reply;
+	struct le_data_length_read_request *read_request;
+
+	DBG("inside le_read_data_length_complete");
+
+	read_request = find_read_le_data_length_request(adapter);
+	if (!read_request)
+		return;
+
+	reply = g_dbus_create_reply(read_request->msg,
+				DBUS_TYPE_UINT16, &max_tx_octects,
+				DBUS_TYPE_UINT16, &max_tx_time,
+				DBUS_TYPE_UINT16, &max_rx_octects,
+				DBUS_TYPE_UINT16, &max_rx_time,
+				DBUS_TYPE_INT32,  &err,
+				DBUS_TYPE_INVALID);
+
+	if (!reply) {
+		btd_error_failed(read_request->msg,
+					"Failed to read max data length.");
+		return;
+	}
+
+	read_requests = g_slist_remove(read_requests, read_request);
+	dbus_message_unref(read_request->msg);
+	g_free(read_request);
+
+	if (!g_dbus_send_message(dbus_conn, reply))
+		error("D-Bus send failed");
+}
+
+static DBusMessage *le_read_maximum_data_length(
+			DBusConnection *conn, DBusMessage *msg,
+			void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	struct le_data_length_read_request *read_request;
+	struct le_data_length_read_handler *handler;
+
+	if (find_read_le_data_length_request(adapter))
+		return btd_error_in_progress(msg);
+
+	if (btd_adapter_le_read_maximum_data_length(adapter))
+		return btd_error_failed(msg, "Unable to read maximum le data length");
+
+	read_request = g_new(struct le_data_length_read_request, 1);
+
+	read_request->msg = dbus_message_ref(msg);
+	read_request->adapter = adapter;
+
+	read_requests = g_slist_append(read_requests, read_request);
+
+	handler = g_new0(struct le_data_length_read_handler, 1);
+
+	handler->read_callback =
+		(read_max_data_length_cb_t)le_read_data_length_complete;
+
+	btd_adapter_set_read_le_data_length_handler(
+			read_request->adapter, handler);
+
+	return NULL;
+
+}
+
+void le_write_host_suggested_data_length_return_param_complete(
+			uint8_t status, uint16_t length,
+			const void *param, void *user_data)
+{
+	if (status != MGMT_STATUS_SUCCESS) {
+		error("le write host suggested data length failed: %s (0x%02x)",
+			mgmt_errstr(status), status);
+	}
+
+	return;
+}
+
+static DBusMessage *le_write_host_suggested_default_data_length(
+			DBusConnection *conn, DBusMessage *msg,
+			void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	struct mgmt_cp_le_write_host_suggested_data_length cp;
+	dbus_uint16_t def_tx_Octets;
+	dbus_uint16_t def_tx_time;
+
+	if (!(adapter->current_settings & MGMT_SETTING_POWERED))
+		return btd_error_not_ready(msg);
+
+	if (!dbus_message_get_args(msg, NULL,
+					DBUS_TYPE_UINT16, &def_tx_Octets,
+					DBUS_TYPE_UINT16, &def_tx_time,
+					DBUS_TYPE_INVALID))
+		return btd_error_invalid_args(msg);
+
+	memset(&cp, 0, sizeof(cp));
+	cp.def_tx_octets = def_tx_Octets;
+	cp.def_tx_time = def_tx_time;
+
+	if (mgmt_send(adapter->mgmt,
+			 MGMT_OP_LE_WRITE_HOST_SUGGESTED_DATA_LENGTH,
+			 adapter->dev_id, sizeof(cp), &cp,
+			 le_write_host_suggested_data_length_return_param_complete,
+			 adapter, NULL) > 0)
+		return dbus_message_new_method_return(msg);
+
+	return btd_error_failed(msg, "Unable to write host suggested le data length values");
+}
+
+static void le_read_suggested_default_data_length_return_param_complete(
+			uint8_t status, uint16_t length,
+			const void *param, void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	const struct mgmt_rp_le_read_host_suggested_data_length *rp = param;
+	uint16_t def_tx_octects, def_tx_time;
+	int32_t err;
+
+	if (status != MGMT_STATUS_SUCCESS) {
+		error("Read host suggested def le data length values failed: %s (0x%02x)",
+			mgmt_errstr(status), status);
+		def_tx_octects = 0;
+		def_tx_time =0;
+		err = -EIO;
+	}
+
+	if (length < sizeof(*rp)) {
+		DBG("Too small le read host data length response");
+		err = -EIO;
+	} else {
+		def_tx_octects = rp->def_tx_octets;
+		def_tx_time =rp->def_tx_time;
+		err = 0;
+		DBG("retrieving host suggested data length values %d %d", def_tx_octects, def_tx_time);
+	}
+
+	if (!adapter->def_read_handler)
+		return;
+
+	if(!adapter->def_read_handler->read_callback) {
+		goto done;
+	}
+
+	adapter->def_read_handler->read_callback(adapter,
+			def_tx_octects, def_tx_time,
+			err, adapter->def_read_handler->user_data);
+done:
+	if (adapter->def_read_handler)
+		g_free(adapter->def_read_handler->user_data);
+
+	g_free(adapter->def_read_handler);
+	adapter->def_read_handler = NULL;
+}
+
+int btd_adapter_le_read_suggested_default_data_length(
+	struct btd_adapter *adapter)
+{
+	if (mgmt_send(adapter->mgmt,
+			 MGMT_OP_LE_READ_HOST_SUGGESTED_DATA_LENGTH,
+			 adapter->dev_id, 0, NULL,
+			 le_read_suggested_default_data_length_return_param_complete,
+			 adapter, NULL) > 0) {
+		return 0;
+	}
+
+	return -EIO;
+}
+
+static struct le_data_length_read_request *find_read_le_host_data_length_request(
+	struct btd_adapter *adapter)
+{
+	GSList *match;
+
+	match = g_slist_find_custom(read_host_requests, adapter, read_request_cmp);
+
+	if (match)
+		return match->data;
+
+	return NULL;
+}
+
+static void le_read_host_suggested_default_length_complete(
+			struct btd_adapter *adapter,
+			uint16_t def_tx_octects, uint16_t def_tx_time,
+			int32_t err, void *user_data)
+{
+	DBusMessage *reply;
+	struct le_data_length_read_request *read_request;
+
+	read_request = find_read_le_host_data_length_request(adapter);
+	if (!read_request)
+		return;
+
+	reply = g_dbus_create_reply(read_request->msg,
+			DBUS_TYPE_UINT16, &def_tx_octects,
+			DBUS_TYPE_UINT16, &def_tx_time,
+			DBUS_TYPE_INT32,  &err,
+			DBUS_TYPE_INVALID);
+
+	if (!reply) {
+		btd_error_failed(read_request->msg,
+			"Failed to read host suggested def data length values");
+		return;
+	}
+
+	read_host_requests = g_slist_remove(read_host_requests, read_request);
+	dbus_message_unref(read_request->msg);
+	g_free(read_request);
+
+	if (!g_dbus_send_message(dbus_conn, reply))
+		error("D-Bus send failed");
+}
+
+static DBusMessage *le_read_host_suggested_default_data_length(
+			DBusConnection *conn, DBusMessage *msg,
+			void *user_data)
+{
+	struct btd_adapter *adapter = user_data;
+	struct le_data_length_read_request *read_request;
+	struct le_data_length_read_default_data_length_handler *handler;
+
+	if (find_read_le_host_data_length_request(adapter))
+		return btd_error_in_progress(msg);
+
+	if (btd_adapter_le_read_suggested_default_data_length(adapter))
+		return btd_error_failed(msg, "Unable to read host suggested def data length");
+
+	read_request = g_new(struct le_data_length_read_request, 1);
+
+	read_request->msg = dbus_message_ref(msg);
+	read_request->adapter = adapter;
+
+	read_host_requests = g_slist_append(read_host_requests, read_request);
+
+	handler = g_new0(struct le_data_length_read_default_data_length_handler, 1);
+
+	handler->read_callback =
+		(read_host_suggested_default_data_length_cb_t)le_read_host_suggested_default_length_complete;
+
+	read_request->adapter->def_read_handler = handler;
+
+	return NULL;
+}
+
+void le_set_data_length_return_param_complete(
+			uint8_t status, uint16_t length,
+			const void *param, void *user_data)
+{
+	if (status != MGMT_STATUS_SUCCESS) {
+		error("le_set_data_length failed: %s (0x%02x)",
+			mgmt_errstr(status), status);
+	}
+
+	return;
+}
+
+int btd_adapter_le_set_data_length(struct btd_adapter *adapter, bdaddr_t *bdaddr,
+				uint16_t max_tx_octets, uint16_t max_tx_time)
+{
+	struct mgmt_cp_le_set_data_length cp;
+
+	memset(&cp, 0, sizeof(cp));
+
+	bacpy(&cp.bdaddr, bdaddr);
+
+	cp.max_tx_octets = max_tx_octets;
+	cp.max_tx_time = max_tx_time;
+
+	if (mgmt_send(adapter->mgmt, MGMT_OP_LE_SET_DATA_LENGTH,
+			adapter->dev_id, sizeof(cp), &cp,
+			le_set_data_length_return_param_complete,
+			adapter, NULL) > 0)
+		return 0;
+
+	return -EIO;
+}
+
+#endif
+
 static DBusMessage *adapter_set_manufacturer_data(DBusConnection *conn,
 						DBusMessage *msg, void *data)
 {
@@ -3696,7 +4086,6 @@ static DBusMessage *adapter_set_manufacturer_data(DBusConnection *conn,
 
 	return btd_error_failed(msg, "Set manufacturer data failed");
 }
-#endif /* __BROADCOM_PATCH__ */
 #endif /* __TIZEN_PATCH__ */
 
 static DBusMessage *stop_discovery(DBusConnection *conn,
@@ -4787,6 +5176,20 @@ static const GDBusMethodTable adapter_methods[] = {
 #endif
 	{ GDBUS_ASYNC_METHOD("RemoveDevice",
 			GDBUS_ARGS({ "device", "o" }), NULL, remove_device) },
+#ifdef __TIZEN_PATCH__
+	{ GDBUS_ASYNC_METHOD("LEReadMaximumDataLength", NULL,
+			GDBUS_ARGS({"maxTxOctets", "q" }, { "maxTxTime", "q" },
+				{"maxRxOctets", "q" }, { "maxRxTime", "q" },
+				{ "read_error", "i" }),
+			le_read_maximum_data_length)},
+	{ GDBUS_ASYNC_METHOD("LEWriteHostSuggestedDataLength",
+			GDBUS_ARGS({"def_tx_octets", "q" }, { "def_tx_time", "q" }), NULL,
+			le_write_host_suggested_default_data_length)},
+	{ GDBUS_ASYNC_METHOD("LEReadHostSuggestedDataLength", NULL,
+			GDBUS_ARGS({"def_tx_octets", "q" }, { "def_tx_time", "q" },
+			{ "read_error", "i" }),
+			le_read_host_suggested_default_data_length)},
+#endif
 	{ }
 };
 
@@ -8530,6 +8933,35 @@ static void bt_6lowpan_conn_state_change_callback(uint16_t index, uint16_t lengt
 	device_set_ipsp_connected(device, connected);
 #endif
 }
+
+static void bt_le_data_length_changed_callback(uint16_t index, uint16_t length,
+					const void *param, void *user_data)
+{
+	const struct mgmt_ev_le_data_length_changed *ev = param;
+	struct btd_adapter *adapter = user_data;
+	struct btd_device *device;
+	char addr[18];
+
+	if (length < sizeof(*ev)) {
+		error("Too small data length changed event");
+		return;
+	}
+
+	ba2str(&ev->addr.bdaddr, addr);
+
+	DBG("hci%u device %s", index, addr);
+
+	device = btd_adapter_find_device(adapter, &ev->addr.bdaddr,
+								ev->addr.type);
+	if (!device) {
+		error("Unable to get device object for %s", addr);
+		return;
+	}
+
+	device_le_data_length_changed(device, ev->max_tx_octets, ev->max_tx_time,
+		ev->max_rx_octets, ev->max_rx_time);
+}
+
 #endif
 
 struct btd_adapter_pin_cb_iter *btd_adapter_pin_cb_iter_new(
@@ -10403,6 +10835,11 @@ static void read_info_complete(uint8_t status, uint16_t length,
 	mgmt_register(adapter->mgmt, MGMT_EV_6LOWPAN_CONN_STATE_CHANGED,
 						adapter->dev_id,
 						bt_6lowpan_conn_state_change_callback,
+						adapter, NULL);
+
+	mgmt_register(adapter->mgmt, MGMT_EV_LE_DATA_LENGTH_CHANGED,
+						adapter->dev_id,
+						bt_le_data_length_changed_callback,
 						adapter, NULL);
 #endif
 
