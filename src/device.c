@@ -313,6 +313,10 @@ struct btd_device {
 #ifdef IPSP_SUPPORT
 	gboolean	ipsp_connected; /* IPSP Connection state */
 #endif
+	uint16_t		max_tx_octets;
+	uint16_t 		max_tx_time;
+	uint16_t 		max_rx_octets;
+	uint16_t 		max_rx_time;
 #endif
 };
 
@@ -3010,6 +3014,45 @@ static DBusMessage *disconnect_ipsp(DBusConnection *conn, DBusMessage *msg,
 }
 #endif
 
+#ifdef __TIZEN_PATCH__
+static DBusMessage *le_set_data_length(
+			DBusConnection *conn, DBusMessage *msg,
+			void *user_data)
+{
+	dbus_uint16_t max_tx_octets;
+	dbus_uint16_t max_tx_time;
+	struct btd_device *device = user_data;
+	int status;
+	char addr[BT_ADDRESS_STRING_SIZE];
+
+	if (!dbus_message_get_args(msg, NULL,
+				DBUS_TYPE_UINT16, &max_tx_octets,
+				DBUS_TYPE_UINT16, &max_tx_time,
+				DBUS_TYPE_INVALID)) {
+		DBG("error in retrieving values");
+		return btd_error_invalid_args(msg);
+	}
+
+	if (device->bdaddr_type == BDADDR_BREDR)
+		return btd_error_not_supported(msg);
+
+	ba2str(&device->bdaddr, addr);
+
+	DBG("Remote device address: %s", addr);
+	DBG("Max tx octets: %u, Max tx time: %u",
+				max_tx_octets, max_tx_time);
+
+	status = btd_adapter_le_set_data_length(device->adapter,
+				&device->bdaddr, max_tx_octets,
+				max_tx_time);
+
+	if (status != 0)
+		return btd_error_failed(msg, "Unable to set le data length values");
+	else
+		return dbus_message_new_method_return(msg);
+}
+#endif
+
 static DBusMessage *is_connected_profile(DBusConnection *conn, DBusMessage *msg,
 									void *user_data)
 {
@@ -3142,6 +3185,10 @@ static const GDBusMethodTable device_methods[] = {
 	{ GDBUS_ASYNC_METHOD("ConnectIpsp", NULL, NULL, connect_ipsp) },
 	{ GDBUS_ASYNC_METHOD("DisconnectIpsp", NULL, NULL, disconnect_ipsp) },
 #endif
+	{ GDBUS_ASYNC_METHOD("LESetDataLength",
+			GDBUS_ARGS({"max_tx_octets", "q" },
+			{ "max_tx_time", "q" }), NULL,
+			le_set_data_length)},
 #endif
 	{ }
 };
@@ -3206,6 +3253,11 @@ static const GDBusSignalTable device_signals[] = {
 					{ "RSSI", "i"},
 					{ "AdvDataLen", "i"},
 					{ "AdvData", "ay"})) },
+	{ GDBUS_SIGNAL("LEDataLengthChanged",
+			GDBUS_ARGS({"max_tx_octets","q"},
+				{ "max_tx_time", "q" },
+				{ "max_rx_octets", "q"},
+				{ "max_rx_time", "q"})) },
 };
 #endif
 
@@ -5742,6 +5794,31 @@ void device_set_ipsp_connected(struct btd_device *device, gboolean connected)
 			DEVICE_INTERFACE, "IpspConnected");
 }
 #endif
+
+void device_le_data_length_changed(struct btd_device *device, uint16_t max_tx_octets,
+		uint16_t max_tx_time, uint16_t max_rx_octets, uint16_t max_rx_time)
+{
+	if (device == NULL) {
+		error("device is NULL");
+		return;
+	}
+
+	device->max_tx_octets = max_tx_octets;
+	device->max_tx_time = max_tx_time;
+	device->max_rx_octets = max_rx_octets;
+	device->max_rx_time = max_rx_time;
+
+	DBG("data length changed values :max_tx_octets: %d  max_tx_time: %d  max_rx_octets: %d  max_rx_time: %d",
+		max_tx_octets, max_tx_time, max_rx_octets, max_rx_time);
+
+	g_dbus_emit_signal(dbus_conn, device->path,
+		DEVICE_INTERFACE, "LEDataLengthChanged",
+		DBUS_TYPE_UINT16, &max_tx_octets,
+		DBUS_TYPE_UINT16, &max_tx_time,
+		DBUS_TYPE_UINT16, &max_rx_octets,
+		DBUS_TYPE_UINT16, &max_rx_time,
+		DBUS_TYPE_INVALID);
+}
 #endif
 
 int device_discover_services(struct btd_device *device)
