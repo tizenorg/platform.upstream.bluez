@@ -908,6 +908,36 @@ struct mgmt_cp_disconnect_6lowpan {
 	struct mgmt_addr_info addr;
 } __packed;
 
+#define MGMT_OP_LE_READ_MAXIMUM_DATA_LENGTH	(TIZEN_OP_CODE_BASE + 0x15)
+struct mgmt_rp_le_read_maximum_data_length {
+	uint8_t status;
+	uint16_t max_tx_octets;
+	uint16_t max_tx_time;
+	uint16_t max_rx_octets;
+	uint16_t max_rx_time;
+} __packed;
+
+#define MGMT_OP_LE_WRITE_HOST_SUGGESTED_DATA_LENGTH	(TIZEN_OP_CODE_BASE + 0x16)
+struct mgmt_cp_le_write_host_suggested_data_length {
+	uint16_t def_tx_octets;
+	uint16_t def_tx_time;
+} __packed;
+
+#define MGMT_OP_LE_READ_HOST_SUGGESTED_DATA_LENGTH	(TIZEN_OP_CODE_BASE + 0x17)
+struct mgmt_rp_le_read_host_suggested_data_length {
+	uint8_t status;
+	uint16_t def_tx_octets;
+	uint16_t def_tx_time;
+} __packed;
+
+#define MGMT_OP_LE_SET_DATA_LENGTH	(TIZEN_OP_CODE_BASE + 0x18)
+struct mgmt_cp_le_set_data_length {
+	bdaddr_t bdaddr;
+	uint16_t max_tx_octets;
+	uint16_t max_tx_time;
+} __packed;
+#define MGMT_LE_SET_DATA_LENGTH_SIZE	 10
+
 /*  Currently there is no support in kernel for below MGMT cmd opcodes. */
 #if 0 // Not defined in kernel
 #define MGMT_OP_READ_RSSI			(TIZEN_OP_CODE_BASE + 0x11)
@@ -1037,6 +1067,15 @@ struct mgmt_ev_vendor_specific_multi_adv_state_changed {
 struct mgmt_ev_6lowpan_conn_state_changed {
 	struct	mgmt_addr_info addr;
 	uint8_t	connected;
+} __packed;
+
+#define MGMT_EV_LE_DATA_LENGTH_CHANGED		(TIZEN_EV_BASE + 0x0d)
+struct mgmt_ev_le_data_length_changed {
+	struct	mgmt_addr_info addr;
+	int16_t max_tx_octets;
+	int16_t max_tx_time;
+	int16_t max_rx_octets;
+	int16_t max_rx_time;
 } __packed;
 
 /*  Currently there is no support in kernel for below MGMT events. */
