@@ -27,4 +27,11 @@ GIOChannel *gatt_connect(const char *src, const char *dst,
 			const char *dst_type, const char *sec_level,
 			int psm, int mtu, BtIOConnect connect_cb,
 			GError **gerr);
+#ifdef __TIZEN_PATCH__
+/* BT Stack Certification  */
+GIOChannel *gatt_le_listen(const char *src, const char *dst,
+				const char *dst_type, const char *sec_level,
+				int psm, int mtu, BtIOConnect connect_cb,
+				BtIOConfirm confirm_cb, GError **gerr);
+#endif
 size_t gatt_attr_data_from_string(const char *str, uint8_t **data);

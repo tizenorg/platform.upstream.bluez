@@ -183,6 +183,48 @@ static void connect_cb(GIOChannel *io, GError *err, gpointer user_data)
 	rl_printf("Connection successful\n");
 }
 
+#ifdef __TIZEN_PATCH__
+/* BT Stack Certification  */
+static void confirm_cb(GIOChannel *io, gpointer user_data)
+{
+	char address[18];
+	bdaddr_t src, dst;
+	GError *err = NULL;
+	uint16_t psm;
+	uint16_t mtu;
+	uint16_t cid;
+
+	rl_printf("confirm_cb \n");
+	bt_io_get(io, &err,
+				BT_IO_OPT_SOURCE_BDADDR, &src,
+				BT_IO_OPT_DEST_BDADDR, &dst,
+				BT_IO_OPT_DEST, address,
+				BT_IO_OPT_PSM, &psm,
+				BT_IO_OPT_IMTU, &mtu,
+				BT_IO_OPT_CID, &cid,
+				BT_IO_OPT_INVALID);
+	if (err) {
+			set_state(STATE_DISCONNECTED);
+			error("%s\n", err->message);
+			return;
+	}
+
+	if (cid == ATT_CID)
+		mtu = ATT_DEFAULT_LE_MTU;
+
+	rl_printf("incoming connect from %s \n", address);
+	iochannel = g_io_channel_ref(io);
+
+	attrib = g_attrib_new(iochannel, mtu);
+	g_attrib_register(attrib, ATT_OP_HANDLE_NOTIFY, GATTRIB_ALL_HANDLES,
+						events_handler, attrib, NULL);
+	g_attrib_register(attrib, ATT_OP_HANDLE_IND, GATTRIB_ALL_HANDLES,
+						events_handler, attrib, NULL);
+	set_state(STATE_CONNECTED);
+	rl_printf("Connection successful\n");
+}
+#endif
+
 static void disconnect_io()
 {
 	if (conn_state == STATE_DISCONNECTED)
@@ -416,6 +458,45 @@ static void cmd_connect(int argcp, char **argvp)
 	} else
 		g_io_add_watch(iochannel, G_IO_HUP, channel_watcher, NULL);
 }
+
+#ifdef __TIZEN_PATCH__
+/* BT Stack Certification  */
+static void cmd_le_listen(int argcp, char **argvp)
+{
+	GError *gerr = NULL;
+
+	if (conn_state != STATE_DISCONNECTED)
+		return;
+	rl_printf("cmd_le_listen on psm %d from %s\n", opt_psm, opt_src);
+	if (argcp > 1) {
+		g_free(opt_dst);
+		opt_dst = g_strdup(argvp[1]);
+
+		g_free(opt_dst_type);
+		if (argcp > 2)
+			opt_dst_type = g_strdup(argvp[2]);
+		else
+			opt_dst_type = g_strdup("public");
+	}
+
+	if (opt_dst == NULL) {
+		error("Remote Bluetooth address required\n");
+		return;
+	}
+
+	rl_printf("Attempting to listen to %s\n", opt_dst);
+	set_state(STATE_CONNECTING);
+	iochannel = gatt_le_listen(opt_src, opt_dst, opt_dst_type, opt_sec_level,
+					opt_psm, opt_mtu, NULL, confirm_cb, &gerr);
+	if (iochannel == NULL) {
+		set_state(STATE_DISCONNECTED);
+		error("%s\n", gerr->message);
+		g_error_free(gerr);
+	} else {
+		rl_printf("Listening.......\n");
+	}
+}
+#endif
 
 static void cmd_disconnect(int argcp, char **argvp)
 {
@@ -798,6 +879,11 @@ static struct {
 		"Exit interactive mode" },
 	{ "connect",		cmd_connect,	"[address [address type]]",
 		"Connect to a remote device" },
+#ifdef __TIZEN_PATCH__
+/* BT Stack Certification  */
+	{ "le-listen",		cmd_le_listen,	"[address [address type]]",
+			"Listen to a remote initiated le connection" },
+#endif
 	{ "disconnect",		cmd_disconnect,	"",
 		"Disconnect from a remote device" },
 	{ "primary",		cmd_primary,	"[UUID]",

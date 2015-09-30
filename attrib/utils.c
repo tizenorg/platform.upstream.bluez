@@ -102,6 +102,67 @@ GIOChannel *gatt_connect(const char *src, const char *dst,
 	return chan;
 }
 
+GIOChannel *gatt_le_listen(const char *src, const char *dst,
+				const char *dst_type, const char *sec_level,
+				int psm, int mtu, BtIOConnect connect_cb,
+				BtIOConfirm confirm_cb, GError **gerr)
+{
+	GIOChannel *chan;
+	bdaddr_t sba, dba;
+	uint8_t dest_type;
+	GError *tmp_err = NULL;
+	BtIOSecLevel sec;
+
+	str2ba(dst, &dba);
+
+	/* Local adapter */
+	if (src != NULL) {
+		if (!strncmp(src, "hci", 3))
+			hci_devba(atoi(src + 3), &sba);
+		else
+			str2ba(src, &sba);
+	} else
+		bacpy(&sba, BDADDR_ANY);
+
+	/* Not used for BR/EDR */
+	if (strcmp(dst_type, "random") == 0)
+		dest_type = BDADDR_LE_RANDOM;
+	else
+		dest_type = BDADDR_LE_PUBLIC;
+
+	if (strcmp(sec_level, "medium") == 0)
+		sec = BT_IO_SEC_MEDIUM;
+	else if (strcmp(sec_level, "high") == 0)
+		sec = BT_IO_SEC_HIGH;
+	else
+		sec = BT_IO_SEC_LOW;
+
+	if (psm == 0)
+		/* LE socket */
+		chan = bt_io_listen(connect_cb, confirm_cb,
+						&chan, NULL, &tmp_err,
+						BT_IO_OPT_SOURCE_BDADDR, &sba,
+						BT_IO_OPT_SOURCE_TYPE, BDADDR_LE_PUBLIC,
+						BT_IO_OPT_CID, ATT_CID,
+						BT_IO_OPT_SEC_LEVEL, sec,
+						BT_IO_OPT_INVALID);
+	else
+		chan = bt_io_listen(connect_cb, confirm_cb, &chan, NULL, &tmp_err,
+				BT_IO_OPT_SOURCE_BDADDR, &sba,
+				BT_IO_OPT_DEST_BDADDR, &dba,
+				BT_IO_OPT_PSM, psm,
+				BT_IO_OPT_IMTU, mtu,
+				BT_IO_OPT_SEC_LEVEL, sec,
+				BT_IO_OPT_INVALID);
+
+	if (tmp_err) {
+		g_propagate_error(gerr, tmp_err);
+		return NULL;
+	}
+
+	return chan;
+}
+
 size_t gatt_attr_data_from_string(const char *str, uint8_t **data)
 {
 	char tmp[3];
