@@ -10226,9 +10226,20 @@ static void read_info_complete(uint8_t status, uint16_t length,
 		break;
 	}
 
+#ifdef __TIZEN_PATCH__
+	if (missing_settings & MGMT_SETTING_SECURE_CONN) {
+		if (main_opts.secure_connection >= 0 &&
+			main_opts.secure_connection <= 0x02)
+			set_mode(adapter, MGMT_OP_SET_SECURE_CONN,
+						main_opts.secure_connection);
+		else
+			set_mode(adapter, MGMT_OP_SET_SECURE_CONN, 0x00);
+	}
+#else
 #if 0
 	if (missing_settings & MGMT_SETTING_SECURE_CONN)
 		set_mode(adapter, MGMT_OP_SET_SECURE_CONN, 0x01);
+#endif
 #endif
 
 	err = adapter_register(adapter);

@@ -40,6 +40,7 @@ struct main_opts {
 	gboolean	debug_keys;
 #ifdef __TIZEN_PATCH__
 	gboolean	le_privacy;
+	uint16_t	secure_connection;
 #endif
 
 	uint16_t	did_source;
