@@ -342,6 +342,17 @@ static void parse_config(GKeyFile *config)
 		g_clear_error(&err);
 	else
 		main_opts.le_privacy = boolean;
+
+	val = g_key_file_get_boolean(config, "General",
+						"EnableSecureConnection", &err);
+	if (err) {
+		DBG("%s", err->message);
+		g_clear_error(&err);
+	} else {
+		DBG("auto_to=%d", val);
+		main_opts.secure_connection = val;
+	}
+
 #endif
 }
 
