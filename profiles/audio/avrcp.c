@@ -760,6 +760,9 @@ void avrcp_player_event(struct avrcp_player *player, uint8_t id,
 		memcpy(&pdu->params[1], position_val, sizeof(uint32_t));
 		break;
 #endif
+	case AVRCP_EVENT_AVAILABLE_PLAYERS_CHANGED:
+		size = 1;
+		break;
 	default:
 		error("Unknown event %u", id);
 		return;
@@ -1675,7 +1678,9 @@ static uint8_t avrcp_handle_register_notification(struct avrcp *session,
 
 		break;
 #endif
-
+	case AVRCP_EVENT_AVAILABLE_PLAYERS_CHANGED:
+		len = 1;
+		break;
 	default:
 		/* All other events are not supported yet */
 		goto err;
@@ -3605,6 +3610,9 @@ static void target_init(struct avrcp *session)
 	if (target->version < 0x0104)
 		return;
 
+	session->supported_events |=
+				(1 << AVRCP_EVENT_AVAILABLE_PLAYERS_CHANGED);
+
 #ifdef __TIZEN_PATCH__
 	if (adapter_avrcp_tg_ver < 0x0104)
 		return;
@@ -3904,6 +3912,9 @@ struct avrcp_player *avrcp_register_player(struct btd_adapter *adapter,
 		}
 	}
 
+	avrcp_player_event(player,
+				AVRCP_EVENT_AVAILABLE_PLAYERS_CHANGED, NULL);
+
 	return player;
 }
 
@@ -3925,6 +3936,9 @@ void avrcp_unregister_player(struct avrcp_player *player)
 		if (target->player == player)
 			target->player = g_slist_nth_data(server->players, 0);
 	}
+
+	avrcp_player_event(player,
+				AVRCP_EVENT_AVAILABLE_PLAYERS_CHANGED, NULL);
 
 	player_destroy(player);
 }
