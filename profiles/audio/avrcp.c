@@ -1771,18 +1771,10 @@ static uint8_t avrcp_handle_set_absolute_volume(struct avrcp *session,
 						struct avrcp_header *pdu,
 						uint8_t transaction)
 {
-#ifndef __TIZEN_PATCH__
-	struct avrcp_player *player = session->controller->player;
-#else
-	struct avrcp_player *player = target_get_player(session);
-#endif
 	uint16_t len = ntohs(pdu->params_len);
 	uint8_t volume;
 
 	if (len != 1)
-		goto err;
-
-	if (!player)
 		goto err;
 
 	volume = pdu->params[0] & 0x7F;
@@ -3611,7 +3603,8 @@ static void target_init(struct avrcp *session)
 		return;
 
 	session->supported_events |=
-				(1 << AVRCP_EVENT_AVAILABLE_PLAYERS_CHANGED);
+				(1 << AVRCP_EVENT_AVAILABLE_PLAYERS_CHANGED) |
+				(1 << AVRCP_EVENT_VOLUME_CHANGED);
 
 #ifdef __TIZEN_PATCH__
 	if (adapter_avrcp_tg_ver < 0x0104)
