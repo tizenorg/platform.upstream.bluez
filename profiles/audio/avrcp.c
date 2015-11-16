@@ -794,10 +794,12 @@ done:
 #ifdef __TIZEN_PATCH__
 	if (id == AVRCP_EVENT_PLAYBACK_POS_CHANGED &&
 			pos_timer_id > 0) {
-		/* Remove the timer function which was added for register notification.
-		 * As we are sending changed event eariler then time interval.
+		/* Remove the timer function which was added for register
+		 * notification. As we are sending changed event eariler
+		 * then time interval.
 		 */
-		DBG("Removing the timer function added by register notification");
+		DBG("Removing the timer function added by
+					register notification");
 		g_source_remove(pos_timer_id);
 		pos_timer_id = 0;
 	}
@@ -1689,8 +1691,9 @@ static uint8_t avrcp_handle_register_notification(struct avrcp *session,
 	case AVRCP_EVENT_PLAYBACK_POS_CHANGED:
 		len = 5;
 
-		/* time interval in seconds at which the change in playback position
-		shall be notified */
+		/* time interval in seconds at which the change in
+		 * playback position shall be notified.
+		 */
 		memcpy(&playback_interval, &pdu->params[1], sizeof(uint32_t));
 		playback_interval = ((playback_interval>>24)&0xff) |
 				    ((playback_interval<<8)&0xff0000) |
@@ -1700,7 +1703,8 @@ static uint8_t avrcp_handle_register_notification(struct avrcp *session,
 		play_status = player_get_status(player);
 
 		if (play_status != AVRCP_PLAY_STATUS_PLAYING) {
-			DBG("Play Pos Changed Event is skipped(%d)", play_status);
+			DBG("Play Pos Changed Event is skipped(%d)",
+						play_status);
 		} else {
 			DBG("Playback interval : %d secs", playback_interval);
 			pos_timer_id = g_timeout_add_seconds(
@@ -1711,9 +1715,9 @@ static uint8_t avrcp_handle_register_notification(struct avrcp *session,
 		/* retrieve current playback position for interim response */
 		playback_position = player_get_playback_position(player);
 		playback_position = (playback_position & 0x000000ff) << 24 |
-				    (playback_position & 0x0000ff00) << 8 |
-			            (playback_position & 0x00ff0000) >> 8 |
-				    (playback_position & 0xff000000) >> 24;
+				(playback_position & 0x0000ff00) << 8 |
+				(playback_position & 0x00ff0000) >> 8 |
+				(playback_position & 0xff000000) >> 24;
 		memcpy(&pdu->params[1], &playback_position, sizeof(uint32_t));
 
 		break;
@@ -1860,7 +1864,7 @@ static gboolean notify_addressed_player_changed(gpointer user_data)
 					AVRCP_EVENT_TRACK_REACHED_END,
 					AVRCP_EVENT_SETTINGS_CHANGED,
 					AVRCP_EVENT_PLAYBACK_POS_CHANGED
-                               };
+					};
 	uint8_t i;
 
 	avrcp_player_event(player, AVRCP_EVENT_ADDRESSED_PLAYER_CHANGED, NULL);
