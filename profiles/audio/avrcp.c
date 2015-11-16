@@ -1674,6 +1674,8 @@ static uint8_t avrcp_handle_register_notification(struct avrcp *session,
 			pdu->params[len++] = val;
 		}
 
+		g_list_free(settings);
+
 		break;
 	case AVRCP_EVENT_VOLUME_CHANGED:
 		pdu->params[1] = media_transport_get_device_volume(dev);
