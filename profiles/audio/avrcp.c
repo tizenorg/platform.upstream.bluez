@@ -798,8 +798,7 @@ done:
 		 * notification. As we are sending changed event eariler
 		 * then time interval.
 		 */
-		DBG("Removing the timer function added by
-					register notification");
+		DBG("Removing the timer function added by register notification");
 		g_source_remove(pos_timer_id);
 		pos_timer_id = 0;
 	}
