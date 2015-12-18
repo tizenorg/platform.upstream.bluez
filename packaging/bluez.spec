@@ -95,7 +95,11 @@ cp %{SOURCE1001} .
 %build
 autoreconf -fiv
 
+%if "%{?profile}" == "TM1"
 export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -DBLUEZ5_27_GATT_CLIENT"
+%else
+export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__ -DBLUEZ5_27_GATT_CLIENT"
+%endif
 
 export LDFLAGS=" -lncurses -Wl,--as-needed "
 export CFLAGS+=" -DPBAP_SIM_ENABLE"
