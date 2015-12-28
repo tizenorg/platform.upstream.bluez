@@ -5,7 +5,7 @@ Summary:    	Bluetooth Stack for Linux
 Version:    	5.28
 Release:    	0
 Group:      	Network & Connectivity/Bluetooth
-License:    	GPL-2.0+
+License:    	GPL-2.0+ and LGPL-2.1+ and Apache-2.0
 URL:        	http://www.bluez.org/
 Source:         bluez-%{version}.tar.gz
 Source2:        bluez-coldplug.init
@@ -78,7 +78,7 @@ OBEX Server A basic OBEX server implementation.
 
 %package test
 Summary:        Tools for testing of various Bluetooth-functions
-License:        GPL-2.0+ and MIT
+License:        GPL-2.0+
 Group:          Development/Tools
 Requires:       dbus-python
 Requires:       libbluetooth = %{version}
