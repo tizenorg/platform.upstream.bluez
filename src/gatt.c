@@ -764,8 +764,8 @@ gboolean gatt_unregister_internet_protocol_service(struct btd_adapter *adapter)
 	bt_uuid16_create(&uuid, GATT_IPSP_UUID);
 
 	a = attribute_find(adapter, &uuid);
-	if (!a && a->handle != NULL) {
-		error("Attribute not found for handle 0x%04x", a->handle);
+	if (!a) {
+		error("Attribute not found for handle");
 		return FALSE;
 	}
 
