@@ -264,7 +264,7 @@ static int attribute_cmp(gconstpointer a1, gconstpointer a2)
 }
 
 #ifdef __TIZEN_PATCH__
- static int attribute_uuid_cmp(gconstpointer a, gconstpointer b)
+static int attribute_uuid_cmp(gconstpointer a, gconstpointer b)
 {
 	const struct attribute *attrib1 = a;
 	const bt_uuid_t *uuid = b;
@@ -743,7 +743,7 @@ static uint16_t find_info(struct gatt_channel *channel, uint16_t start,
 		put_le16(a->handle, value);
 
 		/* Attribute Value */
-		put_uuid_le(&a->uuid, &value[2]);
+		bt_uuid_to_le(&a->uuid, &value[2]);
 	}
 
 	length = enc_find_info_resp(format, adl, pdu, len);
@@ -798,7 +798,6 @@ static uint16_t find_by_type(struct gatt_channel *channel, uint16_t start,
 			if (bt_uuid_cmp(&a->uuid, &prim_uuid) == 0 ||
 					bt_uuid_cmp(&a->uuid, &snd_uuid) == 0)
 				range = NULL;
-
 			else
 				range->end = a->handle;
 		}
@@ -1423,7 +1422,6 @@ static gboolean register_core_services(struct gatt_server *server)
 	put_le16(appearance, &atval[0]);
 	attrib_db_add_new(server, server->appearance_handle, &uuid, ATT_NONE,
 						ATT_NOT_PERMITTED, atval, 2);
-
 	server->gap_sdp_handle = attrib_create_sdp_new(server, 0x0001,
 						"Generic Access Profile");
 	if (server->gap_sdp_handle == 0) {

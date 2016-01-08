@@ -196,6 +196,7 @@ ln -sf bluetooth.service %{buildroot}%{_libpath}/systemd/system/dbus-org.bluez.s
 %{_bindir}/l2ping
 %{_bindir}/obexctl
 %{_bindir}/rfcomm
+%{_bindir}/btsnoop
 %{_bindir}/mpris-proxy
 %{_bindir}/sdptool
 %{_bindir}/ciptool
@@ -224,7 +225,7 @@ ln -sf bluetooth.service %{buildroot}%{_libpath}/systemd/system/dbus-org.bluez.s
 %files devel
 %manifest %{name}.manifest
 %defattr(-, root, root)
-/usr/include/bluetooth
+%{_includedir}/bluetooth/*
 %{_libdir}/libbluetooth.so
 %{_libdir}/pkgconfig/bluez.pc
 

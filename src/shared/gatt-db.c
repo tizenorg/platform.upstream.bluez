@@ -89,6 +89,10 @@ struct gatt_db_attribute {
 	uint32_t permissions;
 	uint16_t value_len;
 	uint8_t *value;
+#ifdef __TIZEN_PATCH__
+	bool notify_indicate;
+	bdaddr_t unicast_addr;
+#endif
 
 	gatt_db_read_t read_func;
 	gatt_db_write_t write_func;
@@ -1721,3 +1725,34 @@ bool gatt_db_attribute_reset(struct gatt_db_attribute *attrib)
 
 	return true;
 }
+
+#ifdef __TIZEN_PATCH__
+void set_ccc_notify_indicate(struct gatt_db_attribute *ccc,
+							bool enable)
+{
+	if (ccc)
+		ccc->notify_indicate = enable;
+}
+
+bool get_ccc_notify_indicate(const struct gatt_db_attribute *ccc)
+{
+	if (ccc)
+		return ccc->notify_indicate;
+
+	return false;
+}
+
+void set_ccc_unicast_address(const struct gatt_db_attribute *ccc,
+							const char *address)
+{
+	if (ccc)
+		str2ba(address, &ccc->unicast_addr);
+}
+
+bdaddr_t *get_ccc_unicast_address(const struct gatt_db_attribute *ccc)
+{
+	if (ccc)
+		return &ccc->unicast_addr;
+	return NULL;
+}
+#endif

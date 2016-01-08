@@ -551,6 +551,8 @@ bool btd_gatt_update_attr_db(void)
 				} else {
 					new_service_add = TRUE;
 				}
+			} else if (local_attr->type.value.u16 == GATT_CHARAC_UUID) {
+				continue;
 			}
 			/* Fix : RESOURCE_LEAK */
 			if (temp_att) {
@@ -746,6 +748,7 @@ void btd_gatt_set_notify_indicate_flag(struct btd_attribute *attrib,
 					attribute_cmp);
 }
 
+#if 0
 gboolean gatt_register_internet_protocol_service(struct btd_adapter *adapter)
 {
 	bt_uuid_t uuid;
@@ -775,6 +778,7 @@ gboolean gatt_unregister_internet_protocol_service(struct btd_adapter *adapter)
 	}
 	return TRUE;
 }
+#endif
 #endif
 
 #ifdef __TIZEN_PATCH__
