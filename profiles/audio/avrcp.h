@@ -104,7 +104,7 @@ struct avrcp_player_cb {
 	bool (*previous) (void *user_data);
 };
 
-int avrcp_set_volume(struct btd_device *dev, uint8_t volume, bool notify);
+int avrcp_set_volume(struct btd_device *dev, uint8_t volume);
 
 struct avrcp_player *avrcp_register_player(struct btd_adapter *adapter,
 						struct avrcp_player_cb *cb,

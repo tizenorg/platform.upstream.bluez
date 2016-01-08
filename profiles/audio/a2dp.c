@@ -82,7 +82,6 @@ struct a2dp_sep {
 
 struct a2dp_setup_cb {
 	struct a2dp_setup *setup;
-	a2dp_discover_cb_t discover_cb;
 	a2dp_select_cb_t select_cb;
 	a2dp_config_cb_t config_cb;
 	a2dp_stream_cb_t resume_cb;
@@ -99,7 +98,6 @@ struct a2dp_setup {
 	struct avdtp_stream *stream;
 	struct avdtp_error *err;
 	avdtp_set_configuration_cb setconf_cb;
-	GSList *seps;
 	GSList *caps;
 	gboolean reconfigure;
 	gboolean start;
@@ -304,23 +302,6 @@ static void finalize_select(struct a2dp_setup *s)
 	}
 }
 
-static void finalize_discover(struct a2dp_setup *s)
-{
-	GSList *l;
-
-	for (l = s->cb; l != NULL; ) {
-		struct a2dp_setup_cb *cb = l->data;
-
-		l = l->next;
-
-		if (!cb->discover_cb)
-			continue;
-
-		cb->discover_cb(s->session, s->seps, s->err, cb->user_data);
-		setup_cb_free(cb);
-	}
-}
-
 static struct a2dp_setup *find_setup_by_session(struct avdtp *session)
 {
 	GSList *l;
@@ -394,13 +375,6 @@ static void stream_state_changed(struct avdtp_stream *stream,
 		return;
 	}
 
-#ifdef __TIZEN_PATCH__
-	if (new_state == AVDTP_STATE_STREAMING && sep->suspend_timer) {
-		g_source_remove(sep->suspend_timer);
-		sep->suspend_timer = 0;
-	}
-#endif
-
 	if (new_state != AVDTP_STATE_IDLE)
 		return;
 
@@ -424,7 +398,6 @@ static gboolean auto_config(gpointer data)
 {
 	struct a2dp_setup *setup = data;
 	struct btd_device *dev = NULL;
-
 	struct btd_service *service;
 
 	/* Check if configuration was aborted */
@@ -1386,6 +1359,13 @@ struct avdtp *a2dp_avdtp_get(struct btd_device *device)
 			return NULL;
 	}
 
+#ifdef __TIZEN_PATCH__
+	if (chan->auth_id) {
+		DBG("auth is already going...");
+		return NULL;
+	}
+#endif
+
 	if (chan->session)
 		return avdtp_ref(chan->session);
 
@@ -1779,6 +1759,42 @@ done:
 	finalize_select(setup);
 }
 
+static gboolean check_vendor_codec(struct a2dp_sep *sep, uint8_t *cap,
+								size_t len)
+{
+	uint8_t *capabilities;
+	size_t length;
+	a2dp_vendor_codec_t *local_codec;
+	a2dp_vendor_codec_t *remote_codec;
+
+	if (len < sizeof(a2dp_vendor_codec_t))
+		return FALSE;
+
+	remote_codec = (a2dp_vendor_codec_t *) cap;
+
+	if (sep->endpoint == NULL)
+		return FALSE;
+
+	length = sep->endpoint->get_capabilities(sep,
+				&capabilities, sep->user_data);
+
+	if (length < sizeof(a2dp_vendor_codec_t))
+		return FALSE;
+
+	local_codec = (a2dp_vendor_codec_t *) capabilities;
+
+	if (btohl(remote_codec->vendor_id) != btohl(local_codec->vendor_id))
+		return FALSE;
+
+	if (btohs(remote_codec->codec_id) != btohs(local_codec->codec_id))
+		return FALSE;
+
+	DBG("vendor 0x%08x codec 0x%04x", btohl(remote_codec->vendor_id),
+						btohs(remote_codec->codec_id));
+
+	return TRUE;
+}
+
 static struct a2dp_sep *a2dp_find_sep(struct avdtp *session, GSList *list,
 					const char *sender)
 {
@@ -1818,8 +1834,9 @@ static struct a2dp_sep *a2dp_find_sep(struct avdtp *session, GSList *list,
 			continue;
 		}
 #else
-		if (avdtp_find_remote_sep(session, sep->lsep) == NULL)
-			continue;
+		if (check_vendor_codec(sep, cap->data,
+					service->length - sizeof(*cap)))
+			return sep;
 
 #endif
 		return sep;
@@ -1855,40 +1872,6 @@ static struct a2dp_sep *a2dp_select_sep(struct avdtp *session, uint8_t type,
 		return sep;
 
 	return a2dp_find_sep(session, l, NULL);
-}
-
-static void discover_cb(struct avdtp *session, GSList *seps,
-				struct avdtp_error *err, void *user_data)
-{
-	struct a2dp_setup *setup = user_data;
-
-	DBG("err %p", err);
-
-	setup->seps = seps;
-	setup->err = err;
-
-	finalize_discover(setup);
-}
-
-unsigned int a2dp_discover(struct avdtp *session, a2dp_discover_cb_t cb,
-                                                       void *user_data)
-{
-	struct a2dp_setup *setup;
-	struct a2dp_setup_cb *cb_data;
-
-	setup = a2dp_setup_get(session);
-	if (!setup)
-		return 0;
-
-	cb_data = setup_cb_new(setup);
-	cb_data->discover_cb = cb;
-	cb_data->user_data = user_data;
-
-	if (avdtp_discover(session, discover_cb, setup) == 0)
-		return cb_data->id;
-
-	setup_cb_free(cb_data);
-	return 0;
 }
 
 unsigned int a2dp_select_capabilities(struct avdtp *session,
@@ -2184,8 +2167,8 @@ gboolean a2dp_cancel(unsigned int id)
 
 			if (!setup->cb) {
 				DBG("aborting setup %p", setup);
-				if (!avdtp_abort(setup->session, setup->stream))
-					return TRUE;
+				avdtp_abort(setup->session, setup->stream);
+				return TRUE;
 			}
 
 			setup_unref(setup);

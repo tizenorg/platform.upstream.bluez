@@ -234,3 +234,15 @@ bool gatt_db_attribute_write_result(struct gatt_db_attribute *attrib,
 						unsigned int id, int err);
 
 bool gatt_db_attribute_reset(struct gatt_db_attribute *attrib);
+
+#ifdef __TIZEN_PATCH__
+void set_ccc_notify_indicate(struct gatt_db_attribute *ccc,
+							bool enable);
+
+bool get_ccc_notify_indicate(const struct gatt_db_attribute *ccc);
+
+void set_ccc_unicast_address(const struct gatt_db_attribute *ccc,
+							const char *address);
+
+bdaddr_t *get_ccc_unicast_address(const struct gatt_db_attribute *ccc);
+#endif

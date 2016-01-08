@@ -549,9 +549,6 @@
 		<attribute id=\"0x0317\">				\
 			<uint32 value=\"0x00000003\"/>			\
 		</attribute>						\
-		<attribute id=\"0x0200\">				\
-			<uint16 value=\"%u\" name=\"psm\"/>		\
-		</attribute>						\
 	</record>"
 
 #define MAS_RECORD							\
@@ -601,9 +598,6 @@
 		<attribute id=\"0x0317\">				\
 			<uint32 value=\"0x0000007f\"/>			\
 		</attribute>						\
-		<attribute id=\"0x0200\">				\
-			<uint16 value=\"%u\" name=\"psm\"/>		\
-		</attribute>						\
 	</record>"
 
 #define MNS_RECORD							\
@@ -644,11 +638,11 @@
 		<attribute id=\"0x0100\">				\
 			<text value=\"%s\"/>				\
 		</attribute>						\
-		<attribute id=\"0x0317\">				\
-			<uint32 value=\"0x0000007f\"/>			\
-		</attribute>						\
 		<attribute id=\"0x0200\">				\
 			<uint16 value=\"%u\" name=\"psm\"/>		\
+		</attribute>						\
+		<attribute id=\"0x0317\">				\
+			<uint32 value=\"0x0000007f\"/>			\
 		</attribute>						\
 	</record>"
 
@@ -839,6 +833,7 @@ struct ext_profile {
 	char *uuid;
 	char *service;
 	char *role;
+
 	char *record;
 	char *(*get_record)(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm);
@@ -2185,29 +2180,15 @@ static char *get_pce_record(struct ext_profile *ext, struct ext_io *l2cap,
 static char *get_pse_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
 {
-	uint16_t psm = 0;
-	uint8_t chan = 0;
-
-	if (l2cap)
-		psm = l2cap->psm;
-	if (rfcomm)
-		chan = rfcomm->chan;
-
-	return g_strdup_printf(PSE_RECORD, chan, ext->version, ext->name, psm);
+	return g_strdup_printf(PSE_RECORD, rfcomm->chan, ext->version,
+								ext->name);
 }
 
 static char *get_mas_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
 {
-	uint16_t psm = 0;
-	uint8_t chan = 0;
-
-	if (l2cap)
-		psm = l2cap->psm;
-	if (rfcomm)
-		chan = rfcomm->chan;
-
-	return g_strdup_printf(MAS_RECORD, chan, ext->version, ext->name, psm);
+	return g_strdup_printf(MAS_RECORD, rfcomm->chan, ext->version,
+								ext->name);
 }
 
 static char *get_mns_record(struct ext_profile *ext, struct ext_io *l2cap,
@@ -2430,8 +2411,6 @@ static struct default_settings {
 		.uuid		= OBEX_PSE_UUID,
 		.name		= "Phone Book Access",
 		.channel	= PBAP_DEFAULT_CHANNEL,
-		.psm		= BTD_PROFILE_PSM_AUTO,
-		.mode		= BT_IO_MODE_ERTM,
 		.authorize	= true,
 		.get_record	= get_pse_record,
 		.version	= 0x0101,
@@ -2446,8 +2425,6 @@ static struct default_settings {
 		.uuid		= OBEX_MAS_UUID,
 		.name		= "Message Access",
 		.channel	= MAS_DEFAULT_CHANNEL,
-		.psm		= BTD_PROFILE_PSM_AUTO,
-		.mode		= BT_IO_MODE_ERTM,
 		.authorize	= true,
 		.get_record	= get_mas_record,
 		.version	= 0x0100

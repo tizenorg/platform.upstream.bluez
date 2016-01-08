@@ -34,9 +34,11 @@
 #include <unistd.h>
 #include <assert.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/sdp.h>
-#include <bluetooth/sdp_lib.h>
+#include <glib.h>
+
+#include "lib/bluetooth.h"
+#include "lib/sdp.h"
+#include "lib/sdp_lib.h"
 #include "lib/uuid.h"
 
 #ifdef __TIZEN_PATCH__
@@ -45,9 +47,6 @@
 #include <bluetooth/hci.h>
 #endif	/* __BROADCOM_QOS_PATCH__ */
 #endif	/* __TIZEN_PATCH__ */
-
-#include <glib.h>
-
 
 #include "btio/btio.h"
 #include "src/log.h"
@@ -971,6 +970,9 @@ static gboolean send_broadcom_a2dp_qos(bdaddr_t *dst, gboolean qos_high)
 
 	dd = hci_open_dev(0);
 
+	if (dd < 0)
+		return FALSE;
+
 	cr = g_malloc0(sizeof(*cr) + sizeof(struct hci_conn_info));
 
 	cr->type = ACL_LINK;
@@ -1188,7 +1190,8 @@ static void finalize_discovery(struct avdtp *session, int err)
 	if (discover->id > 0)
 		g_source_remove(discover->id);
 
-	discover->cb(session, session->seps, err ? &avdtp_err : NULL,
+	if (discover->cb)
+		discover->cb(session, session->seps, err ? &avdtp_err : NULL,
 							discover->user_data);
 	g_free(discover);
 	session->discover = NULL;
@@ -1340,12 +1343,14 @@ static gboolean disconnect_timeout(gpointer user_data)
 	}
 
 #ifdef __TIZEN_PATCH__
-	adapter = device_get_adapter(session->device);
-	bdaddr = device_get_address(session->device);
-	if (adapter && bdaddr)
-		device = btd_adapter_find_device(adapter, bdaddr, BDADDR_BREDR);
-	if (!device)
-		error("device is NOT found");
+	if (session->device) {
+		adapter = device_get_adapter(session->device);
+		bdaddr = device_get_address(session->device);
+		if (adapter && bdaddr)
+			device = btd_adapter_find_device(adapter, bdaddr, BDADDR_BREDR);
+		if (!device)
+			error("device is NOT found");
+	}
 #endif
 
 	connection_lost(session, ETIMEDOUT);
@@ -1932,7 +1937,8 @@ static gboolean avdtp_start_cmd(struct avdtp *session, uint8_t transaction,
 	for (i = 0; i < seid_count; i++, seid++) {
 		failed_seid = seid->seid;
 
-		sep = find_local_sep_by_seid(session, seid->seid);
+		sep = find_local_sep_by_seid(session,
+					req->first_seid.seid);
 		if (!sep || !sep->stream) {
 			err = AVDTP_BAD_ACP_SEID;
 			goto failed;
@@ -2043,7 +2049,8 @@ static gboolean avdtp_suspend_cmd(struct avdtp *session, uint8_t transaction,
 	for (i = 0; i < seid_count; i++, seid++) {
 		failed_seid = seid->seid;
 
-		sep = find_local_sep_by_seid(session, seid->seid);
+		sep = find_local_sep_by_seid(session,
+					req->first_seid.seid);
 		if (!sep || !sep->stream) {
 			err = AVDTP_BAD_ACP_SEID;
 			goto failed;
@@ -3700,13 +3707,6 @@ int avdtp_abort(struct avdtp *session, struct avdtp_stream *stream)
 {
 	struct seid_req req;
 	int ret;
-
-	if (!stream && session->discover) {
-		/* Don't call cb since it being aborted */
-		session->discover->cb = NULL;
-		finalize_discovery(session, -ECANCELED);
-		return -EALREADY;
-	}
 
 	if (!g_slist_find(session->streams, stream))
 		return -EINVAL;

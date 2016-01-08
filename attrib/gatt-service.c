@@ -241,8 +241,8 @@ static gboolean add_descriptor(struct btd_adapter *adapter,
 /*	API not available in bluez 5.25
  * att_put_uuid(info->uuid, &atval[0]);*/
 
-	a = attrib_db_add(adapter, h++, &bt_uuid, ATT_NONE, ATT_NOT_PERMITTED,
-						atval, info->uuid.type / 8);
+	a = attrib_db_add(adapter, h++, &bt_uuid, ATT_AUTHENTICATION,
+			ATT_AUTHENTICATION, atval, info->uuid.type / 8);
 
 	if (a == NULL) {
 		return FALSE;
