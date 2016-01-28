@@ -7779,7 +7779,7 @@ static void update_found_devices(struct btd_adapter *adapter,
 	}
 
 	device_set_last_addr_type(dev, bdaddr_type);
-	device_set_ipsp_connected(dev, FALSE);
+	device_set_ipsp_connected(dev, FALSE, NULL);
 #else
 	if (device_is_temporary(dev) && !adapter->discovery_list) {
 		eir_data_free(&eir_data);
@@ -8945,7 +8945,7 @@ static void bt_6lowpan_conn_state_change_callback(uint16_t index, uint16_t lengt
 	else
 		connected = FALSE;
 
-	device_set_ipsp_connected(device, connected);
+	device_set_ipsp_connected(device, connected, ev->ifname);
 }
 
 static void bt_le_data_length_changed_callback(uint16_t index, uint16_t length,

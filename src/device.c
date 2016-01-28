@@ -311,6 +311,7 @@ struct btd_device {
 	gboolean		le_auto_connect;
 	guint		auto_id;
 	gboolean	ipsp_connected; /* IPSP Connection state */
+	char		if_name[16 + 1]; /* BT interface UP after IPSP connection */
 	uint8_t		rpa_res_support; /* RPA Resolution capability of device */
 	uint16_t		max_tx_octets;
 	uint16_t 		max_tx_time;
@@ -1255,6 +1256,23 @@ static gboolean dev_property_get_ipsp_conn_state(const GDBusPropertyTable *prope
 			DBUS_TYPE_BOOLEAN, &ipsp_connected);
 
 	return TRUE;
+}
+static gboolean dev_property_get_ipsp_conn_bt_iface_name(const GDBusPropertyTable *property,
+					DBusMessageIter *iter, void *data)
+{
+	struct btd_device *dev = data;
+	const char *ptr = g_strdup(dev->if_name);
+	const char empty_str[17] = { 0 };
+	bool ret = TRUE;
+
+	if (!memcmp(dev->if_name, empty_str, sizeof(dev->if_name)))
+		dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &ptr);
+	else
+		ret = FALSE;
+
+	g_free(ptr);
+
+	return ret;
 }
 #endif
 
@@ -3253,6 +3271,7 @@ static const GDBusPropertyTable device_properties[] = {
 	{ "PayloadTimeout", "q", dev_property_get_payload},
 	{ "LastAddrType", "y", dev_property_get_last_addr_type},
 	{ "IpspConnected", "b", dev_property_get_ipsp_conn_state },
+	{ "IpspBtInterfaceInfo", "s", dev_property_get_ipsp_conn_bt_iface_name },
 #endif
 	{ }
 };
@@ -5801,8 +5820,8 @@ gboolean device_is_ipsp_connected(struct btd_device * device)
 {
 	return device->ipsp_connected;
 }
-
-void device_set_ipsp_connected(struct btd_device *device, gboolean connected)
+void device_set_ipsp_connected(struct btd_device *device, gboolean connected,
+		const unsigned char *ifname)
 {
 	if (device == NULL) {
 		error("device is NULL");
@@ -5814,10 +5833,17 @@ void device_set_ipsp_connected(struct btd_device *device, gboolean connected)
 
 	device->ipsp_connected = connected;
 
+	memset(device->if_name, 0, sizeof(device->if_name));
+	memcpy(device->if_name, ifname, 16);
+
 	DBG("ipsp_connected %d", connected);
+	DBG("ipsp_iface: %s is Up !", device->if_name);
 
 	g_dbus_emit_property_changed(dbus_conn, device->path,
 			DEVICE_INTERFACE, "IpspConnected");
+
+	g_dbus_emit_property_changed(dbus_conn, device->path,
+			DEVICE_INTERFACE, "IpspBtInterfaceInfo");
 }
 void device_le_data_length_changed(struct btd_device *device, uint16_t max_tx_octets,
 		uint16_t max_tx_time, uint16_t max_rx_octets, uint16_t max_rx_time)
