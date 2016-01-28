@@ -157,7 +157,8 @@ void device_set_payload_timeout(struct btd_device *device,
 			uint16_t payload_timeout);
 void device_set_last_addr_type(struct btd_device *device, uint8_t type);
 gboolean device_is_ipsp_connected(struct btd_device * device);
-void device_set_ipsp_connected(struct btd_device *device, gboolean connected);
+void device_set_ipsp_connected(struct btd_device *device, gboolean connected,
+			const unsigned char *ifname);
 int device_get_rpa_res_char_value(struct btd_device *device);
 void device_set_rpa_res_char_value(struct btd_device *device, uint8_t value);
 #endif

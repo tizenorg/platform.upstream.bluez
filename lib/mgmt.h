@@ -1172,6 +1172,7 @@ struct mgmt_ev_vendor_specific_multi_adv_state_changed {
 struct mgmt_ev_6lowpan_conn_state_changed {
 	struct	mgmt_addr_info addr;
 	uint8_t	connected;
+	uint8_t	ifname[16];
 } __packed;
 
 
@@ -1211,6 +1212,7 @@ static const char *mgmt_tizen_op[] = {
 	"LE Set Scan Parameters",
 	"Set Voice Setting",
 	"Get Adv Tx Power",
+	"Enable BT 6LOWPAN",
 	"Connect BT 6LOWPAN",
 	"Disconnect BT 6LOWPAN"
 };
