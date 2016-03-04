@@ -176,8 +176,7 @@ install -D -m 0755 attrib/gatttool $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/obexctl %{buildroot}%{_bindir}/obexctl
 
 #test
-%if "%{?_with_emulator}" == "1"
-%else
+%if "%{?profile}" == "tv"
 ln -sf bluetooth.service %{buildroot}%{_libpath}/systemd/system/dbus-org.bluez.service
 %endif
 
@@ -213,13 +212,13 @@ ln -sf bluetooth.service %{buildroot}%{_libpath}/systemd/system/dbus-org.bluez.s
 /usr/lib/udev/*
 
 #test -2
-%if "%{?_with_emulator}" == "1"
-%exclude /%{_libpath}/systemd/system/bluetooth.service
-%exclude /%{_datadir}/dbus-1/system-services/org.bluez.service
-%else
+%if "%{?profile}" == "tv"
 %{_libpath}/systemd/system/bluetooth.service
 %{_libpath}/systemd/system/dbus-org.bluez.service
 %{_datadir}/dbus-1/system-services/org.bluez.service
+%else
+%exclude /%{_libpath}/systemd/system/bluetooth.service
+%exclude /%{_datadir}/dbus-1/system-services/org.bluez.service
 %endif
 %config %{_sysconfdir}/dbus-1/system.d/bluetooth.conf
 %dir /var/lib/bluetooth
