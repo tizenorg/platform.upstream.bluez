@@ -101,6 +101,10 @@ export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -DBLUEZ5_27_GATT_CLIENT"
 export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__ -DBLUEZ5_27_GATT_CLIENT"
 %endif
 
+%if "%{?profile}" == "wearable"
+export CFLAGS="${CFLAGS} -D__BT_SCMST_FEATURE__ -DSUPPORT_SMS_ONLY -D__BROADCOM_QOS_PATCH__ -DTIZEN_WEARABLE"
+%endif
+
 export LDFLAGS=" -lncurses -Wl,--as-needed "
 export CFLAGS+=" -DPBAP_SIM_ENABLE"
 %reconfigure --disable-static \
@@ -131,7 +135,11 @@ export CFLAGS+=" -DPBAP_SIM_ENABLE"
 			--enable-gatt \
 			--enable-experimental \
 			--enable-autopair=no \
+%if "%{?profile}" == "wearable"
+                        --enable-wearable \
+%else
 			--enable-network \
+%endif
 			--enable-hid=yes \
 			--enable-tizenunusedplugin=no
 
@@ -151,6 +159,12 @@ install --mode=0644 -D %{S:7} $RPM_BUILD_ROOT/%{_sysconfdir}/modprobe.d/50-bluet
 
 # no idea why this is suddenly necessary...
 install --mode 0755 -d $RPM_BUILD_ROOT/var/lib/bluetooth
+
+%if "%{?profile}" == "wearable"
+install -D -m 0644 src/main_w.conf %{buildroot}%{_sysconfdir}/bluetooth/main.conf
+%else
+install -D -m 0644 src/main_m.conf %{buildroot}%{_sysconfdir}/bluetooth/main.conf
+%endif
 
 
 #install -D -m 0644 src/bluetooth.conf %{buildroot}%{_sysconfdir}/dbus-1/system.d/bluetooth.conf
@@ -189,7 +203,7 @@ ln -sf bluetooth.service %{buildroot}%{_libpath}/systemd/system/dbus-org.bluez.s
 %defattr(-, root, root)
 %license COPYING
 #%{_sysconfdir}/bluetooth/audio.conf
-#%{_sysconfdir}/bluetooth/main.conf
+%{_sysconfdir}/bluetooth/main.conf
 #%{_sysconfdir}/bluetooth/network.conf
 #%{_sysconfdir}/bluetooth/rfcomm.conf
 #%{_sysconfdir}/dbus-1/system.d/bluetooth.conf
