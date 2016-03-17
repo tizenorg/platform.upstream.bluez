@@ -106,7 +106,7 @@ export CFLAGS="${CFLAGS} -D__BT_SCMST_FEATURE__ -DSUPPORT_SMS_ONLY -D__BROADCOM_
 %endif
 
 export LDFLAGS=" -lncurses -Wl,--as-needed "
-export CFLAGS+=" -DPBAP_SIM_ENABLE"
+export CFLAGS+=" -DPBAP_SIM_ENABLE -DSUPPORT_AVRCP_TARGET"
 %reconfigure --disable-static \
 			--sysconfdir=%{_sysconfdir} \
 			--localstatedir=%{_localstatedir} \
