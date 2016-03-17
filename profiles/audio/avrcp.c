@@ -255,10 +255,20 @@ struct control_pdu_handler {
 };
 
 static GSList *servers = NULL;
+#if defined(SUPPORT_AVRCP_TARGET) || defined(SUPPORT_AVRCP_CONTROL)
 static unsigned int avctp_id = 0;
+#endif
+
+#ifdef SUPPORT_AVRCP_TARGET
 #ifdef __TIZEN_PATCH__
 static uint16_t adapter_avrcp_tg_ver = 0;
+#endif
+#endif
+
+#ifdef SUPPORT_AVRCP_CONTROL
+#ifdef __TIZEN_PATCH__
 static uint16_t adapter_avrcp_ct_ver = 0;
+#endif
 #endif
 
 /* Company IDs supported by this device */
@@ -1523,6 +1533,7 @@ static const struct passthrough_handler passthrough_handlers[] = {
 		{ },
 };
 
+#if defined(SUPPORT_AVRCP_TARGET) || defined(SUPPORT_AVRCP_CONTROL)
 static bool handle_passthrough(struct avctp *conn, uint8_t op, bool pressed,
 							void *user_data)
 {
@@ -1544,6 +1555,7 @@ static bool handle_passthrough(struct avctp *conn, uint8_t op, bool pressed,
 
 	return handler->func(session);
 }
+#endif
 
 #ifdef __TIZEN_PATCH__
 void avrcp_stop_position_timer(void)
@@ -1830,6 +1842,7 @@ static const struct control_pdu_handler control_handlers[] = {
 		{ },
 };
 
+#if defined(SUPPORT_AVRCP_TARGET) || defined(SUPPORT_AVRCP_CONTROL)
 /* handle vendordep pdu inside an avctp packet */
 static size_t handle_vendordep_pdu(struct avctp *conn, uint8_t transaction,
 					uint8_t *code, uint8_t *subunit,
@@ -1896,6 +1909,7 @@ static struct browsing_pdu_handler {
 } browsing_handlers[] = {
 		{ },
 };
+#endif
 
 size_t avrcp_browsing_general_reject(uint8_t *operands)
 {
@@ -1910,6 +1924,7 @@ size_t avrcp_browsing_general_reject(uint8_t *operands)
 	return AVRCP_BROWSING_HEADER_LENGTH + sizeof(status);
 }
 
+#if defined(SUPPORT_AVRCP_TARGET) || defined(SUPPORT_AVRCP_CONTROL)
 static size_t handle_browsing_pdu(struct avctp *conn,
 					uint8_t transaction, uint8_t *operands,
 					size_t operand_count, void *user_data)
@@ -1933,6 +1948,7 @@ done:
 	handler->func(session, pdu, transaction);
 	return AVRCP_BROWSING_HEADER_LENGTH + ntohs(pdu->param_len);
 }
+#endif
 
 size_t avrcp_handle_vendor_reject(uint8_t *code, uint8_t *operands)
 {
@@ -2091,6 +2107,7 @@ static gboolean avrcp_player_value_rsp(struct avctp *conn,
 	return FALSE;
 }
 
+#if defined(SUPPORT_AVRCP_TARGET) || defined(SUPPORT_AVRCP_CONTROL)
 static void avrcp_get_current_player_value(struct avrcp *session,
 						uint8_t *attrs, uint8_t count)
 {
@@ -2164,6 +2181,7 @@ static void avrcp_list_player_attributes(struct avrcp *session)
 					avrcp_list_player_attributes_rsp,
 					session);
 }
+#endif
 
 static void avrcp_parse_attribute_list(struct avrcp_player *player,
 					uint8_t *operands, uint8_t count)
@@ -3407,6 +3425,7 @@ static void avrcp_register_notification(struct avrcp *session, uint8_t event)
 					avrcp_handle_event, session);
 }
 
+#if defined(SUPPORT_AVRCP_TARGET) || defined(SUPPORT_AVRCP_CONTROL)
 static gboolean avrcp_get_capabilities_resp(struct avctp *conn,
 					uint8_t code, uint8_t subunit,
 					uint8_t *operands, size_t operand_count,
@@ -3489,6 +3508,7 @@ static void avrcp_get_capabilities(struct avrcp *session)
 					avrcp_get_capabilities_resp,
 					session);
 }
+#endif
 
 static struct avrcp *find_session(GSList *list, struct btd_device *dev)
 {
@@ -3502,6 +3522,7 @@ static struct avrcp *find_session(GSList *list, struct btd_device *dev)
 	return NULL;
 }
 
+#if defined(SUPPORT_AVRCP_TARGET) || defined(SUPPORT_AVRCP_CONTROL)
 static void destroy_browsing(void *data)
 {
 	struct avrcp *session = data;
@@ -3575,6 +3596,7 @@ static void avrcp_connect_browsing(struct avrcp *session)
 							connect_browsing,
 							session);
 }
+#endif
 
 #ifdef SUPPORT_AVRCP_TARGET
 static void target_init(struct avrcp *session)
@@ -3692,6 +3714,7 @@ static void controller_init(struct avrcp *session)
 }
 #endif
 
+#if defined(SUPPORT_AVRCP_TARGET) || defined(SUPPORT_AVRCP_CONTROL)
 static void session_init_control(struct avrcp *session)
 {
 	session->passthrough_id = avctp_register_passthrough_handler(
@@ -3884,6 +3907,7 @@ static void avrcp_server_unregister(struct avrcp_server *server)
 		avctp_id = 0;
 	}
 }
+#endif
 
 struct avrcp_player *avrcp_register_player(struct btd_adapter *adapter,
 						struct avrcp_player_cb *cb,

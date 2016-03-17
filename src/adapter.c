@@ -6123,13 +6123,6 @@ const char *btd_adapter_get_name(struct btd_adapter *adapter)
 	return NULL;
 }
 
-#ifdef __TIZEN_PATCH__
-uint8_t btd_adapter_get_rpa_res_support_value(struct btd_adapter *adapter)
-{
-	return adapter->central_rpa_res_support;
-}
-#endif
-
 int adapter_connect_list_add(struct btd_adapter *adapter,
 					struct btd_device *device)
 {
@@ -10551,6 +10544,12 @@ int btd_adapter_disconnect_ipsp(struct btd_adapter *adapter,
 		return 0;
 
 	return -EIO;
+}
+
+uint8_t btd_adapter_get_rpa_res_support_value(
+		struct btd_adapter *adapter)
+{
+	return adapter->central_rpa_res_support;
 }
 
 static void set_dev_rpa_res_support_complete(uint8_t status,
