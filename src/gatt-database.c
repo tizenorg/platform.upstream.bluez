@@ -1775,7 +1775,6 @@ static struct pending_op *pending_read_new(struct queue *owner_queue,
 #ifdef __TIZEN_PATCH__
 	bdaddr_t bdaddr;
 	uint8_t bdaddr_type;
-	char address[18];
 #endif
 
 	op = new0(struct pending_op, 1);
@@ -1947,7 +1946,6 @@ static struct pending_op *pending_write_new(struct queue *owner_queue,
 #ifdef __TIZEN_PATCH__
 	bdaddr_t bdaddr;
 	uint8_t bdaddr_type;
-	char address[18];
 #endif
 
 	op = new0(struct pending_op, 1);
@@ -2371,7 +2369,6 @@ static void chrc_write_cb(struct gatt_db_attribute *attrib,
 static bool database_check_ccc_desc(struct external_desc *desc)
 {
 	bt_uuid_t uuid, uuid_ccc;
-	char uuidstr[MAX_LEN_UUID_STR];
 
 	if (!parse_uuid(desc->proxy, &uuid)) {
 		error("Failed to read \"UUID\" property of descriptor");
@@ -2722,8 +2719,8 @@ fail:
 	error("Fail to add profile");
 
 	if (p) {
-		g_free(p->name);
-		g_free(p->remote_uuid);
+		g_free((char *)p->name);
+		g_free((char *)p->remote_uuid);
 		free(p);
 	}
 

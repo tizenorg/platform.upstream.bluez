@@ -3043,8 +3043,6 @@ static DBusMessage *le_set_data_length(
 {
 	dbus_uint16_t max_tx_octets;
 	dbus_uint16_t max_tx_time;
-	const gchar *address;
-	bdaddr_t bdaddr;
 	struct btd_device *device = user_data;
 	int status;
 	char addr[BT_ADDRESS_STRING_SIZE];
@@ -5820,7 +5818,7 @@ void device_set_ipsp_connected(struct btd_device *device, gboolean connected)
 			DEVICE_INTERFACE, "IpspConnected");
 }
 void device_le_data_length_changed(struct btd_device *device, uint16_t max_tx_octets,
-		uint16_t max_tx_time, uint16_t max_rx_octets, uint16_t max_rx_time)
+		uint16_t max_tx_time, uint16_t max_rx_octets,uint16_t max_rx_time)
 {
 	if (device == NULL) {
 		error("device is NULL");
