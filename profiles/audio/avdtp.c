@@ -1074,11 +1074,12 @@ static void avdtp_sep_set_state(struct avdtp *session,
 				avdtp_state_t state)
 {
 	struct avdtp_stream *stream = sep->stream;
-	bdaddr_t *dst;
 #ifdef __TIZEN_PATCH__
+#if defined(__BROADCOM_QOS_PATCH__) || defined(TIZEN_WEARABLE)
+	bdaddr_t *dst;
+
 	dst = (bdaddr_t*)device_get_address(session->device);
-#else
-	dst = device_get_address(session->device);
+#endif
 #endif
 	avdtp_state_t old_state;
 	struct avdtp_error err, *err_ptr = NULL;

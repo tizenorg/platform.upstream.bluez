@@ -780,8 +780,10 @@ int bnep_server_add(int sk, char *bridge, char *iface, const bdaddr_t *addr,
 
 #ifndef  __TIZEN_PATCH__
 	err = bnep_add_to_bridge(iface, bridge);
-	if (err < 0)
-		goto failed_conn;
+	if (err < 0) {
+		bnep_conndel(addr);
+		return err;
+	}
 #endif
 
 	err = bnep_if_up(iface);
@@ -798,7 +800,6 @@ int bnep_server_add(int sk, char *bridge, char *iface, const bdaddr_t *addr,
 failed_bridge:
 	bnep_del_from_bridge(iface, bridge);
 
-failed_conn:
 	bnep_conndel(addr);
 
 	return err;

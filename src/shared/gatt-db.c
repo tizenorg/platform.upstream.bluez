@@ -1746,13 +1746,13 @@ void set_ccc_unicast_address(const struct gatt_db_attribute *ccc,
 							const char *address)
 {
 	if (ccc)
-		str2ba(address, &ccc->unicast_addr);
+		str2ba(address, (bdaddr_t *)&ccc->unicast_addr);
 }
 
 bdaddr_t *get_ccc_unicast_address(const struct gatt_db_attribute *ccc)
 {
 	if (ccc)
-		return &ccc->unicast_addr;
+		return (bdaddr_t *)&ccc->unicast_addr;
 	return NULL;
 }
 #endif

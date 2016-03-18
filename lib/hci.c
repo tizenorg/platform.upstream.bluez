@@ -3161,8 +3161,8 @@ int hci_le_write_host_suggested_data_length(
 	uint8_t status;
 
 	memset(&cp, 0, sizeof(cp));
-	cp.def_tx_octets = def_tx_octets;
-	cp.def_tx_time = def_tx_time;
+	cp.def_tx_octets = *def_tx_octets;
+	cp.def_tx_time = *def_tx_time;
 
 	memset(&rq, 0, sizeof(rq));
 	rq.ogf = OGF_LE_CTL;
@@ -3219,14 +3219,13 @@ int hci_le_set_data_length(
 	le_set_data_length_cp cp;
 	le_set_data_length_rp rp;
 	struct hci_request rq;
-	uint8_t status;
 
 	memset(&cp, 0, sizeof(cp));
 	memset(&rp, 0, sizeof(rp));
 
 	bacpy(&cp.bdaddr, bdaddr);
-	cp.max_tx_octets = max_tx_octets;
-	cp.max_tx_time = max_tx_time;
+	cp.max_tx_octets = *max_tx_octets;
+	cp.max_tx_time = *max_tx_time;
 
 	memset(&rq, 0, sizeof(rq));
 	rq.ogf = OGF_LE_CTL;

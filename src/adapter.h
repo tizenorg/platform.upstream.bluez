@@ -274,6 +274,9 @@ int btd_adapter_disconnect_ipsp(struct btd_adapter *adapter,
 						const bdaddr_t *bdaddr,
 						uint8_t bdaddr_type);
 
+uint8_t btd_adapter_get_rpa_res_support_value(
+		struct btd_adapter *adapter);
+
 int btd_adapter_set_dev_rpa_res_support(struct btd_adapter *adapter,
 						struct btd_device *device);
 
@@ -298,4 +301,7 @@ struct le_data_length_read_default_data_length_handler {
 	read_host_suggested_default_data_length_cb_t read_callback;
 	void *user_data;
 };
+
+int btd_adapter_le_set_data_length(struct btd_adapter *adapter, bdaddr_t *bdaddr,
+		uint16_t max_tx_octets, uint16_t max_tx_time);
 #endif

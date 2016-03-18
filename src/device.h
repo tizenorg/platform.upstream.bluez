@@ -160,6 +160,9 @@ gboolean device_is_ipsp_connected(struct btd_device * device);
 void device_set_ipsp_connected(struct btd_device *device, gboolean connected);
 int device_get_rpa_res_char_value(struct btd_device *device);
 void device_set_rpa_res_char_value(struct btd_device *device, uint8_t value);
+void device_le_data_length_changed(struct btd_device *device, uint16_t max_tx_octets,
+			uint16_t max_tx_time, uint16_t max_rx_octets,
+			uint16_t max_rx_time);
 #endif
 
 struct btd_device *btd_device_ref(struct btd_device *device);

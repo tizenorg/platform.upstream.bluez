@@ -1299,7 +1299,7 @@ static void notify_cb(uint16_t value_handle, const uint8_t *value,
 	gatt_db_attribute_write(chrc->attr, 0, value, length, 0, NULL,
 						notify_characteristic_cb, chrc);
 
-	gatt_characteristic_value_changed(value, length, chrc);
+	gatt_characteristic_value_changed((void *)value, length, chrc);
 #else
 	gatt_db_attribute_write(chrc->attr, 0, value, length, 0, NULL,
 						write_characteristic_cb, chrc);

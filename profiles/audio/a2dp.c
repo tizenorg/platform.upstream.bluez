@@ -1759,6 +1759,7 @@ done:
 	finalize_select(setup);
 }
 
+#ifndef __TIZEN_PATCH__
 static gboolean check_vendor_codec(struct a2dp_sep *sep, uint8_t *cap,
 								size_t len)
 {
@@ -1794,6 +1795,7 @@ static gboolean check_vendor_codec(struct a2dp_sep *sep, uint8_t *cap,
 
 	return TRUE;
 }
+#endif
 
 static struct a2dp_sep *a2dp_find_sep(struct avdtp *session, GSList *list,
 					const char *sender)
