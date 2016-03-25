@@ -1973,10 +1973,6 @@ static gboolean set_chrcs_ready(gpointer user_data)
 
 	notify_chrcs(service);
 
-#ifdef __TIZEN_PATCH__
-	device_set_gatt_connected(service->client->device, TRUE);
-#endif
-
 	return FALSE;
 }
 
