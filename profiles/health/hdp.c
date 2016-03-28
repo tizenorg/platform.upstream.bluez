@@ -31,6 +31,12 @@
 
 #include <glib.h>
 
+#ifdef __TIZEN_PATCH__
+#include <sys/types.h>
+#include <sys/xattr.h>
+#include <linux/xattr.h>
+#endif
+
 #include "lib/bluetooth.h"
 #include "lib/l2cap.h"
 #include "lib/sdp.h"
@@ -512,6 +518,23 @@ static void hdp_mdl_reconn_cb(struct mcap_mdl *mdl, GError *err, gpointer data)
 		g_dbus_send_message(conn, reply);
 		return;
 	}
+
+#ifdef __TIZEN_PATCH__
+	{
+		DBG("Set smack label!");
+		int ret;
+
+		ret = fsetxattr(fd, XATTR_NAME_SMACKIPIN, "System", sizeof("System"), 0);
+		if (ret != 0) {
+			DBG("Set attr error: %d", ret);
+		}
+
+		ret = fsetxattr(fd, XATTR_NAME_SMACKIPOUT, "System", sizeof("System"), 0);
+		if (ret != 0) {
+			DBG("Set attr error: %d", ret);
+		}
+	}
+#endif
 
 	reply = g_dbus_create_reply(dc_data->msg, DBUS_TYPE_UNIX_FD,
 							&fd, DBUS_TYPE_INVALID);
