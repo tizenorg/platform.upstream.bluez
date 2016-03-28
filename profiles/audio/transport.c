@@ -30,6 +30,12 @@
 
 #include <glib.h>
 
+#ifdef __TIZEN_PATCH__
+#include <sys/types.h>
+#include <sys/xattr.h>
+#include <linux/xattr.h>
+#endif
+
 #include "lib/bluetooth.h"
 #include "lib/sdp.h"
 #include "lib/uuid.h"
@@ -309,6 +315,23 @@ static void a2dp_resume_complete(struct avdtp *session,
 		goto fail;
 
 	media_transport_set_fd(transport, fd, imtu, omtu);
+
+#ifdef __TIZEN_PATCH__
+	{
+		DBG("Set smack label!");
+		int ret;
+
+		ret = fsetxattr(fd, XATTR_NAME_SMACKIPIN, "System", sizeof("System"), 0);
+		if (ret != 0) {
+			DBG("Set attr error: %d", ret);
+		}
+
+		ret = fsetxattr(fd, XATTR_NAME_SMACKIPOUT, "System", sizeof("System"), 0);
+		if (ret != 0) {
+			DBG("Set attr error: %d", ret);
+		}
+	}
+#endif
 
 	ret = g_dbus_send_reply(btd_get_dbus_connection(), req->msg,
 						DBUS_TYPE_UNIX_FD, &fd,
