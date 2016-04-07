@@ -168,6 +168,13 @@ gssize g_obex_apparam_encode(GObexApparam *apparam, void *buf, gsize len)
 	return count;
 }
 
+#ifdef __TIZEN_PATCH__
+void g_obex_apparam_remove_all(GObexApparam *apparam)
+{
+	g_hash_table_remove_all(apparam->tags);
+}
+#endif
+
 GObexApparam *g_obex_apparam_set_bytes(GObexApparam *apparam, guint8 id,
 						const void *value, gsize len)
 {

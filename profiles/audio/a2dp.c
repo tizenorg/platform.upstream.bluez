@@ -72,6 +72,9 @@ struct a2dp_sep {
 	struct avdtp *session;
 	struct avdtp_stream *stream;
 	guint suspend_timer;
+#ifdef __TIZEN_PATCH__
+	gboolean remote_suspended;
+#endif
 	gboolean delay_reporting;
 	gboolean locked;
 	gboolean suspending;
@@ -82,6 +85,7 @@ struct a2dp_sep {
 
 struct a2dp_setup_cb {
 	struct a2dp_setup *setup;
+	a2dp_discover_cb_t discover_cb;
 	a2dp_select_cb_t select_cb;
 	a2dp_config_cb_t config_cb;
 	a2dp_stream_cb_t resume_cb;
@@ -98,6 +102,7 @@ struct a2dp_setup {
 	struct avdtp_stream *stream;
 	struct avdtp_error *err;
 	avdtp_set_configuration_cb setconf_cb;
+	GSList *seps;
 	GSList *caps;
 	gboolean reconfigure;
 	gboolean start;
@@ -302,6 +307,23 @@ static void finalize_select(struct a2dp_setup *s)
 	}
 }
 
+static void finalize_discover(struct a2dp_setup *s)
+{
+	GSList *l;
+
+	for (l = s->cb; l != NULL; ) {
+		struct a2dp_setup_cb *cb = l->data;
+
+		l = l->next;
+
+		if (!cb->discover_cb)
+			continue;
+
+		cb->discover_cb(s->session, s->seps, s->err, cb->user_data);
+		setup_cb_free(cb);
+	}
+}
+
 static struct a2dp_setup *find_setup_by_session(struct avdtp *session)
 {
 	GSList *l;
@@ -374,6 +396,13 @@ static void stream_state_changed(struct avdtp_stream *stream,
 
 		return;
 	}
+
+#ifdef __TIZEN_PATCH__
+	if (new_state == AVDTP_STATE_STREAMING && sep->suspend_timer) {
+		g_source_remove(sep->suspend_timer);
+		sep->suspend_timer = 0;
+	}
+#endif
 
 	if (new_state != AVDTP_STATE_IDLE)
 		return;
@@ -799,12 +828,25 @@ static gboolean start_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 	else
 		DBG("Source %p: Start_Ind", sep);
 
+#ifdef __TIZEN_PATCH__
+	if (!a2dp_sep->locked) {
+		a2dp_sep->session = avdtp_ref(session);
+		if(a2dp_sep->remote_suspended == FALSE)
+			a2dp_sep->suspend_timer = g_timeout_add_seconds(SUSPEND_TIMEOUT,
+							(GSourceFunc) suspend_timeout,
+							a2dp_sep);
+		else
+			a2dp_sep->remote_suspended = FALSE;
+	}
+#else
+
 	if (!a2dp_sep->locked) {
 		a2dp_sep->session = avdtp_ref(session);
 		a2dp_sep->suspend_timer = g_timeout_add_seconds(SUSPEND_TIMEOUT,
 						(GSourceFunc) suspend_timeout,
 						a2dp_sep);
 	}
+#endif
 
 	if (!a2dp_sep->starting)
 		return TRUE;
@@ -857,6 +899,10 @@ static gboolean suspend_ind(struct avdtp *session, struct avdtp_local_sep *sep,
 		DBG("Sink %p: Suspend_Ind", sep);
 	else
 		DBG("Source %p: Suspend_Ind", sep);
+
+#ifdef __TIZEN_PATCH__
+        a2dp_sep->remote_suspended = TRUE;
+#endif
 
 	if (a2dp_sep->suspend_timer) {
 		g_source_remove(a2dp_sep->suspend_timer);
@@ -1172,7 +1218,11 @@ static sdp_record_t *a2dp_record(uint8_t type)
 	sdp_data_t *psm, *version, *features;
 	uint16_t lp = AVDTP_UUID;
 #ifdef __TIZEN_PATCH__
+#ifdef SUPPORT_LOCAL_DEVICE_A2DP_SINK
+	uint16_t a2dp_ver = 0x0102, avdtp_ver = 0x0103, feat = 0x0002;
+#else
 	uint16_t a2dp_ver = 0x0102, avdtp_ver = 0x0103, feat = 0x0001;
+#endif
 #else
 	uint16_t a2dp_ver = 0x0103, avdtp_ver = 0x0103, feat = 0x000f;
 #endif
@@ -1449,7 +1499,7 @@ static void transport_cb(GIOChannel *io, GError *err, gpointer user_data)
 
 	if (!avdtp_stream_set_transport(setup->stream,
 					g_io_channel_unix_get_fd(io),
-					omtu, imtu))
+					imtu, omtu))
 		goto drop;
 
 	g_io_channel_set_close_on_unref(io, FALSE);
@@ -1535,6 +1585,9 @@ static bool a2dp_server_listen(struct a2dp_server *server)
 				btd_adapter_get_address(server->adapter),
 				BT_IO_OPT_PSM, AVDTP_PSM,
 				BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_MEDIUM,
+#if defined(__TIZEN_PATCH__) && defined(SUPPORT_LOCAL_DEVICE_A2DP_SINK)
+				BT_IO_OPT_IMTU, 895,
+#endif
 				BT_IO_OPT_MASTER, true,
 				BT_IO_OPT_INVALID);
 	if (server->io)
@@ -1759,44 +1812,6 @@ done:
 	finalize_select(setup);
 }
 
-#ifndef __TIZEN_PATCH__
-static gboolean check_vendor_codec(struct a2dp_sep *sep, uint8_t *cap,
-								size_t len)
-{
-	uint8_t *capabilities;
-	size_t length;
-	a2dp_vendor_codec_t *local_codec;
-	a2dp_vendor_codec_t *remote_codec;
-
-	if (len < sizeof(a2dp_vendor_codec_t))
-		return FALSE;
-
-	remote_codec = (a2dp_vendor_codec_t *) cap;
-
-	if (sep->endpoint == NULL)
-		return FALSE;
-
-	length = sep->endpoint->get_capabilities(sep,
-				&capabilities, sep->user_data);
-
-	if (length < sizeof(a2dp_vendor_codec_t))
-		return FALSE;
-
-	local_codec = (a2dp_vendor_codec_t *) capabilities;
-
-	if (btohl(remote_codec->vendor_id) != btohl(local_codec->vendor_id))
-		return FALSE;
-
-	if (btohs(remote_codec->codec_id) != btohs(local_codec->codec_id))
-		return FALSE;
-
-	DBG("vendor 0x%08x codec 0x%04x", btohl(remote_codec->vendor_id),
-						btohs(remote_codec->codec_id));
-
-	return TRUE;
-}
-#endif
-
 static struct a2dp_sep *a2dp_find_sep(struct avdtp *session, GSList *list,
 					const char *sender)
 {
@@ -1823,6 +1838,7 @@ static struct a2dp_sep *a2dp_find_sep(struct avdtp *session, GSList *list,
 			if (g_strcmp0(sender, name) != 0)
 				continue;
 		}
+
 #ifdef __TIZEN_PATCH__
 		rsep = avdtp_find_remote_sep(session, sep->lsep);
 		if (rsep == NULL)
@@ -1836,9 +1852,8 @@ static struct a2dp_sep *a2dp_find_sep(struct avdtp *session, GSList *list,
 			continue;
 		}
 #else
-		if (check_vendor_codec(sep, cap->data,
-					service->length - sizeof(*cap)))
-			return sep;
+		if (avdtp_find_remote_sep(session, sep->lsep) == NULL)
+			continue;
 
 #endif
 		return sep;
@@ -1874,6 +1889,40 @@ static struct a2dp_sep *a2dp_select_sep(struct avdtp *session, uint8_t type,
 		return sep;
 
 	return a2dp_find_sep(session, l, NULL);
+}
+
+static void discover_cb(struct avdtp *session, GSList *seps,
+				struct avdtp_error *err, void *user_data)
+{
+	struct a2dp_setup *setup = user_data;
+
+	DBG("err %p", err);
+
+	setup->seps = seps;
+	setup->err = err;
+
+	finalize_discover(setup);
+}
+
+unsigned int a2dp_discover(struct avdtp *session, a2dp_discover_cb_t cb,
+							void *user_data)
+{
+	struct a2dp_setup *setup;
+	struct a2dp_setup_cb *cb_data;
+
+	setup = a2dp_setup_get(session);
+	if (!setup)
+		return 0;
+
+	cb_data = setup_cb_new(setup);
+	cb_data->discover_cb = cb;
+	cb_data->user_data = user_data;
+
+	if (avdtp_discover(session, discover_cb, setup) == 0)
+		return cb_data->id;
+
+	setup_cb_free(cb_data);
+	return 0;
 }
 
 unsigned int a2dp_select_capabilities(struct avdtp *session,
@@ -2169,8 +2218,8 @@ gboolean a2dp_cancel(unsigned int id)
 
 			if (!setup->cb) {
 				DBG("aborting setup %p", setup);
-				avdtp_abort(setup->session, setup->stream);
-				return TRUE;
+				if (!avdtp_abort(setup->session, setup->stream))
+					return TRUE;
 			}
 
 			setup_unref(setup);
@@ -2491,7 +2540,9 @@ static struct btd_adapter_driver media_driver = {
 static int a2dp_init(void)
 {
 	btd_register_adapter_driver(&media_driver);
+#if defined(__TIZEN_PATCH__) && defined(SUPPORT_LOCAL_DEVICE_A2DP_SINK)
 	btd_profile_register(&a2dp_source_profile);
+#endif
 	btd_profile_register(&a2dp_sink_profile);
 
 	return 0;

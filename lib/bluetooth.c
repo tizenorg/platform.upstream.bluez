@@ -810,7 +810,7 @@ const char *bt_compidtostr(int compid)
 	case 273:
 		return "Steelseries ApS";
 	case 274:
-		return "vyzybl Inc.";
+		return "Visybl Inc.";
 	case 275:
 		return "Openbrain Technologies, Co., Ltd.";
 	case 276:
@@ -1082,7 +1082,7 @@ const char *bt_compidtostr(int compid)
 	case 409:
 		return "SALTO SYSTEMS S.L.";
 	case 410:
-		return "T-Engine Forum";
+		return "TRON Forum (formerly T-Engine Forum)";
 	case 411:
 		return "CUBETECH s.r.o.";
 	case 412:
@@ -1263,6 +1263,488 @@ const char *bt_compidtostr(int compid)
 		return "The University of Tokyo";
 	case 500:
 		return "UTC Fire and Security";
+	case 501:
+		return "Cool Webthings Limited";
+	case 502:
+		return "DJO Global";
+	case 503:
+		return "Gelliner Limited";
+	case 504:
+		return "Anyka (Guangzhou) Microelectronics Technology Co, LTD";
+	case 505:
+		return "Medtronic, Inc.";
+	case 506:
+		return "Gozio, Inc.";
+	case 507:
+		return "Form Lifting, LLC";
+	case 508:
+		return "Wahoo Fitness, LLC";
+	case 509:
+		return "Kontakt Micro-Location Sp. z o.o.";
+	case 510:
+		return "Radio System Corporation";
+	case 511:
+		return "Freescale Semiconductor, Inc.";
+	case 512:
+		return "Verifone Systems PTe Ltd. Taiwan Branch";
+	case 513:
+		return "AR Timing";
+	case 514:
+		return "Rigado LLC";
+	case 515:
+		return "Kemppi Oy";
+	case 516:
+		return "Tapcentive Inc.";
+	case 517:
+		return "Smartbotics Inc.";
+	case 518:
+		return "Otter Products, LLC";
+	case 519:
+		return "STEMP Inc.";
+	case 520:
+		return "LumiGeek LLC";
+	case 521:
+		return "InvisionHeart Inc.";
+	case 522:
+		return "Macnica Inc.";
+	case 523:
+		return "Jaguar Land Rover Limited";
+	case 524:
+		return "CoroWare Technologies, Inc";
+	case 525:
+		return "Simplo Technology Co., LTD";
+	case 526:
+		return "Omron Healthcare Co., LTD";
+	case 527:
+		return "Comodule GMBH";
+	case 528:
+		return "ikeGPS";
+	case 529:
+		return "Telink Semiconductor Co. Ltd";
+	case 530:
+		return "Interplan Co., Ltd";
+	case 531:
+		return "Wyler AG";
+	case 532:
+		return "IK Multimedia Production srl";
+	case 533:
+		return "Lukoton Experience Oy";
+	case 534:
+		return "MTI Ltd";
+	case 535:
+		return "Tech4home, Lda";
+	case 536:
+		return "Hiotech AB";
+	case 537:
+		return "DOTT Limited";
+	case 538:
+		return "Blue Speck Labs, LLC";
+	case 539:
+		return "Cisco Systems Inc";
+	case 540:
+		return "Mobicomm Inc";
+	case 541:
+		return "Edamic";
+	case 542:
+		return "Goodnet Ltd";
+	case 543:
+		return "Luster Leaf Products Inc";
+	case 544:
+		return "Manus Machina BV";
+	case 545:
+		return "Mobiquity Networks Inc";
+	case 546:
+		return "Praxis Dynamics";
+	case 547:
+		return "Philip Morris Products S.A.";
+	case 548:
+		return "Comarch SA";
+	case 549:
+		return "Nestlé Nespresso S.A.";
+	case 550:
+		return "Merlinia A/S";
+	case 551:
+		return "LifeBEAM Technologies";
+	case 552:
+		return "Twocanoes Labs, LLC";
+	case 553:
+		return "Muoverti Limited";
+	case 554:
+		return "Stamer Musikanlagen GMBH";
+	case 555:
+		return "Tesla Motors";
+	case 556:
+		return "Pharynks Corporation";
+	case 557:
+		return "Lupine";
+	case 558:
+		return "Siemens AG";
+	case 559:
+		return "Huami (Shanghai) Culture Communication CO., LTD";
+	case 560:
+		return "Foster Electric Company, Ltd";
+	case 561:
+		return "ETA SA";
+	case 562:
+		return "x-Senso Solutions Kft";
+	case 563:
+		return "Shenzhen SuLong Communication Ltd";
+	case 564:
+		return "FengFan (BeiJing) Technology Co, Ltd";
+	case 565:
+		return "Qrio Inc";
+	case 566:
+		return "Pitpatpet Ltd";
+	case 567:
+		return "MSHeli s.r.l.";
+	case 568:
+		return "Trakm8 Ltd";
+	case 569:
+		return "JIN CO, Ltd";
+	case 570:
+		return "Alatech Technology";
+	case 571:
+		return "Beijing CarePulse Electronic Technology Co, Ltd";
+	case 572:
+		return "Awarepoint";
+	case 573:
+		return "ViCentra B.V.";
+	case 574:
+		return "Raven Industries";
+	case 575:
+		return "WaveWare Technologies";
+	case 576:
+		return "Argenox Technologies";
+	case 577:
+		return "Bragi GmbH";
+	case 578:
+		return "16Lab Inc";
+	case 579:
+		return "Masimo Corp";
+	case 580:
+		return "Iotera Inc.";
+	case 581:
+		return "Endress+Hauser";
+	case 582:
+		return "ACKme Networks, Inc.";
+	case 583:
+		return "FiftyThree Inc.";
+	case 584:
+		return "Parker Hannifin Corp";
+	case 585:
+		return "Transcranial Ltd";
+	case 586:
+		return "Uwatec AG";
+	case 587:
+		return "Orlan LLC";
+	case 588:
+		return "Blue Clover Devices";
+	case 589:
+		return "M-Way Solutions GmbH";
+	case 590:
+		return "Microtronics Engineering GmbH";
+	case 591:
+		return "Schneider Schreibgeräte GmbH";
+	case 592:
+		return "Sapphire Circuits LLC";
+	case 593:
+		return "Lumo Bodytech Inc.";
+	case 594:
+		return "UKC Technosolution";
+	case 595:
+		return "Xicato Inc.";
+	case 596:
+		return "Playbrush";
+	case 597:
+		return "Dai Nippon Printing Co., Ltd.";
+	case 598:
+		return "G24 Power Limited";
+	case 599:
+		return "AdBabble Local Commerce Inc.";
+	case 600:
+		return "Devialet SA";
+	case 601:
+		return "ALTYOR";
+	case 602:
+		return "University of Applied Sciences Valais/Haute Ecole Valaisanne";
+	case 603:
+		return "Five Interactive, LLC dba Zendo";
+	case 604:
+		return "NetEase (Hangzhou) Network co.Ltd.";
+	case 605:
+		return "Lexmark International Inc.";
+	case 606:
+		return "Fluke Corporation";
+	case 607:
+		return "Yardarm Technologies";
+	case 608:
+		return "SensaRx";
+	case 609:
+		return "SECVRE GmbH";
+	case 610:
+		return "Glacial Ridge Technologies";
+	case 611:
+		return "Identiv, Inc.";
+	case 612:
+		return "DDS, Inc.";
+	case 613:
+		return "SMK Corporation";
+	case 614:
+		return "Schawbel Technologies LLC";
+	case 615:
+		return "XMI Systems SA";
+	case 616:
+		return "Cerevo";
+	case 617:
+		return "Torrox GmbH & Co KG";
+	case 618:
+		return "Gemalto";
+	case 619:
+		return "DEKA Research & Development Corp.";
+	case 620:
+		return "Domster Tadeusz Szydlowski";
+	case 621:
+		return "Technogym SPA";
+	case 622:
+		return "FLEURBAEY BVBA";
+	case 623:
+		return "Aptcode Solutions";
+	case 624:
+		return "LSI ADL Technology";
+	case 625:
+		return "Animas Corp";
+	case 626:
+		return "Alps Electric Co., Ltd.";
+	case 627:
+		return "OCEASOFT";
+	case 628:
+		return "Motsai Research";
+	case 629:
+		return "Geotab";
+	case 630:
+		return "E.G.O. Elektro-Gerätebau GmbH";
+	case 631:
+		return "bewhere inc";
+	case 632:
+		return "Johnson Outdoors Inc";
+	case 633:
+		return "steute Schaltgerate GmbH & Co. KG";
+	case 634:
+		return "Ekomini inc.";
+	case 635:
+		return "DEFA AS";
+	case 636:
+		return "Aseptika Ltd";
+	case 637:
+		return "HUAWEI Technologies Co., Ltd. ( 华为技术有限公司 )";
+	case 638:
+		return "HabitAware, LLC";
+	case 639:
+		return "ruwido austria gmbh";
+	case 640:
+		return "ITEC corporation";
+	case 641:
+		return "StoneL";
+	case 642:
+		return "Sonova AG";
+	case 643:
+		return "Maven Machines, Inc.";
+	case 644:
+		return "Synapse Electronics";
+	case 645:
+		return "Standard Innovation Inc.";
+	case 646:
+		return "RF Code, Inc.";
+	case 647:
+		return "Wally Ventures S.L.";
+	case 648:
+		return "Willowbank Electronics Ltd";
+	case 649:
+		return "SK Telecom";
+	case 650:
+		return "Jetro AS";
+	case 651:
+		return "Code Gears LTD";
+	case 652:
+		return "NANOLINK APS";
+	case 653:
+		return "IF, LLC";
+	case 654:
+		return "RF Digital Corp";
+	case 655:
+		return "Church & Dwight Co., Inc";
+	case 656:
+		return "Multibit Oy";
+	case 657:
+		return "CliniCloud Inc";
+	case 658:
+		return "SwiftSensors";
+	case 659:
+		return "Blue Bite";
+	case 660:
+		return "ELIAS GmbH";
+	case 661:
+		return "Sivantos GmbH";
+	case 662:
+		return "Petzl";
+	case 663:
+		return "storm power ltd";
+	case 664:
+		return "EISST Ltd";
+	case 665:
+		return "Inexess Technology Simma KG";
+	case 666:
+		return "Currant, Inc.";
+	case 667:
+		return "C2 Development, Inc.";
+	case 668:
+		return "Blue Sky Scientific, LLC";
+	case 669:
+		return "ALOTTAZS LABS, LLC";
+	case 670:
+		return "Kupson spol. s r.o.";
+	case 671:
+		return "Areus Engineering GmbH";
+	case 672:
+		return "Impossible Camera GmbH";
+	case 673:
+		return "InventureTrack Systems";
+	case 674:
+		return "LockedUp";
+	case 675:
+		return "Itude";
+	case 676:
+		return "Pacific Lock Company";
+	case 677:
+		return "Tendyron Corporation ( 天地融科技股份有限公司 )";
+	case 678:
+		return "Robert Bosch GmbH";
+	case 679:
+		return "Illuxtron international B.V.";
+	case 680:
+		return "miSport Ltd.";
+	case 681:
+		return "Chargelib";
+	case 682:
+		return "Doppler Lab";
+	case 683:
+		return "BBPOS Limited";
+	case 684:
+		return "RTB Elektronik GmbH & Co. KG";
+	case 685:
+		return "Rx Networks, Inc.";
+	case 686:
+		return "WeatherFlow, Inc.";
+	case 687:
+		return "Technicolor USA Inc.";
+	case 688:
+		return "Bestechnic(Shanghai),Ltd";
+	case 689:
+		return "Raden Inc";
+	case 690:
+		return "JouZen Oy";
+	case 691:
+		return "CLABER S.P.A.";
+	case 692:
+		return "Hyginex, Inc.";
+	case 693:
+		return "HANSHIN ELECTRIC RAILWAY CO.,LTD.";
+	case 694:
+		return "Schneider Electric";
+	case 695:
+		return "Oort Technologies LLC";
+	case 696:
+		return "Chrono Therapeutics";
+	case 697:
+		return "Rinnai Corporation";
+	case 698:
+		return "Swissprime Technologies AG";
+	case 699:
+		return "Koha.,Co.Ltd";
+	case 700:
+		return "Genevac Ltd";
+	case 701:
+		return "Chemtronics";
+	case 702:
+		return "Seguro Technology Sp. z o.o.";
+	case 703:
+		return "Redbird Flight Simulations";
+	case 704:
+		return "Dash Robotics";
+	case 705:
+		return "LINE Corporation";
+	case 706:
+		return "Guillemot Corporation";
+	case 707:
+		return "Techtronic Power Tools Technology Limited";
+	case 708:
+		return "Wilson Sporting Goods";
+	case 709:
+		return "Lenovo (Singapore) Pte Ltd. ( 联想（新加坡） )";
+	case 710:
+		return "Ayatan Sensors";
+	case 711:
+		return "Electronics Tomorrow Limited";
+	case 712:
+		return "VASCO Data Security International, Inc.";
+	case 713:
+		return "PayRange Inc.";
+	case 714:
+		return "ABOV Semiconductor";
+	case 715:
+		return "AINA-Wireless Inc.";
+	case 716:
+		return "Eijkelkamp Soil & Water";
+	case 717:
+		return "BMA ergonomics b.v.";
+	case 718:
+		return "Teva Branded Pharmaceutical Products R&D, Inc.";
+	case 719:
+		return "Anima";
+	case 720:
+		return "3M";
+	case 721:
+		return "Empatica Srl";
+	case 722:
+		return "Afero, Inc.";
+	case 723:
+		return "Powercast Corporation";
+	case 724:
+		return "Secuyou ApS";
+	case 725:
+		return "OMRON Corporation";
+	case 726:
+		return "Send Solutions";
+	case 727:
+		return "NIPPON SYSTEMWARE CO.,LTD.";
+	case 728:
+		return "Neosfar";
+	case 729:
+		return "Fliegl Agrartechnik GmbH";
+	case 730:
+		return "Gilvader";
+	case 731:
+		return "Digi International Inc (R)";
+	case 732:
+		return "DeWalch Technologies, Inc.";
+	case 733:
+		return "Flint Rehabilitation Devices, LLC";
+	case 734:
+		return "Samsung SDS Co., Ltd.";
+	case 735:
+		return "Blur Product Development";
+	case 736:
+		return "University of Michigan";
+	case 737:
+		return "Victron Energy BV";
+	case 738:
+		return "NTT docomo";
+	case 739:
+		return "Carmanah Technologies Corp.";
+	case 740:
+		return "Bytestorm Ltd.";
+	case 741:
+		return "Espressif Incorporated ( 乐鑫信息科技(上海)有限公司 )";
 	case 65535:
 		return "internal use";
 	default:

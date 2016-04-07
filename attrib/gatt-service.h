@@ -85,9 +85,3 @@ bool gatt_send_noty_ind(struct btd_adapter *adapter, const bt_uuid_t *uuid,
 bool gatt_send_service_changed_ind(struct btd_adapter *adapter, bt_uuid_t *uuid,
                     uint16_t start_handle, uint16_t end_handle);
 #endif
-#if 0
-guint gatt_char_value_notify(GAttrib *attrib, uint16_t handle, uint8_t *value,
-					int vlen, GAttribResultFunc func,	gpointer user_data);
-guint gatt_char_value_indicate(GAttrib *attrib, uint16_t handle, uint8_t *value,
-					int vlen, GAttribResultFunc func,	gpointer user_data);
-#endif

@@ -127,7 +127,7 @@ static char *event_str[EVENT_NUM + 1] = {
 	"AMP Status Change",
 };
 
-#define LE_EV_NUM 11
+#define LE_EV_NUM 5
 static char *ev_le_meta_str[LE_EV_NUM + 1] = {
 	"Unknown",
 	"LE Connection Complete",
@@ -135,12 +135,6 @@ static char *ev_le_meta_str[LE_EV_NUM + 1] = {
 	"LE Connection Update Complete",
 	"LE Read Remote Used Features Complete",
 	"LE Long Term Key Request",
-	"LE Remote Connection Parameter Request",
-	"LE Data Length Change",
-	"LE Read Local P-256 Public Key Complete",
-	"LE Generate DHKey Complete",
-	"LE Enhanced Connection Complete",
-	"LE Direct Advertising Report",
 };
 
 #define CMD_LINKCTL_NUM 60
@@ -839,7 +833,7 @@ static inline void ext_inquiry_response_dump(int level, struct frame *frm)
 	uint8_t length;
 
 	data = frm->ptr;
-	length = get_u8(frm);
+	length = p_get_u8(frm);
 
 	while (length > 0) {
 		ext_inquiry_data_dump(level, frm, data);
@@ -848,7 +842,7 @@ static inline void ext_inquiry_response_dump(int level, struct frame *frm)
 		frm->len -= length;
 
 		data = frm->ptr;
-		length = get_u8(frm);
+		length = p_get_u8(frm);
 	}
 
 	frm->ptr = ptr +
@@ -874,7 +868,7 @@ static inline void bdaddr_command_dump(int level, struct frame *frm)
 
 static inline void generic_command_dump(int level, struct frame *frm)
 {
-	uint16_t handle = btohs(htons(get_u16(frm)));
+	uint16_t handle = btohs(htons(p_get_u16(frm)));
 
 	p_indent(level, frm);
 	printf("handle %d\n", handle);
@@ -884,7 +878,7 @@ static inline void generic_command_dump(int level, struct frame *frm)
 
 static inline void generic_write_mode_dump(int level, struct frame *frm)
 {
-	uint8_t mode = get_u8(frm);
+	uint8_t mode = p_get_u8(frm);
 
 	p_indent(level, frm);
 	printf("mode 0x%2.2x\n", mode);
@@ -1219,7 +1213,7 @@ static inline void write_link_policy_dump(int level, struct frame *frm)
 
 static inline void write_default_link_policy_dump(int level, struct frame *frm)
 {
-	uint16_t policy = btohs(htons(get_u16(frm)));
+	uint16_t policy = btohs(htons(p_get_u16(frm)));
 	char *str;
 
 	p_indent(level, frm);
@@ -1333,7 +1327,7 @@ static inline void request_stored_link_key_dump(int level, struct frame *frm)
 
 static inline void return_link_keys_dump(int level, struct frame *frm)
 {
-	uint8_t num = get_u8(frm);
+	uint8_t num = p_get_u8(frm);
 	uint8_t key[16];
 	char addr[18];
 	int i, n;
@@ -1414,7 +1408,7 @@ static inline void write_current_iac_lap_dump(int level, struct frame *frm)
 
 static inline void write_scan_enable_dump(int level, struct frame *frm)
 {
-	uint8_t enable = get_u8(frm);
+	uint8_t enable = p_get_u8(frm);
 
 	p_indent(level, frm);
 	printf("enable %d\n", enable);
@@ -1560,13 +1554,13 @@ static inline void host_buffer_size_dump(int level, struct frame *frm)
 
 static inline void num_comp_pkts_dump(int level, struct frame *frm)
 {
-	uint8_t num = get_u8(frm);
+	uint8_t num = p_get_u8(frm);
 	uint16_t handle, packets;
 	int i;
 
 	for (i = 0; i < num; i++) {
-		handle = btohs(htons(get_u16(frm)));
-		packets = btohs(htons(get_u16(frm)));
+		handle = btohs(htons(p_get_u16(frm)));
+		packets = btohs(htons(p_get_u16(frm)));
 
 		p_indent(level, frm);
 		printf("handle %d packets %d\n", handle, packets);
@@ -1701,7 +1695,7 @@ static inline void command_dump(int level, struct frame *frm)
 		return;
 
 	p_indent(level, frm);
-	printf("HCI Command: %s (0x%2.2x|0x%4.4x) plen %d\n", 
+	printf("HCI Command: %s (0x%2.2x|0x%4.4x) plen %d\n",
 				opcode2str(opcode), ogf, ocf, hdr->plen);
 
 	frm->ptr += HCI_COMMAND_HDR_SIZE;
@@ -2012,7 +2006,7 @@ static inline void command_dump(int level, struct frame *frm)
 
 static inline void status_response_dump(int level, struct frame *frm)
 {
-	uint8_t status = get_u8(frm);
+	uint8_t status = p_get_u8(frm);
 
 	p_indent(level, frm);
 	printf("status 0x%2.2x\n", status);
@@ -2027,7 +2021,7 @@ static inline void status_response_dump(int level, struct frame *frm)
 
 static inline void handle_response_dump(int level, struct frame *frm)
 {
-	uint16_t handle = btohs(htons(get_u16(frm)));
+	uint16_t handle = btohs(htons(p_get_u16(frm)));
 
 	p_indent(level, frm);
 	printf("handle %d\n", handle);
@@ -2037,7 +2031,7 @@ static inline void handle_response_dump(int level, struct frame *frm)
 
 static inline void bdaddr_response_dump(int level, struct frame *frm)
 {
-	uint8_t status = get_u8(frm);
+	uint8_t status = p_get_u8(frm);
 	bdaddr_t *bdaddr = frm->ptr;
 	char addr[18];
 
@@ -2076,8 +2070,8 @@ static inline void read_data_block_size_dump(int level, struct frame *frm)
 
 static inline void generic_response_dump(int level, struct frame *frm)
 {
-	uint8_t status = get_u8(frm);
-	uint16_t handle = btohs(htons(get_u16(frm)));
+	uint8_t status = p_get_u8(frm);
+	uint16_t handle = btohs(htons(p_get_u16(frm)));
 
 	p_indent(level, frm);
 	printf("status 0x%2.2x handle %d\n", status, handle);
@@ -2092,8 +2086,8 @@ static inline void generic_response_dump(int level, struct frame *frm)
 
 static inline void status_mode_dump(int level, struct frame *frm)
 {
-	uint8_t status = get_u8(frm);
-	uint8_t mode = get_u8(frm);
+	uint8_t status = p_get_u8(frm);
+	uint8_t mode = p_get_u8(frm);
 
 	p_indent(level, frm);
 	printf("status 0x%2.2x mode 0x%2.2x\n", status, mode);
@@ -2129,8 +2123,8 @@ static inline void read_link_policy_dump(int level, struct frame *frm)
 
 static inline void read_default_link_policy_dump(int level, struct frame *frm)
 {
-	uint8_t status = get_u8(frm);
-	uint16_t policy = btohs(htons(get_u16(frm)));
+	uint8_t status = p_get_u8(frm);
+	uint16_t policy = btohs(htons(p_get_u16(frm)));
 	char *str;
 
 	p_indent(level, frm);
@@ -2276,8 +2270,8 @@ static inline void read_current_iac_lap_dump(int level, struct frame *frm)
 
 static inline void read_scan_enable_dump(int level, struct frame *frm)
 {
-	uint8_t status = get_u8(frm);
-	uint8_t enable = get_u8(frm);
+	uint8_t status = p_get_u8(frm);
+	uint8_t enable = p_get_u8(frm);
 
 	p_indent(level, frm);
 	printf("status 0x%2.2x enable %d\n", status, enable);
@@ -3041,7 +3035,7 @@ static inline void hardware_error_dump(int level, struct frame *frm)
 
 static inline void inq_result_dump(int level, struct frame *frm)
 {
-	uint8_t num = get_u8(frm);
+	uint8_t num = p_get_u8(frm);
 	char addr[18];
 	int i;
 
@@ -3389,7 +3383,7 @@ static inline void flow_spec_complete_dump(int level, struct frame *frm)
 
 static inline void inq_result_with_rssi_dump(int level, struct frame *frm)
 {
-	uint8_t num = get_u8(frm);
+	uint8_t num = p_get_u8(frm);
 	char addr[18];
 	int i;
 
@@ -3508,7 +3502,7 @@ static inline void sniff_subrating_event_dump(int level, struct frame *frm)
 
 static inline void extended_inq_result_dump(int level, struct frame *frm)
 {
-	uint8_t num = get_u8(frm);
+	uint8_t num = p_get_u8(frm);
 	char addr[18];
 	int i;
 
@@ -3592,7 +3586,7 @@ static inline void evt_le_conn_complete_dump(int level, struct frame *frm)
 
 static inline void evt_le_advertising_report_dump(int level, struct frame *frm)
 {
-	uint8_t num_reports = get_u8(frm);
+	uint8_t num_reports = p_get_u8(frm);
 	const uint8_t RSSI_SIZE = 1;
 
 	while (num_reports--) {
@@ -3673,11 +3667,7 @@ static inline void le_meta_ev_dump(int level, struct frame *frm)
 	frm->len -= EVT_LE_META_EVENT_SIZE;
 
 	p_indent(level, frm);
-
-	if (subevent <= LE_EV_NUM)
-		printf("%s\n", ev_le_meta_str[subevent]);
-	else
-		printf("%s\n", ev_le_meta_str[0]);
+	printf("%s\n", ev_le_meta_str[subevent]);
 
 	switch (mevt->subevent) {
 	case EVT_LE_CONN_COMPLETE:
@@ -4084,10 +4074,10 @@ static inline void vendor_dump(int level, struct frame *frm)
 		return;
 
 	if (frm->dev_id == HCI_DEV_NONE) {
-		uint16_t device = btohs(htons(get_u16(frm)));
-		uint16_t proto = btohs(htons(get_u16(frm)));
-		uint16_t type = btohs(htons(get_u16(frm)));
-		uint16_t plen = btohs(htons(get_u16(frm)));
+		uint16_t device = btohs(htons(p_get_u16(frm)));
+		uint16_t proto = btohs(htons(p_get_u16(frm)));
+		uint16_t type = btohs(htons(p_get_u16(frm)));
+		uint16_t plen = btohs(htons(p_get_u16(frm)));
 
 		p_indent(level, frm);
 

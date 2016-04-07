@@ -95,7 +95,7 @@ static struct id_pair *store_id(GAttrib *attrib, unsigned int org_id,
 	return NULL;
 }
 
-GAttrib *g_attrib_new(GIOChannel *io, guint16 mtu)
+GAttrib *g_attrib_new(GIOChannel *io, guint16 mtu, bool ext_signed)
 {
 	gint fd;
 	GAttrib *attr;
@@ -111,7 +111,7 @@ GAttrib *g_attrib_new(GIOChannel *io, guint16 mtu)
 	g_io_channel_ref(io);
 	attr->io = io;
 
-	attr->att = bt_att_new(fd);
+	attr->att = bt_att_new(fd, ext_signed);
 	if (!attr->att)
 		goto fail;
 
@@ -219,17 +219,6 @@ struct bt_att *g_attrib_get_att(GAttrib *attrib)
 
 	return attrib->att;
 }
-
-#ifdef __TIZEN_PATCH__
-void g_attrib_channel_unref(GAttrib *attrib)
-{
-	if (attrib->io) {
-		g_io_channel_shutdown(attrib->io, FALSE, NULL);
-		g_io_channel_unref(attrib->io);
-		attrib->io = NULL;
-	}
-}
-#endif
 
 gboolean g_attrib_set_destroy_function(GAttrib *attrib, GDestroyNotify destroy,
 							gpointer user_data)

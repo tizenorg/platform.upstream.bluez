@@ -122,8 +122,6 @@ gboolean gatt_parse_record(const sdp_record_t *rec,
 					uint16_t *start, uint16_t *end);
 
 #ifdef __TIZEN_PATCH__
-guint gatt_find_info(GAttrib *attrib, uint16_t start, uint16_t end,
-				GAttribResultFunc func, gpointer user_data);
 guint gatt_read_char_by_offset(GAttrib *attrib, uint16_t handle, uint16_t offset,
 				GAttribResultFunc func, gpointer user_data);
 #endif

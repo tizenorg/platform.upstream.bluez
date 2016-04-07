@@ -309,11 +309,8 @@ static DBusMessage *local_connect(DBusConnection *conn,
 
 	id = get_pan_srv_id(svc);
 	bt_uuid16_create(&uuid16, id);
-#ifdef  __TIZEN_PATCH__
 	bt_uuid_to_uuid128(&uuid16, &uuid128);
-#else
-	bt_uuid_to_uuid128(&uuid128, &uuid16);
-#endif
+
 	if (bt_uuid_to_string(&uuid128, uuid_str, MAX_LEN_UUID_STR) < 0)
 		return btd_error_invalid_args(msg);
 
@@ -459,9 +456,7 @@ static gboolean network_property_get_uuid(const GDBusPropertyTable *property,
 	struct network_peer *peer = data;
 	struct network_conn *nc;
 	char uuid_str[MAX_LEN_UUID_STR];
-#ifdef  __TIZEN_PATCH__
 	const char *uuid = uuid_str;
-#endif
 	bt_uuid_t uuid16, uuid128;
 
 	nc = find_connection_by_state(peer->connections, CONNECTED);
@@ -469,18 +464,10 @@ static gboolean network_property_get_uuid(const GDBusPropertyTable *property,
 		return FALSE;
 
 	bt_uuid16_create(&uuid16, nc->id);
-#ifdef  __TIZEN_PATCH__
 	bt_uuid_to_uuid128(&uuid16, &uuid128);
-#else
-	bt_uuid_to_uuid128(&uuid128, &uuid16);
-#endif
 	bt_uuid_to_string(&uuid128, uuid_str, MAX_LEN_UUID_STR);
 
-#ifdef  __TIZEN_PATCH__
 	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &uuid);
-#else
-	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING, &uuid_str);
-#endif
 
 	return TRUE;
 }

@@ -44,13 +44,13 @@
 #include "src/sdp-client.h"
 #include "src/uuid-helper.h"
 #include "src/log.h"
+#include "profiles/input/hog-lib.h"
 
 #include "hal-msg.h"
 #include "ipc-common.h"
 #include "ipc.h"
 #include "bluetooth.h"
 #include "gatt.h"
-#include "hog.h"
 #include "hidhost.h"
 #include "utils.h"
 
@@ -891,7 +891,7 @@ static void bt_hid_connect(const void *buf, uint16_t len)
 	ba2str(&dev->dst, addr);
 	DBG("connecting to %s", addr);
 
-	if (bt_is_device_le(&dst)) {
+	if (bt_device_last_seen_bearer(&dev->dst) != BDADDR_BREDR) {
 		if (!hog_connect(dev)) {
 			status = HAL_STATUS_FAILED;
 			hid_device_remove(dev);

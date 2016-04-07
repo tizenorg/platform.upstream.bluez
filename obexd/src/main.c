@@ -44,13 +44,11 @@
 
 #include "gdbus/gdbus.h"
 
+#include "../client/manager.h"
+
 #include "log.h"
 #include "obexd.h"
 #include "server.h"
-
-#ifdef __TIZEN_PATCH__
-#include "../client/manager.h"
-#endif
 
 #define DEFAULT_CAP_FILE CONFIGDIR "/capability.xml"
 

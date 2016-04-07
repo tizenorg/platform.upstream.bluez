@@ -367,7 +367,11 @@ static void read_return_apparam(struct obc_transfer *transfer,
 
 	g_obex_apparam_get_uint16(apparam, PHONEBOOKSIZE_TAG,
 							phone_book_size);
+#ifndef __TIZEN_PATCH__
+	g_obex_apparam_get_uint16(apparam, NEWMISSEDCALLS_TAG,
+#else
 	g_obex_apparam_get_uint8(apparam, NEWMISSEDCALLS_TAG,
+#endif
 							new_missed_calls);
 
 	read_version(pbap, apparam);
@@ -1094,9 +1098,9 @@ static const GDBusMethodTable pbap_methods[] = {
 			pbap_pull_vcard) },
 	{ GDBUS_ASYNC_METHOD("List",
 #ifdef __TIZEN_PATCH__
-                        GDBUS_ARGS({ "folder", "s" }, {"filters", "a{sv}" }),
+			GDBUS_ARGS({ "folder", "s" }, {"filters", "a{sv}" }),
 #else
-                        GDBUS_ARGS({"filters", "a{sv}" }),
+			GDBUS_ARGS({"filters", "a{sv}" }),
 #endif
 			GDBUS_ARGS({ "vcard_listing", "a(ss)" }),
 			pbap_list) },

@@ -199,6 +199,8 @@ static void phonebook_size_result(const char *buffer, size_t bufsize,
 
 	pbap->obj->apparam = g_obex_apparam_set_uint16(NULL, PHONEBOOKSIZE_TAG,
 								phonebooksize);
+
+	pbap->obj->firstpacket = TRUE;
 #ifndef __TIZEN_PATCH__
 	if (missed > 0)	{
 #else
@@ -206,7 +208,11 @@ static void phonebook_size_result(const char *buffer, size_t bufsize,
 #endif /* __TIZEN_PATCH__ */
 		DBG("missed %d", missed);
 
+#ifndef __TIZEN_PATCH__
 		pbap->obj->apparam = g_obex_apparam_set_uint16(
+#else
+		pbap->obj->apparam = g_obex_apparam_set_uint8(
+#endif
 							pbap->obj->apparam,
 							NEWMISSEDCALLS_TAG,
 							missed);
@@ -248,7 +254,11 @@ static void query_result(const char *buffer, size_t bufsize, int vcards,
 
 		pbap->obj->firstpacket = TRUE;
 
+#ifndef __TIZEN_PATCH__
 		pbap->obj->apparam = g_obex_apparam_set_uint16(
+#else
+		pbap->obj->apparam = g_obex_apparam_set_uint8(
+#endif
 							pbap->obj->apparam,
 							NEWMISSEDCALLS_TAG,
 							missed);
@@ -387,7 +397,7 @@ static int generate_response(void *user_data)
 #ifdef __TIZEN_PATCH__
 		if (pbap->params->required_missedcall_call_header == TRUE) {
 				//DBG("missed %d", missed);
-				pbap->obj->apparam = g_obex_apparam_set_uint16(
+				pbap->obj->apparam = g_obex_apparam_set_uint8(
 									pbap->obj->apparam,
 									NEWMISSEDCALLS_TAG,
 									pbap->params->new_missed_calls);
@@ -399,7 +409,7 @@ static int generate_response(void *user_data)
 #ifdef __TIZEN_PATCH__
 	if (pbap->params->required_missedcall_call_header == TRUE) {
 		pbap->obj->firstpacket = TRUE;
-		pbap->obj->apparam = g_obex_apparam_set_uint16(
+		pbap->obj->apparam = g_obex_apparam_set_uint8(
 							pbap->obj->apparam,
 							NEWMISSEDCALLS_TAG,
 							pbap->params->new_missed_calls);
@@ -927,8 +937,6 @@ static void *vobject_vcard_open(const char *name, int oflag, mode_t mode,
 		ret = -ENOENT;
 		goto fail;
 	}
-	DBG("pbap session: Folder[%s] Filter[%llu] Format[%d] ret[%d]",
-		pbap->folder, pbap->params->filter, pbap->params->format, ret);
 
 	request = phonebook_get_entry(pbap->folder, id, pbap->params,
 						query_result, pbap, &ret);
@@ -940,14 +948,12 @@ done:
 	if (err)
 		*err = 0;
 
-	DBG("-");
 	return vobject_create(pbap, request);
 
 fail:
 	if (err)
 		*err = ret;
 
-	DBG("-");
 	return NULL;
 }
 
@@ -955,14 +961,13 @@ static ssize_t vobject_pull_get_next_header(void *object, void *buf, size_t mtu,
 								uint8_t *hi)
 {
 	struct pbap_object *obj = object;
-	struct pbap_session *pbap = obj->session;
 
 	if (!obj->buffer && !obj->apparam)
 		return -EAGAIN;
 
 	*hi = G_OBEX_HDR_APPARAM;
 
-	if (pbap->params->maxlistcount == 0 || obj->firstpacket) {
+	if (obj->firstpacket) {
 		obj->firstpacket = FALSE;
 
 		return g_obex_apparam_encode(obj->apparam, buf, mtu);

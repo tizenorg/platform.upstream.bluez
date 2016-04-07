@@ -1,5 +1,4 @@
 #ifdef __TIZEN_PATCH__
-#ifdef __BROADCOM_PATCH__
 
 #include <errno.h>
 
@@ -11,16 +10,6 @@
 
 
 static apater_le_vsc_rp_get_vendor_cap ble_vsc_cb = { -1, };
-
-void add_data_to_stream(uint8_t *stream, uint8_t *data, uint8_t len)
-{
-	int i;
-
-	for (i=0; i<len; i++) {
-		*(stream)++ = (uint8_t) data[len-1-i];
-		DBG("[%d]>> 0x%X", i, data[len-1-i] );
-		}
-}
 
 static int send_vsc_command(uint16_t ocf, uint8_t *cp, uint8_t cp_len,
 						uint8_t *rp, uint8_t rp_len)
@@ -354,10 +343,10 @@ gboolean adapter_le_service_uuid_scan_filtering(gboolean is_solicited,
 	cp.action= params ->action;
 	cp.filter_index = params->filter_index;
 
-	add_data_to_stream((uint8_t *)&cp.data, params->uuid, params->uuid_len);
+	memcpy(&cp.data, params->uuid, params->uuid_len);
 	cp_len += params->uuid_len;
 
-	add_data_to_stream(p+params->uuid_len, params->uuid_mask, params->uuid_len);
+	memcpy(p + params->uuid_len, params->uuid_mask, params->uuid_len);
 	cp_len += params->uuid_len;
 
 	ret = send_vsc_command(OCF_BCM_LE_SCAN_FILTER, (uint8_t *) &cp, cp_len,
@@ -435,15 +424,15 @@ gboolean adapter_le_manf_data_scan_filtering (adapter_le_manf_data_params_t *par
 	cp.filter_index = params->filter_index;
 
 	/* add company_id and data */
-	cp.data[data_len++] = (uint8_t) (params->company_id >> 8);
 	cp.data[data_len++] = (uint8_t) params->company_id;
+	cp.data[data_len++] = (uint8_t) (params->company_id >> 8);
 	DBG("");
 	memcpy(p + data_len, params->man_data, params->man_data_len);
 	data_len += params->man_data_len;
 
 	/* add company_id mask and data mask */
-	cp.data[data_len++] = (uint8_t) (params->company_id_mask >> 8);
 	cp.data[data_len++] = (uint8_t) params->company_id_mask;
+	cp.data[data_len++] = (uint8_t) (params->company_id_mask >> 8);
 	memcpy(p + data_len, params->man_data_mask, params->man_data_len);
 	data_len += params->man_data_len;
 
@@ -648,5 +637,98 @@ gboolean adapter_le_clear_scan_filter_data(int client_if, int filter_index)
 	return TRUE;
 }
 
-#endif /* __BROADCOM_PATCH__ */
+gboolean adapter_le_enable_offloading(gboolean enable)
+{
+	int ret;
+	adapter_le_vsc_cp_enable_rpa_offload cp;
+	adapter_le_vsc_rp_enable_rpa_offload rp;
+
+	DBG("");
+
+	memset(&cp, 0, sizeof(cp));
+	cp.subcode = SUB_CMD_LE_ENABLE_OFFLOADING;
+	cp.enable = enable;
+
+	ret = send_vsc_command(OCF_BCM_LE_RPA_OFFLOAD, (uint8_t *) &cp, sizeof(cp),
+					(uint8_t *) &rp, sizeof(rp));
+
+	if (ret < 0)
+		return FALSE;
+
+	if (HCI_SUCCESS != rp.status) {
+		DBG("Fail to send VSC :: sub[%x] - status [0x%02x]", rp.subcode, rp.status);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+gboolean adapter_le_add_irk_to_list(uint8_t *le_irk, const bdaddr_t *bdaddr, uint8_t bdaddr_type)
+{
+	int ret;
+	adapter_le_vsc_cp_add_irk_to_list cp;
+	adapter_le_vsc_rp_irk_to_list rp;
+
+	DBG("addr_type %d, irk %x %x %x...", bdaddr_type, le_irk[0], le_irk[1], le_irk[2]);
+
+	memset(&cp, 0, sizeof(cp));
+	cp.subcode = SUB_CMD_LE_ADD_IRK_TO_LIST;
+	memcpy(&cp.le_irk, le_irk, sizeof(cp.le_irk));
+	bacpy(&cp.bdaddr, bdaddr);
+
+	if (bdaddr_type == BDADDR_LE_PUBLIC)
+		cp.bdaddr_type = 0x0;
+	else
+		cp.bdaddr_type = 0x1;
+
+	ret = send_vsc_command(OCF_BCM_LE_RPA_OFFLOAD, (uint8_t *) &cp, sizeof(cp),
+					(uint8_t *) &rp, sizeof(rp));
+
+	if (ret < 0)
+		return FALSE;
+
+	if (HCI_SUCCESS != rp.status) {
+		DBG("Fail to send VSC :: sub[%x] - status [0x%02x]", rp.subcode, rp.status);
+		return FALSE;
+	}
+
+	DBG("Add IRK to VCS :: available space[%d]", rp.available_space);
+
+	return TRUE;
+}
+
+gboolean adapter_le_remove_irk_to_list(const bdaddr_t *bdaddr, uint8_t bdaddr_type)
+{
+	int ret;
+	adapter_le_vsc_cp_remove_irk_to_list cp;
+	adapter_le_vsc_rp_irk_to_list rp;
+
+	DBG("");
+
+	memset(&cp, 0, sizeof(cp));
+	cp.subcode = SUB_CMD_LE_REMOVE_IRK_TO_LIST;
+	bacpy(&cp.bdaddr, bdaddr);
+
+	if (bdaddr_type == BDADDR_LE_PUBLIC)
+		cp.bdaddr_type = 0x0;
+	else
+		cp.bdaddr_type = 0x1;
+
+	ret = send_vsc_command(OCF_BCM_LE_RPA_OFFLOAD, (uint8_t *) &cp, sizeof(cp),
+					(uint8_t *) &rp, sizeof(rp));
+
+	if (ret < 0)
+		return FALSE;
+
+	if (HCI_SUCCESS != rp.status) {
+		DBG("Fail to send VSC :: sub[%x] - status [0x%02x]", rp.subcode, rp.status);
+		return FALSE;
+	}
+
+	DBG("Remove IRK to VCS :: available space[%d]", rp.available_space);
+
+	return TRUE;
+}
+
+
 #endif /* __TIZEN_PATCH__ */
