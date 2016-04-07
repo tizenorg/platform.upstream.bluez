@@ -592,8 +592,12 @@ static hci_map commands_map[] = {
 	{ "LE Receiver Test",				228 },
 	{ "LE Transmitter Test",			229 },
 	{ "LE Test End",				230 },
+#ifdef __TIZEN_PATCH__
 	{ "LE Read Maximum Data Length",		231 },
 	{ "Reserved",					232 },
+#else
+	{ "Reserved",					231 },
+#endif
 
 	{ NULL }
 };
@@ -1084,6 +1088,38 @@ int hci_close_dev(int dd)
 
 /* HCI functions that require open device
  * dd - Device descriptor returned by hci_open_dev. */
+
+#ifdef __TIZEN_PATCH__
+int hci_send_data(int dd, uint16_t handle, uint8_t len, void *data)
+{
+	uint8_t type = HCI_ACLDATA_PKT;
+	hci_acl_hdr ac;
+	struct iovec iv[3];
+	int ivn;
+
+	ac.handle = htobs(handle);
+	ac.dlen= htobs(len);
+
+	iv[0].iov_base = &type;
+	iv[0].iov_len  = 1;
+	iv[1].iov_base = &ac;
+	iv[1].iov_len  = HCI_ACL_HDR_SIZE;
+	ivn = 2;
+
+	if (len) {
+		iv[2].iov_base = data;
+		iv[2].iov_len  = len;
+		ivn = 3;
+	}
+
+	while (writev(dd, iv, ivn) < 0) {
+		if (errno == EAGAIN || errno == EINTR)
+			continue;
+		return -1;
+	}
+	return 0;
+}
+#endif
 
 int hci_send_cmd(int dd, uint16_t ogf, uint16_t ocf, uint8_t plen, void *param)
 {

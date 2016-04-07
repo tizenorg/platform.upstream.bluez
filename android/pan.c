@@ -88,7 +88,7 @@ static int set_forward_delay(int sk)
 	struct ifreq ifr;
 
 	memset(&ifr, 0, sizeof(ifr));
-	strncpy(ifr.ifr_name, BNEP_BRIDGE, IFNAMSIZ);
+	strncpy(ifr.ifr_name, BNEP_BRIDGE, IFNAMSIZ - 1);
 	ifr.ifr_data = (char *) args;
 
 	if (ioctl(sk, SIOCDEVPRIVATE, &ifr) < 0) {
@@ -471,17 +471,11 @@ static gboolean nap_setup_cb(GIOChannel *chan, GIOCondition cond,
 
 	sk = g_io_channel_unix_get_fd(chan);
 
-#ifndef  __TIZEN_PATCH__
-	/* Reading BNEP_SETUP_CONNECTION_REQUEST_MSG */
-	n = read(sk, packet, sizeof(packet));
-#else
 	/*
 	 * BNEP_SETUP_CONNECTION_REQUEST_MSG should be read and left in case
 	 * of kernel setup connection msg handling.
 	 */
 	n = recv(sk, packet, sizeof(packet), MSG_PEEK);
-#endif
-
 	if (n  < 0) {
 		error("read(): %s(%d)", strerror(errno), errno);
 		goto failed;

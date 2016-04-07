@@ -172,6 +172,9 @@ unsigned int avctp_register_browsing_pdu_handler(struct avctp *session,
 gboolean avctp_unregister_browsing_pdu_handler(unsigned int id);
 
 int avctp_send_passthrough(struct avctp *session, uint8_t op);
+#ifdef __TIZEN_PATCH__
+int avctp_send_release_passthrough(struct avctp *session, uint8_t op);
+#endif
 int avctp_send_vendordep(struct avctp *session, uint8_t transaction,
 				uint8_t code, uint8_t subunit,
 				uint8_t *operands, size_t operand_count);

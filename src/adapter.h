@@ -68,6 +68,16 @@ struct oob_handler {
 	void *user_data;
 };
 
+#ifdef __TIZEN_PATCH__
+#ifdef TIZEN_WEARABLE
+typedef enum {
+	NONE_CHARGING,
+	WIRE_CHARGING,
+	WIRELESS_CHARGING,
+} charging_state_e;
+#endif	/* TIZEN_WEARABLE */
+#endif
+
 int adapter_init(void);
 void adapter_cleanup(void);
 void adapter_shutdown(void);
@@ -304,4 +314,7 @@ struct le_data_length_read_default_data_length_handler {
 
 int btd_adapter_le_set_data_length(struct btd_adapter *adapter, bdaddr_t *bdaddr,
 		uint16_t max_tx_octets, uint16_t max_tx_time);
+#ifdef TIZEN_WEARABLE
+charging_state_e get_charging_state(struct btd_adapter *adapter);
+#endif	/* TIZEN_WEARABLE */
 #endif

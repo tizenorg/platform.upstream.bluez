@@ -744,37 +744,14 @@ static struct gatt_device *create_device(const bdaddr_t *addr)
 	struct gatt_device *dev;
 
 	dev = new0(struct gatt_device, 1);
-	if (!dev)
-		return NULL;
 
 	bacpy(&dev->bdaddr, addr);
 
 	dev->services = queue_new();
-	if (!dev->services) {
-		error("gatt: Failed to allocate memory for client");
-		destroy_device(dev);
-		return NULL;
-	}
-
 	dev->autoconnect_apps = queue_new();
-	if (!dev->autoconnect_apps) {
-		error("gatt: Failed to allocate memory for client");
-		destroy_device(dev);
-		return NULL;
-	}
-
 	dev->pending_requests = queue_new();
-	if (!dev->pending_requests) {
-		error("gatt: Failed to allocate memory for client");
-		destroy_device(dev);
-		return NULL;
-	}
 
-	if (!queue_push_head(gatt_devices, dev)) {
-		error("gatt: Cannot push device to queue");
-		destroy_device(dev);
-		return NULL;
-	}
+	queue_push_head(gatt_devices, dev);
 
 	return device_ref(dev);
 }
@@ -978,6 +955,11 @@ static void notify_mtu_change(void *data, void *user_data)
 	if (conn->device != device)
 		return;
 
+	if (!conn->app) {
+		error("gatt: can't notify mtu - no app registered for conn");
+		return;
+	}
+
 	switch (conn->app->type) {
 	case GATT_CLIENT:
 		notify_client_mtu_change(conn, true);
@@ -1111,25 +1093,13 @@ static struct app_connection *create_connection(struct gatt_device *device,
 
 	/* Check if already connected */
 	new_conn = new0(struct app_connection, 1);
-	if (!new_conn)
-		return NULL;
 
 	/* Make connection id unique to connection record (app, device) pair */
 	new_conn->app = app;
 	new_conn->id = last_conn_id++;
-
 	new_conn->transactions = queue_new();
-	if (!new_conn->transactions) {
-		free(new_conn);
-		return NULL;
-	}
 
-	if (!queue_push_head(app_connections, new_conn)) {
-		error("gatt: Cannot push client on the client queue!?");
-		queue_destroy(new_conn->transactions, free);
-		free(new_conn);
-		return NULL;
-	}
+	queue_push_head(app_connections, new_conn);
 
 	new_conn->device = device_ref(device);
 
@@ -1142,33 +1112,15 @@ static struct service *create_service(uint8_t id, bool primary, char *uuid,
 	struct service *s;
 
 	s = new0(struct service, 1);
-	if (!s) {
-		error("gatt: Cannot allocate memory for gatt_primary");
+
+	if (bt_string_to_uuid(&s->id.uuid, uuid) < 0) {
+		error("gatt: Cannot convert string to uuid");
+		free(s);
 		return NULL;
 	}
 
 	s->chars = queue_new();
-	if (!s->chars) {
-		error("gatt: Cannot allocate memory for char cache");
-		free(s);
-		return NULL;
-	}
-
 	s->included = queue_new();
-	if (!s->included) {
-		error("gatt: Cannot allocate memory for included queue");
-		queue_destroy(s->chars, NULL);
-		free(s);
-		return NULL;
-	}
-
-	if (bt_string_to_uuid(&s->id.uuid, uuid) < 0) {
-		error("gatt: Cannot convert string to uuid");
-		queue_destroy(s->chars, NULL);
-		free(s);
-		return NULL;
-	}
-
 	s->id.instance = id;
 
 	/* Put primary service to our local list */
@@ -1251,12 +1203,7 @@ static void discover_srvc_by_uuid_cb(uint8_t status, GSList *ranges,
 			goto reply;
 		}
 
-		if (!queue_push_tail(dev->services, s)) {
-			error("gatt: Cannot push primary service to the list");
-			destroy_service(s);
-			gatt_status = GATT_FAILURE;
-			goto reply;
-		}
+		queue_push_tail(dev->services, s);
 
 		send_client_primary_notify(s, INT_TO_PTR(cb_data->conn->id));
 
@@ -1313,11 +1260,7 @@ static void discover_srvc_all_cb(uint8_t status, GSList *services,
 		if (!p)
 			continue;
 
-		if (!queue_push_tail(dev->services, p)) {
-			error("gatt: Cannot push primary service to the list");
-			free(p);
-			continue;
-		}
+		queue_push_tail(dev->services, p);
 
 		DBG("attr handle = 0x%04x, end grp handle = 0x%04x uuid: %s",
 			prim->range.start, prim->range.end, prim->uuid);
@@ -1407,11 +1350,6 @@ static guint search_dev_for_srvc(struct app_connection *conn, bt_uuid_t *uuid)
 	struct discover_srvc_data *cb_data;
 
 	cb_data = new0(struct discover_srvc_data, 1);
-	if (!cb_data) {
-		error("gatt: Cannot allocate cb data");
-		return 0;
-	}
-
 	cb_data->conn = conn;
 
 	if (uuid) {
@@ -1564,7 +1502,7 @@ static void connect_cb(GIOChannel *io, GError *gerr, gpointer user_data)
 	if (cid == ATT_CID)
 		mtu = ATT_DEFAULT_LE_MTU;
 
-	attrib = g_attrib_new(io, mtu);
+	attrib = g_attrib_new(io, mtu, true);
 	if (!attrib) {
 		error("gatt: unable to create new GAttrib instance");
 		device_set_state(dev, DEVICE_DISCONNECTED);
@@ -1642,7 +1580,6 @@ reply:
 			/*
 			 * There is no ongoing bonding, lets search for primary
 			 * services
-			 *
 			 */
 			search_dev_for_srvc(conn, NULL);
 	}
@@ -1653,7 +1590,7 @@ reply:
 									&data);
 
 	/* For BR/EDR notify about MTU since it is not negotiable*/
-	if (cid != ATT_CID)
+	if (cid != ATT_CID && status == GATT_SUCCESS)
 		queue_foreach(app_connections, notify_mtu_change, dev);
 
 	device_unref(dev);
@@ -1775,7 +1712,7 @@ done:
 		dev = create_device(addr);
 	}
 
-	if (!dev || dev->state != DEVICE_CONNECT_INIT)
+	if (dev->state != DEVICE_CONNECT_INIT)
 		return;
 
 	device_set_state(dev, DEVICE_CONNECT_READY);
@@ -1798,38 +1735,20 @@ static struct gatt_app *register_app(const uint8_t *uuid, gatt_type_t type)
 	}
 
 	app = new0(struct gatt_app, 1);
-	if (!app) {
-		error("gatt: Cannot allocate memory for registering app");
-		return NULL;
-	}
 
 	app->type = type;
 
-	if (app->type == GATT_CLIENT) {
+	if (app->type == GATT_CLIENT)
 		app->notifications = queue_new();
-		if (!app->notifications) {
-			error("gatt: couldn't allocate notifications queue");
-			destroy_gatt_app(app);
-			return NULL;
-		}
-	}
 
 	memcpy(app->uuid, uuid, sizeof(app->uuid));
 
 	app->id = application_id++;
 
-	if (!queue_push_head(gatt_apps, app)) {
-		error("gatt: Cannot push app on the list");
-		destroy_gatt_app(app);
-		return NULL;
-	}
+	queue_push_head(gatt_apps, app);
 
-	if ((app->type == GATT_SERVER) &&
-			!queue_push_tail(listen_apps, INT_TO_PTR(app->id))) {
-		error("gatt: Cannot push server on the list");
-		destroy_gatt_app(app);
-		return NULL;
-	}
+	if (app->type == GATT_SERVER)
+		queue_push_tail(listen_apps, INT_TO_PTR(app->id));
 
 	return app;
 }
@@ -1972,6 +1891,7 @@ static bool trigger_connection(struct app_connection *conn, bool direct)
 		if (direct)
 			return connect_le(conn->device) == 0;
 
+		bt_gatt_add_autoconnect(conn->app->id, &conn->device->bdaddr);
 		return auto_connect_le(conn->device);
 	case DEVICE_CONNECTED:
 		notify_app_connect_status(conn, GATT_SUCCESS);
@@ -2051,9 +1971,6 @@ static struct listen_data *create_listen_data(int32_t client_id, bool start)
 	struct listen_data *d;
 
 	d = new0(struct listen_data, 1);
-	if (!d)
-		return NULL;
-
 	d->client_id = client_id;
 	d->start = start;
 
@@ -2103,11 +2020,6 @@ static void handle_client_unregister(const void *buf, uint16_t len)
 
 	if (!advertising_cnt) {
 		data = create_listen_data(cmd->client_if, false);
-		if (!data) {
-			error("gatt: Could not allocate listen data");
-			status = HAL_STATUS_NOMEM;
-			goto reply;
-		}
 
 		if (!bt_le_set_advertising(data->start, set_advertising_cb,
 								data)) {
@@ -2139,11 +2051,8 @@ static uint8_t handle_connect(int32_t app_id, const bdaddr_t *addr, bool direct)
 		return HAL_STATUS_FAILED;
 
 	device = find_device_by_addr(addr);
-	if (!device) {
+	if (!device)
 		device = create_device(addr);
-		if (!device)
-			return HAL_STATUS_FAILED;
-	}
 
 	conn_match.device = device;
 	conn_match.app = app;
@@ -2224,12 +2133,7 @@ static void handle_client_listen(const void *buf, uint16_t len)
 			goto reply;
 		}
 
-		if (!queue_push_tail(listen_apps,
-						INT_TO_PTR(cmd->client_if))) {
-			error("gatt: Could not put client on listen queue");
-			status = HAL_STATUS_FAILED;
-			goto reply;
-		}
+		queue_push_tail(listen_apps, INT_TO_PTR(cmd->client_if));
 
 		/* If listen is already on just return success*/
 		if (advertising_cnt > 0) {
@@ -2259,11 +2163,6 @@ static void handle_client_listen(const void *buf, uint16_t len)
 	}
 
 	data = create_listen_data(cmd->client_if, cmd->start);
-	if (!data) {
-		error("gatt: Could not allocate listen data");
-		status = HAL_STATUS_NOMEM;
-		goto reply;
-	}
 
 	if (!bt_le_set_advertising(cmd->start, set_advertising_cb, data)) {
 		error("gatt: Could not set advertising");
@@ -2502,12 +2401,8 @@ static void get_included_cb(uint8_t status, GSList *included, void *user_data)
 		 * 1. on services queue together with primary service
 		 * 2. on special queue inside primary service
 		 */
-		if (!queue_push_tail(service->included, incl) ||
-			!queue_push_tail(conn->device->services, incl)) {
-			error("gatt: Cannot push incl service to the list");
-			destroy_service(incl);
-			continue;
-		}
+		queue_push_tail(service->included, incl);
+		queue_push_tail(conn->device->services, incl);
 	}
 
 	/*
@@ -2520,18 +2415,13 @@ failed:
 	send_client_incl_service_notify(&service->id, incl, conn->id);
 }
 
-static bool search_included_services(struct app_connection *conn,
+static void search_included_services(struct app_connection *conn,
 							struct service *service)
 {
 	struct get_included_data *data;
 	uint16_t start, end;
 
 	data = new0(struct get_included_data, 1);
-	if (!data) {
-		error("gatt: failed to allocate memory for included_data");
-		return false;
-	}
-
 	data->prim = service;
 	data->conn = conn;
 
@@ -2545,8 +2435,6 @@ static bool search_included_services(struct app_connection *conn,
 
 	gatt_find_included(conn->device->attrib, start, end, get_included_cb,
 									data);
-
-	return true;
 }
 
 static bool find_service(int32_t conn_id, struct element_id *service_id,
@@ -2605,13 +2493,9 @@ static void handle_client_get_included_service(const void *buf, uint16_t len)
 	}
 
 	if (!prim_service->incl_search_done) {
-		if (search_included_services(conn, prim_service)) {
-			status = HAL_STATUS_SUCCESS;
-			goto reply;
-		}
-
-		status = HAL_STATUS_FAILED;
-		goto notify;
+		search_included_services(conn, prim_service);
+		status = HAL_STATUS_SUCCESS;
+		goto reply;
 	}
 
 	/* Try to use cache here */
@@ -2691,17 +2575,7 @@ static void cache_all_srvc_chars(struct service *srvc, GSList *characteristics)
 		struct characteristic *ch;
 
 		ch = new0(struct characteristic, 1);
-		if (!ch) {
-			error("gatt: Error while caching characteristic");
-			continue;
-		}
-
 		ch->descriptors = queue_new();
-		if (!ch->descriptors) {
-			error("gatt: Error while caching characteristic");
-			free(ch);
-			continue;
-		}
 
 		memcpy(&ch->ch, characteristics->data, sizeof(ch->ch));
 
@@ -2727,10 +2601,7 @@ static void cache_all_srvc_chars(struct service *srvc, GSList *characteristics)
 		DBG("attr handle = 0x%04x, end handle = 0x%04x uuid: %s",
 				ch->ch.handle, ch->end_handle, ch->ch.uuid);
 
-		if (!queue_push_tail(srvc->chars, ch)) {
-			error("gatt: Error while caching characteristic");
-			destroy_characteristic(ch);
-		}
+		queue_push_tail(srvc->chars, ch);
 	}
 }
 
@@ -2792,12 +2663,6 @@ static void handle_client_get_characteristic(const void *buf, uint16_t len)
 		struct att_range range;
 
 		cb_data = new0(struct discover_char_data, 1);
-		if (!cb_data) {
-			error("gatt: Cannot allocate cb data");
-			status = HAL_STATUS_FAILED;
-			goto done;
-		}
-
 		cb_data->service = srvc;
 		cb_data->conn_id = conn->id;
 
@@ -2884,8 +2749,6 @@ static void gatt_discover_desc_cb(guint8 status, GSList *descs,
 		bt_uuid_t uuid;
 
 		descr = new0(struct descriptor, 1);
-		if (!descr)
-			continue;
 
 		bt_string_to_uuid(&uuid, desc->uuid);
 		bt_uuid_to_uuid128(&uuid, &descr->id.uuid);
@@ -2895,8 +2758,7 @@ static void gatt_discover_desc_cb(guint8 status, GSList *descs,
 
 		DBG("attr handle = 0x%04x, uuid: %s", desc->handle, desc->uuid);
 
-		if (!queue_push_tail(ch->descriptors, descr))
-			free(descr);
+		queue_push_tail(ch->descriptors, descr);
 	}
 
 reply:
@@ -2924,9 +2786,6 @@ static bool build_descr_cache(struct app_connection *conn, struct service *srvc,
 		return false;
 
 	cb_data = new0(struct discover_desc_data, 1);
-	if (!cb_data)
-		return false;
-
 	cb_data->conn = conn;
 	cb_data->srvc = srvc;
 	cb_data->ch = ch;
@@ -3028,9 +2887,6 @@ static struct char_op_data *create_char_op_data(int32_t conn_id,
 	struct char_op_data *d;
 
 	d = new0(struct char_op_data, 1);
-	if (!d)
-		return NULL;
-
 	d->conn_id = conn_id;
 	d->srvc_id = s_id;
 	d->char_id = ch_id;
@@ -3211,11 +3067,6 @@ static void handle_client_read_characteristic(const void *buf, uint16_t len)
 
 	cb_data = create_char_op_data(cmd->conn_id, &srvc->id, &ch->id,
 						cmd->srvc_id.is_primary);
-	if (!cb_data) {
-		error("gatt: Cannot allocate cb data");
-		status = HAL_STATUS_NOMEM;
-		goto failed;
-	}
 
 	if (!set_auth_type(conn->device, cmd->auth_req)) {
 		error("gatt: Failed to set security %d", cmd->auth_req);
@@ -3349,11 +3200,6 @@ static void handle_client_write_characteristic(const void *buf, uint16_t len)
 				cmd->write_type == GATT_WRITE_TYPE_DEFAULT) {
 		cb_data = create_char_op_data(cmd->conn_id, &srvc->id, &ch->id,
 						cmd->srvc_id.is_primary);
-		if (!cb_data) {
-			error("gatt: Cannot allocate call data");
-			status = HAL_STATUS_NOMEM;
-			goto failed;
-		}
 	}
 
 	if (!set_auth_type(conn->device, cmd->auth_req)) {
@@ -3502,9 +3348,6 @@ static struct desc_data *create_desc_data(int32_t conn_id,
 	struct desc_data *d;
 
 	d = new0(struct desc_data, 1);
-	if (!d)
-		return NULL;
-
 	d->conn_id = conn_id;
 	d->srvc_id = s_id;
 	d->char_id = ch_id;
@@ -3564,12 +3407,6 @@ static void handle_client_read_descriptor(const void *buf, uint16_t len)
 
 	cb_data = create_desc_data(conn_id, &srvc->id, &ch->id, &descr->id,
 								primary);
-	if (!cb_data) {
-		error("gatt: Read descr. could not allocate callback data");
-
-		status = HAL_STATUS_NOMEM;
-		goto failed;
-	}
 
 	if (!set_auth_type(conn->device, cmd->auth_req)) {
 		error("gatt: Failed to set security %d", cmd->auth_req);
@@ -3693,16 +3530,9 @@ static void handle_client_write_descriptor(const void *buf, uint16_t len)
 		goto failed;
 	}
 
-	if (cmd->write_type != GATT_WRITE_TYPE_NO_RESPONSE) {
+	if (cmd->write_type != GATT_WRITE_TYPE_NO_RESPONSE)
 		cb_data = create_desc_data(conn_id, &srvc->id, &ch->id,
 							&descr->id, primary);
-		if (!cb_data) {
-			error("gatt: Write descr. could not allocate cb_data");
-
-			status = HAL_STATUS_NOMEM;
-			goto failed;
-		}
-	}
 
 	if (!set_auth_type(conn->device, cmd->auth_req)) {
 		error("gatt: Failed to set security %d", cmd->auth_req);
@@ -3892,10 +3722,6 @@ static void handle_client_register_for_notification(const void *buf,
 	}
 
 	notification = new0(struct notification_data, 1);
-	if (!notification) {
-		status = HAL_STATUS_NOMEM;
-		goto failed;
-	}
 
 	memcpy(&notification->ch, &cmd->char_id, sizeof(notification->ch));
 	memcpy(&notification->service, &cmd->srvc_id,
@@ -3942,11 +3768,7 @@ static void handle_client_register_for_notification(const void *buf,
 	 */
 	notification->ref = 2;
 
-	if (!queue_push_tail(conn->app->notifications, notification)) {
-		unregister_notification(notification);
-		status = HAL_STATUS_FAILED;
-		goto failed;
-	}
+	queue_push_tail(conn->app->notifications, notification);
 
 	status = HAL_STATUS_SUCCESS;
 
@@ -4498,8 +4320,6 @@ static void send_dev_complete_response(struct gatt_device *device,
 		struct queue *temp;
 
 		temp = queue_new();
-		if (!temp)
-			goto done;
 
 		val = queue_pop_head(device->pending_requests);
 		if (!val) {
@@ -4562,8 +4382,6 @@ static void send_dev_complete_response(struct gatt_device *device,
 		struct queue *temp;
 
 		temp = queue_new();
-		if (!temp)
-			goto done;
 
 		val = queue_pop_head(device->pending_requests);
 		if (!val) {
@@ -4625,12 +4443,6 @@ static void send_dev_complete_response(struct gatt_device *device,
 			}
 
 			range = new0(struct att_range, 1);
-			if (!range) {
-				destroy_pending_request(val);
-				error = ATT_ECODE_INSUFF_RESOURCES;
-				break;
-			}
-
 			range->start = gatt_db_attribute_get_handle(
 								val->attrib);
 
@@ -4873,18 +4685,12 @@ static struct pending_trans_data *conn_add_transact(struct app_connection *conn,
 	static int32_t trans_id = 1;
 
 	transaction = new0(struct pending_trans_data, 1);
-	if (!transaction)
-		return NULL;
-
-	if (!queue_push_tail(conn->transactions, transaction)) {
-		free(transaction);
-		return NULL;
-	}
-
 	transaction->id = trans_id++;
 	transaction->opcode = opcode;
 	transaction->attrib = attrib;
 	transaction->serial_id = serial_id;
+
+	queue_push_tail(conn->transactions, transaction);
 
 	return transaction;
 }
@@ -4944,8 +4750,6 @@ static void read_cb(struct gatt_db_attribute *attrib, unsigned int id,
 
 	/* Store the request data, complete callback and transaction id */
 	transaction = conn_add_transact(conn, opcode, attrib, id);
-	if (!transaction)
-		goto failed;
 
 	bdaddr2android(&bdaddr, ev.bdaddr);
 	ev.conn_id = conn->id;
@@ -5004,8 +4808,6 @@ static void write_cb(struct gatt_db_attribute *attrib, unsigned int id,
 
 	/* Store the request data, complete callback and transaction id */
 	transaction = conn_add_transact(conn, opcode, attrib, id);
-	if (!transaction)
-		goto failed;
 
 	memset(ev, 0, sizeof(*ev));
 
@@ -5308,9 +5110,6 @@ static struct service_sdp *new_service_sdp_record(int32_t service_handle)
 		return NULL;
 
 	s = new0(struct service_sdp, 1);
-	if (!s)
-		return NULL;
-
 	s->service_handle = service_handle;
 	s->sdp_handle = add_sdp_record(&uuid, service_handle, end_handle, NULL);
 	if (!s->sdp_handle) {
@@ -5345,10 +5144,7 @@ static bool add_service_sdp_record(int32_t service_handle)
 	if (!s)
 		return false;
 
-	if (!queue_push_tail(services_sdp, s)) {
-		free_service_sdp_record(s);
-		return false;
-	}
+	queue_push_tail(services_sdp, s);
 
 	return true;
 }
@@ -6075,8 +5871,6 @@ static uint8_t read_by_type(const uint8_t *cmd, uint16_t cmd_len,
 		return ATT_ECODE_INVALID_HANDLE;
 
 	q = queue_new();
-	if (!q)
-		return ATT_ECODE_INSUFF_RESOURCES;
 
 	switch (cmd[0]) {
 	case ATT_OP_READ_BY_TYPE_REQ:
@@ -6099,17 +5893,8 @@ static uint8_t read_by_type(const uint8_t *cmd, uint16_t cmd_len,
 		struct gatt_db_attribute *attrib = queue_pop_head(q);
 
 		data = new0(struct pending_request, 1);
-		if (!data) {
-			queue_destroy(q, NULL);
-			return ATT_ECODE_INSUFF_RESOURCES;
-		}
-
 		data->attrib = attrib;
-		if (!queue_push_tail(device->pending_requests, data)) {
-			free(data);
-			queue_destroy(q, NULL);
-			return ATT_ECODE_INSUFF_RESOURCES;
-		}
+		queue_push_tail(device->pending_requests, data);
 	}
 
 	queue_destroy(q, NULL);
@@ -6151,15 +5936,9 @@ static uint8_t read_request(const uint8_t *cmd, uint16_t cmd_len,
 		return ATT_ECODE_INVALID_HANDLE;
 
 	data = new0(struct pending_request, 1);
-	if (!data)
-		return ATT_ECODE_INSUFF_RESOURCES;
-
 	data->offset = offset;
 	data->attrib = attrib;
-	if (!queue_push_tail(dev->pending_requests, data)) {
-		free(data);
-		return ATT_ECODE_INSUFF_RESOURCES;
-	}
+	queue_push_tail(dev->pending_requests, data);
 
 	process_dev_pending_requests(dev, cmd[0]);
 
@@ -6221,8 +6000,6 @@ static uint8_t find_info_handle(const uint8_t *cmd, uint16_t cmd_len,
 		return ATT_ECODE_INVALID_HANDLE;
 
 	q = queue_new();
-	if (!q)
-		return ATT_ECODE_UNLIKELY;
 
 	gatt_db_find_information(gatt_db, start, end, q);
 
@@ -6232,10 +6009,6 @@ static uint8_t find_info_handle(const uint8_t *cmd, uint16_t cmd_len,
 	}
 
 	temp = queue_new();
-	if (!temp) {
-		queue_destroy(q, NULL);
-		return ATT_ECODE_UNLIKELY;
-	}
 
 	attrib = queue_peek_head(q);
 	/* UUIDS can be only 128 bit and 16 bit */
@@ -6316,11 +6089,6 @@ static void find_by_type_request_cb(struct gatt_db_attribute *attrib,
 		return;
 
 	request_data = new0(struct pending_request, 1);
-	if (!request_data) {
-		find_data->error = ATT_ECODE_INSUFF_RESOURCES;
-		return;
-	}
-
 	request_data->filter_value = malloc0(find_data->search_vlen);
 	if (!request_data->filter_value) {
 		destroy_pending_request(request_data);
@@ -6333,11 +6101,7 @@ static void find_by_type_request_cb(struct gatt_db_attribute *attrib,
 	memcpy(request_data->filter_value, find_data->search_value,
 							find_data->search_vlen);
 
-	if (!queue_push_tail(find_data->device->pending_requests,
-							request_data)) {
-		destroy_pending_request(request_data);
-		find_data->error = ATT_ECODE_INSUFF_RESOURCES;
-	}
+	queue_push_tail(find_data->device->pending_requests, request_data);
 }
 
 static uint8_t find_by_type_request(const uint8_t *cmd, uint16_t cmd_len,
@@ -6506,7 +6270,6 @@ static void attribute_write_cb(struct gatt_db_attribute *attrib, int err,
 
 	data->attrib = attrib;
 	data->error = error;
-
 	data->completed = true;
 }
 
@@ -6540,15 +6303,9 @@ static uint8_t write_req_request(const uint8_t *cmd, uint16_t cmd_len,
 		return error;
 
 	data = new0(struct pending_request, 1);
-	if (!data)
-		return ATT_ECODE_INSUFF_RESOURCES;
-
 	data->attrib = attrib;
 
-	if (!queue_push_tail(dev->pending_requests, data)) {
-		free(data);
-		return ATT_ECODE_INSUFF_RESOURCES;
-	}
+	queue_push_tail(dev->pending_requests, data);
 
 	if (!gatt_db_attribute_write(attrib, 0, value, vlen, cmd[0],
 						g_attrib_get_att(dev->attrib),
@@ -6595,16 +6352,10 @@ static uint8_t write_prep_request(const uint8_t *cmd, uint16_t cmd_len,
 		return error;
 
 	data = new0(struct pending_request, 1);
-	if (!data)
-		return ATT_ECODE_INSUFF_RESOURCES;
-
 	data->attrib = attrib;
 	data->offset = offset;
 
-	if (!queue_push_tail(dev->pending_requests, data)) {
-		free(data);
-		return ATT_ECODE_INSUFF_RESOURCES;
-	}
+	queue_push_tail(dev->pending_requests, data);
 
 	data->value = g_memdup(value, vlen);
 	data->length = vlen;
@@ -6636,10 +6387,6 @@ static void send_server_write_execute_notify(void *data, void *user_data)
 	ev->conn_id = conn->id;
 
 	transaction = conn_add_transact(conn, ATT_OP_EXEC_WRITE_REQ, NULL, 0);
-	if (!transaction) {
-		conn->wait_execute_write = false;
-		return;
-	}
 
 	ev->trans_id = transaction->id;
 
@@ -6669,13 +6416,8 @@ static uint8_t write_execute_request(const uint8_t *cmd, uint16_t cmd_len,
 	ev.exec_write = value;
 
 	data = new0(struct pending_request, 1);
-	if (!data)
-		return ATT_ECODE_INSUFF_RESOURCES;
 
-	if (!queue_push_tail(dev->pending_requests, data)) {
-		free(data);
-		return ATT_ECODE_INSUFF_RESOURCES;
-	}
+	queue_push_tail(dev->pending_requests, data);
 
 	queue_foreach(app_connections, send_server_write_execute_notify, &ev);
 	send_dev_complete_response(dev, cmd[0]);
@@ -6769,10 +6511,6 @@ static void connect_confirm(GIOChannel *io, void *user_data)
 	dev = find_device_by_addr(&dst);
 	if (!dev) {
 		dev = create_device(&dst);
-		if (!dev) {
-			error("gatt: Could not create device");
-			goto drop;
-		}
 	} else {
 		if ((dev->state != DEVICE_DISCONNECTED) &&
 					!(dev->state == DEVICE_CONNECT_INIT &&
@@ -7222,9 +6960,8 @@ bool bt_gatt_register(struct ipc *ipc, const bdaddr_t *addr)
 	services_sdp = queue_new();
 	gatt_db = gatt_db_new();
 
-	if (!gatt_devices || !gatt_apps || !listen_apps || !app_connections ||
-						!services_sdp || !gatt_db) {
-		error("gatt: Failed to allocate memory for queues");
+	if (!gatt_db) {
+		error("gatt: Failed to allocate memory for database");
 		goto failed;
 	}
 

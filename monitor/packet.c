@@ -36,6 +36,7 @@
 #include <inttypes.h>
 #include <time.h>
 #include <sys/time.h>
+#include <sys/socket.h>
 
 #include "lib/bluetooth.h"
 #include "lib/hci.h"
@@ -52,6 +53,8 @@
 #include "l2cap.h"
 #include "control.h"
 #include "vendor.h"
+#include "intel.h"
+#include "broadcom.h"
 #include "packet.h"
 
 #define COLOR_INDEX_LABEL		COLOR_WHITE
@@ -59,6 +62,10 @@
 
 #define COLOR_NEW_INDEX			COLOR_GREEN
 #define COLOR_DEL_INDEX			COLOR_RED
+#define COLOR_OPEN_INDEX		COLOR_GREEN
+#define COLOR_CLOSE_INDEX		COLOR_RED
+#define COLOR_INDEX_INFO		COLOR_GREEN
+#define COLOR_VENDOR_DIAG		COLOR_YELLOW
 
 #define COLOR_HCI_COMMAND		COLOR_BLUE
 #define COLOR_HCI_COMMAND_UNKNOWN	COLOR_WHITE_BG
@@ -80,10 +87,13 @@
 #define COLOR_PHY_PACKET		COLOR_BLUE
 
 static time_t time_offset = ((time_t) -1);
+static int priority_level = BTSNOOP_PRIORITY_INFO;
 static unsigned long filter_mask = 0;
 static bool index_filter = false;
 static uint16_t index_number = 0;
 static uint16_t index_current = 0;
+
+#define UNKNOWN_MANUFACTURER 0xffff
 
 #define MAX_CONN 16
 
@@ -150,6 +160,17 @@ void packet_del_filter(unsigned long filter)
 	filter_mask &= ~filter;
 }
 
+void packet_set_priority(const char *priority)
+{
+	if (!priority)
+		return;
+
+	if (!strcasecmp(priority, "debug"))
+		priority_level = BTSNOOP_PRIORITY_DEBUG;
+	else
+		priority_level = atoi(priority);
+}
+
 void packet_select_index(uint16_t index)
 {
 	filter_mask &= ~PACKET_FILTER_SHOW_INDEX;
@@ -160,7 +181,8 @@ void packet_select_index(uint16_t index)
 
 #define print_space(x) printf("%*c", (x), ' ');
 
-static void print_packet(struct timeval *tv, uint16_t index, char ident,
+static void print_packet(struct timeval *tv, struct ucred *cred,
+					uint16_t index, char ident,
 					const char *color, const char *label,
 					const char *text, const char *extra)
 {
@@ -168,7 +190,8 @@ static void print_packet(struct timeval *tv, uint16_t index, char ident,
 	char line[256], ts_str[64];
 	int n, ts_len = 0, ts_pos = 0, len = 0, pos = 0;
 
-	if (filter_mask & PACKET_FILTER_SHOW_INDEX) {
+	if ((filter_mask & PACKET_FILTER_SHOW_INDEX) &&
+					index != HCI_DEV_NONE) {
 		if (use_color()) {
 			n = sprintf(ts_str + ts_pos, "%s", COLOR_INDEX_LABEL);
 			if (n > 0)
@@ -234,7 +257,7 @@ static void print_packet(struct timeval *tv, uint16_t index, char ident,
 			pos += n;
 	}
 
-	n = sprintf(line + pos, "%c %s", ident, label);
+	n = sprintf(line + pos, "%c %s", ident, label ? label : "");
 	if (n > 0) {
 		pos += n;
 		len += n;
@@ -244,7 +267,8 @@ static void print_packet(struct timeval *tv, uint16_t index, char ident,
 		int extra_len = extra ? strlen(extra) : 0;
 		int max_len = col - len - extra_len - ts_len - 3;
 
-		n = snprintf(line + pos, max_len + 1, ": %s", text);
+		n = snprintf(line + pos, max_len + 1, "%s%s",
+						label ? ": " : "", text);
 		if (n > max_len) {
 			line[pos + max_len - 1] = '.';
 			line[pos + max_len - 2] = '.';
@@ -1229,7 +1253,7 @@ static void print_link_policy(uint16_t link_policy)
 	if (policy & 0x0004)
 		print_field("  Enable Sniff Mode");
 	if (policy & 0x0008)
-		print_field("  Enabled Park State");
+		print_field("  Enable Park State");
 }
 
 static void print_air_mode(uint8_t mode)
@@ -2403,7 +2427,9 @@ static const struct {
 	uint16_t ver;
 	const char *str;
 } broadcom_uart_subversion_table[] = {
+	{ 0x210b, "BCM43142A0"	},	/* 001.001.011 */
 	{ 0x410e, "BCM43341B0"	},	/* 002.001.014 */
+	{ 0x4406, "BCM4324B3"	},	/* 002.004.006 */
 	{ }
 };
 
@@ -2433,6 +2459,7 @@ static void print_manufacturer_broadcom(uint16_t subversion, uint16_t revision)
 
 	switch ((rev & 0xf000) >> 12) {
 	case 0:
+	case 3:
 		for (i = 0; broadcom_uart_subversion_table[i].str; i++) {
 			if (broadcom_uart_subversion_table[i].ver == ver) {
 				str = broadcom_uart_subversion_table[i].str;
@@ -2453,11 +2480,11 @@ static void print_manufacturer_broadcom(uint16_t subversion, uint16_t revision)
 
 	if (str)
 		print_field("  Firmware: %3.3u.%3.3u.%3.3u (%s)",
-				(ver & 0x7000) >> 13,
+				(ver & 0xe000) >> 13,
 				(ver & 0x1f00) >> 8, ver & 0x00ff, str);
 	else
 		print_field("  Firmware: %3.3u.%3.3u.%3.3u",
-				(ver & 0x7000) >> 13,
+				(ver & 0xe000) >> 13,
 				(ver & 0x1f00) >> 8, ver & 0x00ff);
 
 	if (rev != 0xffff)
@@ -3557,6 +3584,53 @@ void packet_print_ad(const void *data, uint8_t size)
 	print_eir(data, size, true);
 }
 
+struct broadcast_message {
+	uint32_t frame_sync_instant;
+	uint16_t bluetooth_clock_phase;
+	uint16_t left_open_offset;
+	uint16_t left_close_offset;
+	uint16_t right_open_offset;
+	uint16_t right_close_offset;
+	uint16_t frame_sync_period;
+	uint8_t  frame_sync_period_fraction;
+} __attribute__ ((packed));
+
+static void print_3d_broadcast(const void *data, uint8_t size)
+{
+	const struct broadcast_message *msg = data;
+	uint32_t instant;
+	uint16_t left_open, left_close, right_open, right_close;
+	uint16_t phase, period;
+	uint8_t period_frac;
+	bool mode;
+
+	instant = le32_to_cpu(msg->frame_sync_instant);
+	mode = !!(instant & 0x40000000);
+	phase = le16_to_cpu(msg->bluetooth_clock_phase);
+	left_open = le16_to_cpu(msg->left_open_offset);
+	left_close = le16_to_cpu(msg->left_close_offset);
+	right_open = le16_to_cpu(msg->right_open_offset);
+	right_close = le16_to_cpu(msg->right_close_offset);
+	period = le16_to_cpu(msg->frame_sync_period);
+	period_frac = msg->frame_sync_period_fraction;
+
+	print_field("  Frame sync instant: 0x%8.8x", instant & 0x7fffffff);
+	print_field("  Video mode: %s (%d)", mode ? "Dual View" : "3D", mode);
+	print_field("  Bluetooth clock phase: %d usec (0x%4.4x)",
+						phase, phase);
+	print_field("  Left lense shutter open offset: %d usec (0x%4.4x)",
+						left_open, left_open);
+	print_field("  Left lense shutter close offset: %d usec (0x%4.4x)",
+						left_close, left_close);
+	print_field("  Right lense shutter open offset: %d usec (0x%4.4x)",
+						right_open, right_open);
+	print_field("  Right lense shutter close offset: %d usec (0x%4.4x)",
+						right_close, right_close);
+	print_field("  Frame sync period: %d.%d usec (0x%4.4x 0x%2.2x)",
+						period, period_frac * 256,
+						period, period_frac);
+}
+
 void packet_hexdump(const unsigned char *buf, uint16_t len)
 {
 	static const char hexdigits[] = "0123456789abcdef";
@@ -3596,7 +3670,8 @@ void packet_hexdump(const unsigned char *buf, uint16_t len)
 	}
 }
 
-void packet_control(struct timeval *tv, uint16_t index, uint16_t opcode,
+void packet_control(struct timeval *tv, struct ucred *cred,
+					uint16_t index, uint16_t opcode,
 					const void *data, uint16_t size)
 {
 	if (index_filter && index_number != index)
@@ -3614,17 +3689,23 @@ static int addr2str(const uint8_t *addr, char *str)
 #define MAX_INDEX 16
 
 struct index_data {
-	uint8_t type;
-	uint8_t bdaddr[6];
+	uint8_t  type;
+	uint8_t  bdaddr[6];
+	uint16_t manufacturer;
 };
 
 static struct index_data index_list[MAX_INDEX];
 
-void packet_monitor(struct timeval *tv, uint16_t index, uint16_t opcode,
+void packet_monitor(struct timeval *tv, struct ucred *cred,
+					uint16_t index, uint16_t opcode,
 					const void *data, uint16_t size)
 {
 	const struct btsnoop_opcode_new_index *ni;
+	const struct btsnoop_opcode_index_info *ii;
+	const struct btsnoop_opcode_user_logging *ul;
 	char str[18], extra_str[24];
+	uint16_t manufacturer;
+	const char *ident;
 
 	if (index_filter && index_number != index)
 		return;
@@ -3641,6 +3722,7 @@ void packet_monitor(struct timeval *tv, uint16_t index, uint16_t opcode,
 		if (index < MAX_INDEX) {
 			index_list[index].type = ni->type;
 			memcpy(index_list[index].bdaddr, ni->bdaddr, 6);
+			index_list[index].manufacturer = UNKNOWN_MANUFACTURER;
 		}
 
 		addr2str(ni->bdaddr, str);
@@ -3655,26 +3737,72 @@ void packet_monitor(struct timeval *tv, uint16_t index, uint16_t opcode,
 		packet_del_index(tv, index, str);
 		break;
 	case BTSNOOP_OPCODE_COMMAND_PKT:
-		packet_hci_command(tv, index, data, size);
+		packet_hci_command(tv, cred, index, data, size);
 		break;
 	case BTSNOOP_OPCODE_EVENT_PKT:
-		packet_hci_event(tv, index, data, size);
+		packet_hci_event(tv, cred, index, data, size);
 		break;
 	case BTSNOOP_OPCODE_ACL_TX_PKT:
-		packet_hci_acldata(tv, index, false, data, size);
+		packet_hci_acldata(tv, cred, index, false, data, size);
 		break;
 	case BTSNOOP_OPCODE_ACL_RX_PKT:
-		packet_hci_acldata(tv, index, true, data, size);
+		packet_hci_acldata(tv, cred, index, true, data, size);
 		break;
 	case BTSNOOP_OPCODE_SCO_TX_PKT:
-		packet_hci_scodata(tv, index, false, data, size);
+		packet_hci_scodata(tv, cred, index, false, data, size);
 		break;
 	case BTSNOOP_OPCODE_SCO_RX_PKT:
-		packet_hci_scodata(tv, index, true, data, size);
+		packet_hci_scodata(tv, cred, index, true, data, size);
+		break;
+	case BTSNOOP_OPCODE_OPEN_INDEX:
+		if (index < MAX_INDEX)
+			addr2str(index_list[index].bdaddr, str);
+		else
+			sprintf(str, "00:00:00:00:00:00");
+
+		packet_open_index(tv, index, str);
+		break;
+	case BTSNOOP_OPCODE_CLOSE_INDEX:
+		if (index < MAX_INDEX)
+			addr2str(index_list[index].bdaddr, str);
+		else
+			sprintf(str, "00:00:00:00:00:00");
+
+		packet_close_index(tv, index, str);
+		break;
+	case BTSNOOP_OPCODE_INDEX_INFO:
+		ii = data;
+		manufacturer = le16_to_cpu(ii->manufacturer);
+
+		if (index < MAX_INDEX) {
+			memcpy(index_list[index].bdaddr, ii->bdaddr, 6);
+			index_list[index].manufacturer = manufacturer;
+		}
+
+		addr2str(ii->bdaddr, str);
+		packet_index_info(tv, index, str, manufacturer);
+		break;
+	case BTSNOOP_OPCODE_VENDOR_DIAG:
+		if (index < MAX_INDEX)
+			manufacturer = index_list[index].manufacturer;
+		else
+			manufacturer = UNKNOWN_MANUFACTURER;
+
+		packet_vendor_diag(tv, index, manufacturer, data, size);
+		break;
+	case BTSNOOP_OPCODE_SYSTEM_NOTE:
+		packet_system_note(tv, cred, index, data);
+		break;
+	case BTSNOOP_OPCODE_USER_LOGGING:
+		ul = data;
+		ident = ul->ident_len ? data + sizeof(*ul) : NULL;
+
+		packet_user_logging(tv, cred, index, ul->priority, ident,
+					data + sizeof(*ul) + ul->ident_len);
 		break;
 	default:
 		sprintf(extra_str, "(code %d len %d)", opcode, size);
-		print_packet(tv, index, '*', COLOR_ERROR,
+		print_packet(tv, cred, index, '*', COLOR_ERROR,
 					"Unknown packet", NULL, extra_str);
 		packet_hexdump(data, size);
 		break;
@@ -3691,10 +3819,10 @@ void packet_simulator(struct timeval *tv, uint16_t frequency,
 
 	sprintf(str, "%u MHz", frequency);
 
-	print_packet(tv, 0, '*', COLOR_PHY_PACKET,
+	print_packet(tv, NULL, 0, '*', COLOR_PHY_PACKET,
 					"Physical packet:", NULL, str);
 
-	ll_packet(frequency, data, size);
+	ll_packet(frequency, data, size, false);
 }
 
 static void null_cmd(const void *data, uint8_t size)
@@ -5403,22 +5531,29 @@ static void write_ext_inquiry_length_cmd(const void *data, uint8_t size)
 static void read_local_version_rsp(const void *data, uint8_t size)
 {
 	const struct bt_hci_rsp_read_local_version *rsp = data;
+	uint16_t manufacturer;
 
 	print_status(rsp->status);
 	print_hci_version(rsp->hci_ver, rsp->hci_rev);
 
-	switch (index_list[index_current].type) {
-	case HCI_BREDR:
-		print_lmp_version(rsp->lmp_ver, rsp->lmp_subver);
-		break;
-	case HCI_AMP:
-		print_pal_version(rsp->lmp_ver, rsp->lmp_subver);
-		break;
+	manufacturer = le16_to_cpu(rsp->manufacturer);
+
+	if (index_current < MAX_INDEX) {
+		switch (index_list[index_current].type) {
+		case HCI_BREDR:
+			print_lmp_version(rsp->lmp_ver, rsp->lmp_subver);
+			break;
+		case HCI_AMP:
+			print_pal_version(rsp->lmp_ver, rsp->lmp_subver);
+			break;
+		}
+
+		index_list[index_current].manufacturer = manufacturer;
 	}
 
 	print_manufacturer(rsp->manufacturer);
 
-	switch (le16_to_cpu(rsp->manufacturer)) {
+	switch (manufacturer) {
 	case 15:
 		print_manufacturer_broadcom(rsp->lmp_subver, rsp->hci_rev);
 		break;
@@ -5498,6 +5633,9 @@ static void read_bd_addr_rsp(const void *data, uint8_t size)
 
 	print_status(rsp->status);
 	print_bdaddr(rsp->bdaddr);
+
+	if (index_current < MAX_INDEX)
+		memcpy(index_list[index_current].bdaddr, rsp->bdaddr, 6);
 }
 
 static void read_data_block_size_rsp(const void *data, uint8_t size)
@@ -6747,7 +6885,7 @@ static const struct opcode_data opcode_table[] = {
 				host_buffer_size_cmd, 7, true,
 				status_rsp, 1, true },
 	{ 0x0c35,  87, "Host Number of Completed Packets",
-				host_num_completed_packets_cmd, 1, true },
+				host_num_completed_packets_cmd, 5, false },
 	{ 0x0c36,  88, "Read Link Supervision Timeout",
 				read_link_supv_timeout_cmd, 2, true,
 				read_link_supv_timeout_rsp, 5, true },
@@ -7148,6 +7286,63 @@ static const char *get_supported_command(int bit)
 	return NULL;
 }
 
+static const char *current_vendor_str(void)
+{
+	uint16_t manufacturer;
+
+	if (index_current < MAX_INDEX)
+		manufacturer = index_list[index_current].manufacturer;
+	else
+		manufacturer = UNKNOWN_MANUFACTURER;
+
+	switch (manufacturer) {
+	case 2:
+		return "Intel";
+	case 15:
+		return "Broadcom";
+	}
+
+	return NULL;
+}
+
+static const struct vendor_ocf *current_vendor_ocf(uint16_t ocf)
+{
+	uint16_t manufacturer;
+
+	if (index_current < MAX_INDEX)
+		manufacturer = index_list[index_current].manufacturer;
+	else
+		manufacturer = UNKNOWN_MANUFACTURER;
+
+	switch (manufacturer) {
+	case 2:
+		return intel_vendor_ocf(ocf);
+	case 15:
+		return broadcom_vendor_ocf(ocf);
+	}
+
+	return NULL;
+}
+
+static const struct vendor_evt *current_vendor_evt(uint8_t evt)
+{
+	uint16_t manufacturer;
+
+	if (index_current < MAX_INDEX)
+		manufacturer = index_list[index_current].manufacturer;
+	else
+		manufacturer = UNKNOWN_MANUFACTURER;
+
+	switch (manufacturer) {
+	case 2:
+		return intel_vendor_evt(evt);
+	case 15:
+		return broadcom_vendor_evt(evt);
+	}
+
+	return NULL;
+}
+
 static void inquiry_complete_evt(const void *data, uint8_t size)
 {
 	const struct bt_hci_evt_inquiry_complete *evt = data;
@@ -7296,8 +7491,10 @@ static void cmd_complete_evt(const void *data, uint8_t size)
 	uint16_t opcode = le16_to_cpu(evt->opcode);
 	uint16_t ogf = cmd_opcode_ogf(opcode);
 	uint16_t ocf = cmd_opcode_ocf(opcode);
+	struct opcode_data vendor_data;
 	const struct opcode_data *opcode_data = NULL;
 	const char *opcode_color, *opcode_str;
+	char vendor_str[150];
 	int i;
 
 	for (i = 0; opcode_table[i].str; i++) {
@@ -7315,8 +7512,32 @@ static void cmd_complete_evt(const void *data, uint8_t size)
 		opcode_str = opcode_data->str;
 	} else {
 		if (ogf == 0x3f) {
-			opcode_color = COLOR_HCI_COMMAND;
-			opcode_str = "Vendor";
+			const struct vendor_ocf *vnd = current_vendor_ocf(ocf);
+
+			if (vnd) {
+				const char *str = current_vendor_str();
+
+				if (str) {
+					snprintf(vendor_str, sizeof(vendor_str),
+							"%s %s", str, vnd->str);
+					vendor_data.str = vendor_str;
+				} else
+					vendor_data.str = vnd->str;
+				vendor_data.rsp_func = vnd->rsp_func;
+				vendor_data.rsp_size = vnd->rsp_size;
+				vendor_data.rsp_fixed = vnd->rsp_fixed;
+
+				opcode_data = &vendor_data;
+
+				if (opcode_data->rsp_func)
+					opcode_color = COLOR_HCI_COMMAND;
+				else
+					opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
+				opcode_str = opcode_data->str;
+			} else {
+				opcode_color = COLOR_HCI_COMMAND;
+				opcode_str = "Vendor";
+			}
 		} else {
 			opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
 			opcode_str = "Unknown";
@@ -7368,6 +7589,7 @@ static void cmd_status_evt(const void *data, uint8_t size)
 	uint16_t ocf = cmd_opcode_ocf(opcode);
 	const struct opcode_data *opcode_data = NULL;
 	const char *opcode_color, *opcode_str;
+	char vendor_str[150];
 	int i;
 
 	for (i = 0; opcode_table[i].str; i++) {
@@ -7382,8 +7604,23 @@ static void cmd_status_evt(const void *data, uint8_t size)
 		opcode_str = opcode_data->str;
 	} else {
 		if (ogf == 0x3f) {
-			opcode_color = COLOR_HCI_COMMAND;
-			opcode_str = "Vendor";
+			const struct vendor_ocf *vnd = current_vendor_ocf(ocf);
+
+			if (vnd) {
+				const char *str = current_vendor_str();
+
+				if (str) {
+					snprintf(vendor_str, sizeof(vendor_str),
+							"%s %s", str, vnd->str);
+					opcode_str = vendor_str;
+				} else
+					opcode_str = vnd->str;
+
+				opcode_color = COLOR_HCI_COMMAND;
+			} else {
+				opcode_color = COLOR_HCI_COMMAND;
+				opcode_str = "Vendor";
+			}
 		} else {
 			opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
 			opcode_str = "Unknown";
@@ -7443,11 +7680,15 @@ static void mode_change_evt(const void *data, uint8_t size)
 
 static void return_link_keys_evt(const void *data, uint8_t size)
 {
-	uint8_t num_keys = *((uint8_t *) data);
+	const struct bt_hci_evt_return_link_keys *evt = data;
+	uint8_t i;
 
-	print_field("Num keys: %d", num_keys);
+	print_field("Num keys: %d", evt->num_keys);
 
-	packet_hexdump(data + 1, size - 1);
+	for (i = 0; i < evt->num_keys; i++) {
+		print_bdaddr(evt->keys + (i * 22));
+		print_link_key(evt->keys + (i * 22) + 6);
+	}
 }
 
 static void pin_code_request_evt(const void *data, uint8_t size)
@@ -7917,7 +8158,10 @@ static void slave_broadcast_receive_evt(const void *data, uint8_t size)
 		print_text(COLOR_ERROR, "invalid data size (%d != %d)",
 						size - 18, evt->length);
 
-	packet_hexdump(data + 18, size - 18);
+	if (evt->lt_addr == 0x01 && evt->length == 17)
+		print_3d_broadcast(data + 18, size - 18);
+	else
+		packet_hexdump(data + 18, size - 18);
 }
 
 static void slave_broadcast_timeout_evt(const void *data, uint8_t size)
@@ -8128,7 +8372,42 @@ struct subevent_data {
 	bool fixed;
 };
 
-static const struct subevent_data subevent_table[] = {
+static void print_subevent(const struct subevent_data *subevent_data,
+					const void *data, uint8_t size)
+{
+	const char *subevent_color;
+
+	if (subevent_data->func)
+		subevent_color = COLOR_HCI_EVENT;
+	else
+		subevent_color = COLOR_HCI_EVENT_UNKNOWN;
+
+	print_indent(6, subevent_color, "", subevent_data->str, COLOR_OFF,
+					" (0x%2.2x)", subevent_data->subevent);
+
+	if (!subevent_data->func) {
+		packet_hexdump(data, size);
+		return;
+	}
+
+	if (subevent_data->fixed) {
+		if (size != subevent_data->size) {
+			print_text(COLOR_ERROR, "invalid packet size");
+			packet_hexdump(data, size);
+			return;
+		}
+	} else {
+		if (size < subevent_data->size) {
+			print_text(COLOR_ERROR, "too short packet");
+			packet_hexdump(data, size);
+			return;
+		}
+	}
+
+	subevent_data->func(data, size);
+}
+
+static const struct subevent_data le_meta_event_table[] = {
 	{ 0x01, "LE Connection Complete",
 				le_conn_complete_evt, 18, true },
 	{ 0x02, "LE Advertising Report",
@@ -8157,56 +8436,58 @@ static const struct subevent_data subevent_table[] = {
 static void le_meta_event_evt(const void *data, uint8_t size)
 {
 	uint8_t subevent = *((const uint8_t *) data);
-	const struct subevent_data *subevent_data = NULL;
-	const char *subevent_color, *subevent_str;
+	struct subevent_data unknown;
+	const struct subevent_data *subevent_data = &unknown;
 	int i;
 
-	for (i = 0; subevent_table[i].str; i++) {
-		if (subevent_table[i].subevent == subevent) {
-			subevent_data = &subevent_table[i];
+	unknown.subevent = subevent;
+	unknown.str = "Unknown";
+	unknown.func = NULL;
+	unknown.size = 0;
+	unknown.fixed = true;
+
+	for (i = 0; le_meta_event_table[i].str; i++) {
+		if (le_meta_event_table[i].subevent == subevent) {
+			subevent_data = &le_meta_event_table[i];
 			break;
 		}
 	}
 
-	if (subevent_data) {
-		if (subevent_data->func)
-			subevent_color = COLOR_HCI_EVENT;
-		else
-			subevent_color = COLOR_HCI_EVENT_UNKNOWN;
-		subevent_str = subevent_data->str;
-	} else {
-		subevent_color = COLOR_HCI_EVENT_UNKNOWN;
-		subevent_str = "Unknown";
-	}
-
-	print_indent(6, subevent_color, "", subevent_str, COLOR_OFF,
-						" (0x%2.2x)", subevent);
-
-	if (!subevent_data || !subevent_data->func) {
-		packet_hexdump(data + 1, size - 1);
-		return;
-	}
-
-	if (subevent_data->fixed) {
-		if (size - 1 != subevent_data->size) {
-			print_text(COLOR_ERROR, "invalid packet size");
-			packet_hexdump(data + 1, size - 1);
-			return;
-		}
-	} else {
-		if (size - 1 < subevent_data->size) {
-			print_text(COLOR_ERROR, "too short packet");
-			packet_hexdump(data + 1, size - 1);
-			return;
-		}
-	}
-
-	subevent_data->func(data + 1, size - 1);
+	print_subevent(subevent_data, data + 1, size - 1);
 }
 
 static void vendor_evt(const void *data, uint8_t size)
 {
-	vendor_event(0xffff, data, size);
+	uint8_t subevent = *((const uint8_t *) data);
+	struct subevent_data vendor_data;
+	char vendor_str[150];
+	const struct vendor_evt *vnd = current_vendor_evt(subevent);
+
+	if (vnd) {
+		const char *str = current_vendor_str();
+
+		if (str) {
+			snprintf(vendor_str, sizeof(vendor_str),
+						"%s %s", str, vnd->str);
+			vendor_data.str = vendor_str;
+		} else
+			vendor_data.str = vnd->str;
+		vendor_data.subevent = subevent;
+		vendor_data.func = vnd->evt_func;
+		vendor_data.size = vnd->evt_size;
+		vendor_data.fixed = vnd->evt_fixed;
+
+		print_subevent(&vendor_data, data + 1, size - 1);
+	} else {
+		uint16_t manufacturer;
+
+		if (index_current < MAX_INDEX)
+			manufacturer = index_list[index_current].manufacturer;
+		else
+			manufacturer = UNKNOWN_MANUFACTURER;
+
+		vendor_event(manufacturer, data, size);
+	}
 }
 
 struct event_data {
@@ -8380,31 +8661,142 @@ void packet_new_index(struct timeval *tv, uint16_t index, const char *label,
 	sprintf(details, "(%s,%s,%s)", hci_typetostr(type),
 					hci_bustostr(bus), name);
 
-	print_packet(tv, index, '=', COLOR_NEW_INDEX, "New Index",
+	print_packet(tv, NULL, index, '=', COLOR_NEW_INDEX, "New Index",
 							label, details);
 }
 
 void packet_del_index(struct timeval *tv, uint16_t index, const char *label)
 {
-	print_packet(tv, index, '=', COLOR_DEL_INDEX, "Delete Index",
+	print_packet(tv, NULL, index, '=', COLOR_DEL_INDEX, "Delete Index",
 							label, NULL);
 }
 
-void packet_hci_command(struct timeval *tv, uint16_t index,
+void packet_open_index(struct timeval *tv, uint16_t index, const char *label)
+{
+	print_packet(tv, NULL, index, '=', COLOR_OPEN_INDEX, "Open Index",
+							label, NULL);
+}
+
+void packet_close_index(struct timeval *tv, uint16_t index, const char *label)
+{
+	print_packet(tv, NULL, index, '=', COLOR_CLOSE_INDEX, "Close Index",
+							label, NULL);
+}
+
+void packet_index_info(struct timeval *tv, uint16_t index, const char *label,
+							uint16_t manufacturer)
+{
+	char details[128];
+
+	sprintf(details, "(%s)", bt_compidtostr(manufacturer));
+
+	print_packet(tv, NULL, index, '=', COLOR_INDEX_INFO, "Index Info",
+							label, details);
+}
+
+void packet_vendor_diag(struct timeval *tv, uint16_t index,
+					uint16_t manufacturer,
+					const void *data, uint16_t size)
+{
+	char extra_str[16];
+
+	sprintf(extra_str, "(len %d)", size);
+
+	print_packet(tv, NULL, index, '=', COLOR_VENDOR_DIAG,
+					"Vendor Diagnostic", NULL, extra_str);
+
+	switch (manufacturer) {
+	case 15:
+		broadcom_lm_diag(data, size);
+		break;
+	default:
+		packet_hexdump(data, size);
+		break;
+	}
+}
+
+void packet_system_note(struct timeval *tv, struct ucred *cred,
+					uint16_t index, const void *message)
+{
+	print_packet(tv, cred, index, '=', COLOR_INFO, "Note", message, NULL);
+}
+
+void packet_user_logging(struct timeval *tv, struct ucred *cred,
+					uint16_t index, uint8_t priority,
+					const char *ident, const char *message)
+{
+	char pid_str[128];
+	const char *label;
+	const char *color;
+
+	if (priority > priority_level)
+		return;
+
+	switch (priority) {
+	case BTSNOOP_PRIORITY_ERR:
+		color = COLOR_ERROR;
+		break;
+	case BTSNOOP_PRIORITY_WARNING:
+		color = COLOR_WARN;
+		break;
+	case BTSNOOP_PRIORITY_INFO:
+		color = COLOR_INFO;
+		break;
+	case BTSNOOP_PRIORITY_DEBUG:
+		color = COLOR_DEBUG;
+		break;
+	default:
+		color = COLOR_WHITE_BG;
+		break;
+	}
+
+	if (cred) {
+		char *path = alloca(24);
+		char line[128];
+		FILE *fp;
+
+		snprintf(path, 23, "/proc/%u/comm", cred->pid);
+
+		fp = fopen(path, "re");
+		if (fp) {
+			if (fgets(line, sizeof(line), fp)) {
+				line[strcspn(line, "\r\n")] = '\0';
+				snprintf(pid_str, sizeof(pid_str), "%s[%u]",
+							line, cred->pid);
+			} else
+				snprintf(pid_str, sizeof(pid_str), "%u",
+								cred->pid);
+			fclose(fp);
+		} else
+			snprintf(pid_str, sizeof(pid_str), "%u", cred->pid);
+
+		label = pid_str;
+        } else {
+		if (ident)
+			label = ident;
+		else
+			label = "Message";
+	}
+
+	print_packet(tv, cred, index, '=', color, label, message, NULL);
+}
+
+void packet_hci_command(struct timeval *tv, struct ucred *cred, uint16_t index,
 					const void *data, uint16_t size)
 {
 	const hci_command_hdr *hdr = data;
 	uint16_t opcode = le16_to_cpu(hdr->opcode);
 	uint16_t ogf = cmd_opcode_ogf(opcode);
 	uint16_t ocf = cmd_opcode_ocf(opcode);
+	struct opcode_data vendor_data;
 	const struct opcode_data *opcode_data = NULL;
 	const char *opcode_color, *opcode_str;
-	char extra_str[25];
+	char extra_str[25], vendor_str[150];
 	int i;
 
 	if (size < HCI_COMMAND_HDR_SIZE) {
 		sprintf(extra_str, "(len %d)", size);
-		print_packet(tv, index, '*', COLOR_ERROR,
+		print_packet(tv, cred, index, '*', COLOR_ERROR,
 			"Malformed HCI Command packet", NULL, extra_str);
 		packet_hexdump(data, size);
 		return;
@@ -8428,8 +8820,32 @@ void packet_hci_command(struct timeval *tv, uint16_t index,
 		opcode_str = opcode_data->str;
 	} else {
 		if (ogf == 0x3f) {
-			opcode_color = COLOR_HCI_COMMAND;
-			opcode_str = "Vendor";
+			const struct vendor_ocf *vnd = current_vendor_ocf(ocf);
+
+			if (vnd) {
+				const char *str = current_vendor_str();
+
+				if (str) {
+					snprintf(vendor_str, sizeof(vendor_str),
+							"%s %s", str, vnd->str);
+					vendor_data.str = vendor_str;
+				} else
+					vendor_data.str = vnd->str;
+				vendor_data.cmd_func = vnd->cmd_func;
+				vendor_data.cmd_size = vnd->cmd_size;
+				vendor_data.cmd_fixed = vnd->cmd_fixed;
+
+				opcode_data = &vendor_data;
+
+				if (opcode_data->cmd_func)
+					opcode_color = COLOR_HCI_COMMAND;
+				else
+					opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
+				opcode_str = opcode_data->str;
+			} else {
+				opcode_color = COLOR_HCI_COMMAND;
+				opcode_str = "Vendor";
+			}
 		} else {
 			opcode_color = COLOR_HCI_COMMAND_UNKNOWN;
 			opcode_str = "Unknown";
@@ -8438,7 +8854,7 @@ void packet_hci_command(struct timeval *tv, uint16_t index,
 
 	sprintf(extra_str, "(0x%2.2x|0x%4.4x) plen %d", ogf, ocf, hdr->plen);
 
-	print_packet(tv, index, '<', opcode_color, "HCI Command",
+	print_packet(tv, cred, index, '<', opcode_color, "HCI Command",
 							opcode_str, extra_str);
 
 	if (!opcode_data || !opcode_data->cmd_func) {
@@ -8470,7 +8886,7 @@ void packet_hci_command(struct timeval *tv, uint16_t index,
 	opcode_data->cmd_func(data, hdr->plen);
 }
 
-void packet_hci_event(struct timeval *tv, uint16_t index,
+void packet_hci_event(struct timeval *tv, struct ucred *cred, uint16_t index,
 					const void *data, uint16_t size)
 {
 	const hci_event_hdr *hdr = data;
@@ -8481,7 +8897,7 @@ void packet_hci_event(struct timeval *tv, uint16_t index,
 
 	if (size < HCI_EVENT_HDR_SIZE) {
 		sprintf(extra_str, "(len %d)", size);
-		print_packet(tv, index, '*', COLOR_ERROR,
+		print_packet(tv, cred, index, '*', COLOR_ERROR,
 			"Malformed HCI Event packet", NULL, extra_str);
 		packet_hexdump(data, size);
 		return;
@@ -8510,7 +8926,7 @@ void packet_hci_event(struct timeval *tv, uint16_t index,
 
 	sprintf(extra_str, "(0x%2.2x) plen %d", hdr->evt, hdr->plen);
 
-	print_packet(tv, index, '>', event_color, "HCI Event",
+	print_packet(tv, cred, index, '>', event_color, "HCI Event",
 						event_str, extra_str);
 
 	if (!event_data || !event_data->func) {
@@ -8542,8 +8958,8 @@ void packet_hci_event(struct timeval *tv, uint16_t index,
 	event_data->func(data, hdr->plen);
 }
 
-void packet_hci_acldata(struct timeval *tv, uint16_t index, bool in,
-					const void *data, uint16_t size)
+void packet_hci_acldata(struct timeval *tv, struct ucred *cred, uint16_t index,
+				bool in, const void *data, uint16_t size)
 {
 	const struct bt_hci_acl_hdr *hdr = data;
 	uint16_t handle = le16_to_cpu(hdr->handle);
@@ -8553,10 +8969,10 @@ void packet_hci_acldata(struct timeval *tv, uint16_t index, bool in,
 
 	if (size < sizeof(*hdr)) {
 		if (in)
-			print_packet(tv, index, '*', COLOR_ERROR,
+			print_packet(tv, cred, index, '*', COLOR_ERROR,
 				"Malformed ACL Data RX packet", NULL, NULL);
 		else
-			print_packet(tv, index, '*', COLOR_ERROR,
+			print_packet(tv, cred, index, '*', COLOR_ERROR,
 				"Malformed ACL Data TX packet", NULL, NULL);
 		packet_hexdump(data, size);
 		return;
@@ -8568,7 +8984,7 @@ void packet_hci_acldata(struct timeval *tv, uint16_t index, bool in,
 	sprintf(handle_str, "Handle %d", acl_handle(handle));
 	sprintf(extra_str, "flags 0x%2.2x dlen %d", flags, dlen);
 
-	print_packet(tv, index, in ? '>' : '<', COLOR_HCI_ACLDATA,
+	print_packet(tv, cred, index, in ? '>' : '<', COLOR_HCI_ACLDATA,
 				in ? "ACL Data RX" : "ACL Data TX",
 						handle_str, extra_str);
 
@@ -8585,8 +9001,8 @@ void packet_hci_acldata(struct timeval *tv, uint16_t index, bool in,
 	l2cap_packet(index, in, acl_handle(handle), flags, data, size);
 }
 
-void packet_hci_scodata(struct timeval *tv, uint16_t index, bool in,
-					const void *data, uint16_t size)
+void packet_hci_scodata(struct timeval *tv, struct ucred *cred, uint16_t index,
+				bool in, const void *data, uint16_t size)
 {
 	const hci_sco_hdr *hdr = data;
 	uint16_t handle = le16_to_cpu(hdr->handle);
@@ -8595,10 +9011,10 @@ void packet_hci_scodata(struct timeval *tv, uint16_t index, bool in,
 
 	if (size < HCI_SCO_HDR_SIZE) {
 		if (in)
-			print_packet(tv, index, '*', COLOR_ERROR,
+			print_packet(tv, cred, index, '*', COLOR_ERROR,
 				"Malformed SCO Data RX packet", NULL, NULL);
 		else
-			print_packet(tv, index, '*', COLOR_ERROR,
+			print_packet(tv, cred, index, '*', COLOR_ERROR,
 				"Malformed SCO Data TX packet", NULL, NULL);
 		packet_hexdump(data, size);
 		return;
@@ -8610,7 +9026,7 @@ void packet_hci_scodata(struct timeval *tv, uint16_t index, bool in,
 	sprintf(handle_str, "Handle %d", acl_handle(handle));
 	sprintf(extra_str, "flags 0x%2.2x dlen %d", flags, hdr->dlen);
 
-	print_packet(tv, index, in ? '>' : '<', COLOR_HCI_SCODATA,
+	print_packet(tv, cred, index, in ? '>' : '<', COLOR_HCI_SCODATA,
 				in ? "SCO Data RX" : "SCO Data TX",
 						handle_str, extra_str);
 
@@ -8650,10 +9066,10 @@ void packet_todo(void)
 		printf("\t%s\n", event_table[i].str);
 	}
 
-	for (i = 0; subevent_table[i].str; i++) {
-		if (subevent_table[i].func)
+	for (i = 0; le_meta_event_table[i].str; i++) {
+		if (le_meta_event_table[i].func)
 			continue;
 
-		printf("\t%s\n", subevent_table[i].str);
+		printf("\t%s\n", le_meta_event_table[i].str);
 	}
 }

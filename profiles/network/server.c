@@ -419,16 +419,11 @@ static gboolean bnep_setup(GIOChannel *chan,
 
 	sk = g_io_channel_unix_get_fd(chan);
 
-#ifdef  __TIZEN_PATCH__
 	/*
 	 * BNEP_SETUP_CONNECTION_REQUEST_MSG should be read and left in case
 	 * of kernel setup connection msg handling.
 	 */
 	n = recv(sk, packet, sizeof(packet), MSG_PEEK);
-#else
-	/* Reading BNEP_SETUP_CONNECTION_REQUEST_MSG */
-	n = read(sk, packet, sizeof(packet));
-#endif
 	if (n < 0) {
 		error("read(): %s(%d)", strerror(errno), errno);
 		return FALSE;

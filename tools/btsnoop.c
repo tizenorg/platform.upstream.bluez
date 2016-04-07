@@ -34,8 +34,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#ifdef __TIZEN_PATCH__
 #include <time.h>
 #include <sys/time.h>
+#endif
 #include <getopt.h>
 #include <endian.h>
 #include <arpa/inet.h>
@@ -273,7 +275,7 @@ close_input:
 	for (i = 0; i < num_input; i++)
 		close(input_fd[i]);
 }
-
+#ifdef __TIZEN_PATCH__
 #define BT_SNOOP_TYPE_HCI_PREFIX "btsnoop_type_hci"
 
 static void command_split(const char *input)
@@ -294,8 +296,8 @@ static void command_split(const char *input)
 	if (!btsnoop_read_file)
 		return;
 
-	type = btsnoop_get_type(btsnoop_read_file);
-	if (type != BTSNOOP_TYPE_MONITOR) {
+	type = btsnoop_get_format(btsnoop_read_file);
+	if (type != BTSNOOP_FORMAT_MONITOR) {
 		fprintf(stderr, "unsupported link data type %u\n", type);
 		btsnoop_unref(btsnoop_read_file);
 		return;
@@ -325,7 +327,7 @@ next_packet:
 							write_file_name);
 
 		btsnoop_write_file[index] = btsnoop_create(write_file_name,
-						BTSNOOP_TYPE_HCI, -1, -1);
+				BTSNOOP_FORMAT_HCI, -1, -1);
 		if (!btsnoop_write_file[index])
 			goto close_files;
 
@@ -337,8 +339,30 @@ next_packet:
 		btsnoop_write_file[index] = NULL;
 		break;
 	default:
+		if (!btsnoop_write_file[index]) {
+			t = tv.tv_sec;
+			localtime_r(&t, &tm);
+
+			if (max_index < index)
+				max_index = index;
+
+			sprintf(write_file_name, "%s%d_%02d:%02d:%02d.%06lu.log",
+					BT_SNOOP_TYPE_HCI_PREFIX, index,
+					tm.tm_hour, tm.tm_min,
+					tm.tm_sec, tv.tv_usec);
+
+			printf("New Index %d would be saved in %s\n", index,
+					write_file_name);
+
+			btsnoop_write_file[index] = btsnoop_create(write_file_name,
+					BTSNOOP_FORMAT_HCI, -1, -1);
+		}
+
+		if (!btsnoop_write_file[index])
+			goto close_files;
 		btsnoop_write_hci(btsnoop_write_file[index], &tv, index,
 							opcode, buf, pktlen);
+		break;
 	}
 	num_packets++;
 
@@ -353,6 +377,7 @@ close_files:
 	printf("BT Snoop data link transfer is completed for %lu packets\n",
 								num_packets);
 }
+#endif
 
 static void command_extract_eir(const char *input)
 {
@@ -600,7 +625,9 @@ static void usage(void)
 	printf("commands:\n"
 		"\t-m, --merge <output>   Merge multiple btsnoop files\n"
 		"\t-e, --extract <input>  Extract data from btsnoop file\n"
+#ifdef __TIZEN_PATCH__
 		"\t-s, --split <input>    Split btmon file into legacy btsnoop file(s)\n"
+#endif
 		"\t-h, --help             Show help options\n");
 }
 
@@ -608,13 +635,19 @@ static const struct option main_options[] = {
 	{ "merge",   required_argument, NULL, 'm' },
 	{ "extract", required_argument, NULL, 'e' },
 	{ "type",    required_argument, NULL, 't' },
+#ifdef __TIZEN_PATCH__
 	{ "split",   required_argument, NULL, 's' },
+#endif
 	{ "version", no_argument,       NULL, 'v' },
 	{ "help",    no_argument,       NULL, 'h' },
 	{ }
 };
 
+#ifdef __TIZEN_PATCH__
 enum { INVALID, MERGE, EXTRACT, SPLIT };
+#else
+enum { INVALID, MERGE, EXTRACT };
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -625,8 +658,11 @@ int main(int argc, char *argv[])
 
 	for (;;) {
 		int opt;
-
+#ifdef __TIZEN_PATCH__
 		opt = getopt_long(argc, argv, "m:e:s:t:vh", main_options, NULL);
+#else
+		opt = getopt_long(argc, argv, "m:e:t:vh", main_options, NULL);
+#endif
 		if (opt < 0)
 			break;
 
@@ -639,9 +675,11 @@ int main(int argc, char *argv[])
 			command = EXTRACT;
 			input_path = optarg;
 			break;
+#ifdef __TIZEN_PATCH__
 		case 's':
 			command = SPLIT;
 			input_path = optarg;
+#endif
 		case 't':
 			type = optarg;
 			break;
@@ -687,6 +725,7 @@ int main(int argc, char *argv[])
 			fprintf(stderr, "extract type not supported\n");
 		break;
 
+#ifdef __TIZEN_PATCH__
 	case SPLIT:
 		if (argc - optind > 0) {
 			fprintf(stderr, "extra arguments not allowed\n");
@@ -695,7 +734,7 @@ int main(int argc, char *argv[])
 
 		command_split(input_path);
 		break;
-
+#endif
 	default:
 		usage();
 		return EXIT_FAILURE;

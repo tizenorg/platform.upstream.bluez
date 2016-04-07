@@ -235,6 +235,30 @@ Properties	string Address [readonly]
 			Received Signal Strength Indicator of the remote
 			device (inquiry or advertising).
 
+		int16 TxPower [readonly, optional, experimental]
+
+			Advertised transmitted power level (inquiry or
+			advertising).
+
+		dict ManufacturerData [readonly, optional]
+
+			Manufacturer specific advertisement data. Keys are
+			16 bits Manufacturer ID followed by its byte array
+			value.
+
+		dict ServiceData [readonly, optional]
+
+			Service advertisement data. Keys are the UUIDs in
+			string format followed by its byte array value.
+
+		array{object} GattServices [readonly, optional]
+
+			List of GATT service object paths. Each referenced
+			object exports the org.bluez.GattService1 interface and
+			represents a remote GATT service. This property will be
+			updated once all remote GATT services of this device
+			have been discovered and exported over D-Bus.
+
 #ifdef __TIZEN_PATCH__
 		boolean GattConnected [readonly]
 

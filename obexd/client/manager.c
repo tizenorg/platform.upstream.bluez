@@ -172,6 +172,7 @@ static struct obc_session *find_session(const char *path)
 #endif
 	for (l = sessions; l; l = l->next) {
 		struct obc_session *session = l->data;
+
 		if (g_strcmp0(obc_session_get_path(session), path) == 0)
 			return session;
 	}
