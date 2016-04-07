@@ -473,15 +473,18 @@ void sprd_get_pskey(BT_PSKEY_CONFIG_T * pskey_t) {
 	memcpy(pskey_t, &pskey, sizeof(BT_PSKEY_CONFIG_T));
 }
 
+#define HCI_HDR_LEN	3
 
 int sprd_config_init(int fd, char *bdaddr, struct termios *ti)
 {
 	int ret = 0,r=0;
 	unsigned char resp[30] = {0};
 	BT_PSKEY_CONFIG_T bt_para_tmp;
-	uint8 data_tmp[5] = {'a'};
+	uint8 data_tmp[30] = {'a'};
 	static int index = 0;
 	uint8 *buf = NULL;
+	uint8 hci_len = 0;
+	uint8 is_expected_hci_evt = 0;
 #if 0
 	char buffer;
 	int btsleep_fd_sprd = -1;
@@ -563,17 +566,27 @@ int sprd_config_init(int fd, char *bdaddr, struct termios *ti)
 			++index;
 		}
 
-/*		if ((data_tmp[0] == 0x04) && (data_tmp[1] == 0x6f)&& (data_tmp[2] == 0x01) &&(data_tmp[3] == 0x0)){*/
-		if ((data_tmp[0] == 0x04) && (data_tmp[1] == 0xe)&& (data_tmp[2] == 0xa) &&(data_tmp[3] == 0x1)){
-			fprintf(stderr, "read response ok \n");
+		if (index >= 6) {
+			hci_len = data_tmp[2]+HCI_HDR_LEN;
 
-			if (index == 12) {
+			if ((data_tmp[0] == 0x04) && (data_tmp[1] == 0xe) &&
+				(data_tmp[2] == 0xa) &&(data_tmp[3] == 0x1) &&
+				(data_tmp[4] == 0xa0) &&(data_tmp[5] == 0xfc)) {
+					LOGD("read response ok \n");
+					is_expected_hci_evt = 1;
+				} else {
+					LOGD("this is not what we expect HCI evt\n");
+					is_expected_hci_evt = 0;
+				}
+
+			if (index == hci_len) {
 				index = 0;
 				memset(data_tmp, 0x0, sizeof(data_tmp));
-				break;
+
+				if(is_expected_hci_evt)
+					break;
 			}
 		}
 	}
-
 	return 0;
 }

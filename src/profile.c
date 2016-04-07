@@ -511,6 +511,7 @@
 #endif
 
 
+#ifdef __TIZEN_PATCH__
 #define PSE_RECORD							\
 	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
 	<record>							\
@@ -552,10 +553,60 @@
 		<attribute id=\"0x0314\">				\
 			<uint8 value=\""PBAP_ACCESS"\"/>				\
 		</attribute>						\
+		<attribute id=\"0x0200\">				\
+			<uint16 value=\"%u\" name=\"psm\"/>		\
+		</attribute>						\
+	</record>"
+#else
+#define PSE_RECORD							\
+	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
+	<record>							\
+		<attribute id=\"0x0001\">				\
+			<sequence>					\
+				<uuid value=\"0x112f\" />		\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0004\">				\
+			<sequence>					\
+				<sequence>				\
+					<uuid value=\"0x0100\" />	\
+				</sequence>				\
+				<sequence>				\
+					<uuid value=\"0x0003\" />	\
+					<uint8 value=\"0x%02x\" />	\
+				</sequence>				\
+				<sequence>				\
+					<uuid value=\"0x0008\"/>	\
+				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0005\">				\
+			<sequence>					\
+				<uuid value=\"0x1002\" />		\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0009\">				\
+			<sequence>					\
+				<sequence>				\
+					<uuid value=\"0x1130\" />	\
+					<uint16 value=\"0x%04x\" />	\
+				</sequence>				\
+			</sequence>					\
+		</attribute>						\
+		<attribute id=\"0x0100\">				\
+			<text value=\"%s\" />				\
+		</attribute>						\
+		<attribute id=\"0x0314\">				\
+			<uint8 value=\"0x01\"/>				\
+		</attribute>						\
 		<attribute id=\"0x0317\">				\
 			<uint32 value=\"0x00000003\"/>			\
 		</attribute>						\
+		<attribute id=\"0x0200\">				\
+			<uint16 value=\"%u\" name=\"psm\"/>		\
+		</attribute>						\
 	</record>"
+#endif
 
 #define MAS_RECORD							\
 	"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>			\
@@ -604,6 +655,9 @@
 		<attribute id=\"0x0317\">				\
 			<uint32 value=\"0x0000007f\"/>			\
 		</attribute>						\
+		<attribute id=\"0x0200\">				\
+			<uint16 value=\"%u\" name=\"psm\"/>		\
+		</attribute>						\
 	</record>"
 
 #define MNS_RECORD							\
@@ -644,11 +698,11 @@
 		<attribute id=\"0x0100\">				\
 			<text value=\"%s\"/>				\
 		</attribute>						\
-		<attribute id=\"0x0200\">				\
-			<uint16 value=\"%u\" name=\"psm\"/>		\
-		</attribute>						\
 		<attribute id=\"0x0317\">				\
 			<uint32 value=\"0x0000007f\"/>			\
+		</attribute>						\
+		<attribute id=\"0x0200\">				\
+			<uint16 value=\"%u\" name=\"psm\"/>		\
 		</attribute>						\
 	</record>"
 
@@ -965,10 +1019,10 @@ static struct ext_profile *find_ext_profile(const char *owner,
 	for (l = ext_profiles; l != NULL; l = g_slist_next(l)) {
 		struct ext_profile *ext = l->data;
 
-		if (!g_str_equal(ext->owner, owner))
+		if (g_strcmp0(ext->owner, owner))
 			continue;
 
-		if (g_str_equal(ext->path, path))
+		if (!g_strcmp0(ext->path, path))
 			return ext;
 	}
 
@@ -1032,8 +1086,13 @@ static gboolean ext_io_disconnected(GIOChannel *io, GIOCondition cond,
 
 	DBG("%s disconnected from %s", ext->name, addr);
 drop:
-	if (conn->service)
-		btd_service_disconnecting_complete(conn->service, 0);
+	if (conn->service) {
+		if (btd_service_get_state(conn->service) ==
+						BTD_SERVICE_STATE_CONNECTING)
+			btd_service_connecting_complete(conn->service, -EIO);
+		else
+			btd_service_disconnecting_complete(conn->service, 0);
+	}
 
 	ext->conns = g_slist_remove(ext->conns, conn);
 	ext_io_destroy(conn);
@@ -1046,8 +1105,6 @@ static void new_conn_reply(DBusPendingCall *call, void *user_data)
 	struct ext_profile *ext = conn->ext;
 	DBusMessage *reply = dbus_pending_call_steal_reply(call);
 	DBusError err;
-
-	DBG("+");
 
 	dbus_error_init(&err);
 	dbus_set_error_from_message(&err, reply);
@@ -1185,7 +1242,7 @@ static bool send_new_connection(struct ext_profile *ext, struct ext_io *conn)
 	const sdp_record_t *rec;
 	const char *path;
 	int fd;
-	DBG("Sending New Connection owner %s path %s", ext->owner, ext->path);
+
 	msg = dbus_message_new_method_call(ext->owner, ext->path,
 							"org.bluez.Profile1",
 							"NewConnection");
@@ -1300,6 +1357,7 @@ static void ext_connect(GIOChannel *io, GError *err, gpointer user_data)
 		conn->io_id = g_io_add_watch(io, cond, ext_io_disconnected,
 									conn);
 	}
+
 #ifdef TIZEN_BT_HID_DEVICE_ENABLE
 	if (g_strcmp0(ext->uuid, HID_UUID) == 0 && ext->local_connect == TRUE) {
 		GSList *l = NULL;
@@ -1325,8 +1383,11 @@ static void ext_connect(GIOChannel *io, GError *err, gpointer user_data)
 		}
 	}
 #endif
-	if (send_new_connection(ext, conn))
-		return;
+
+	if (conn->service && service_accept(conn->service) == 0) {
+		if (send_new_connection(ext, conn))
+			return;
+	}
 
 drop:
 	if (conn->service)
@@ -2206,15 +2267,29 @@ static char *get_pce_record(struct ext_profile *ext, struct ext_io *l2cap,
 static char *get_pse_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
 {
-	return g_strdup_printf(PSE_RECORD, rfcomm->chan, ext->version,
-								ext->name);
+	uint16_t psm = 0;
+	uint8_t chan = 0;
+
+	if (l2cap)
+		psm = l2cap->psm;
+	if (rfcomm)
+		chan = rfcomm->chan;
+
+	return g_strdup_printf(PSE_RECORD, chan, ext->version, ext->name, psm);
 }
 
 static char *get_mas_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
 {
-	return g_strdup_printf(MAS_RECORD, rfcomm->chan, ext->version,
-								ext->name);
+	uint16_t psm = 0;
+	uint8_t chan = 0;
+
+	if (l2cap)
+		psm = l2cap->psm;
+	if (rfcomm)
+		chan = rfcomm->chan;
+
+	return g_strdup_printf(MAS_RECORD, chan, ext->version, ext->name, psm);
 }
 
 static char *get_mns_record(struct ext_profile *ext, struct ext_io *l2cap,
@@ -2237,6 +2312,7 @@ static char *get_sync_record(struct ext_profile *ext, struct ext_io *l2cap,
 	return g_strdup_printf(SYNC_RECORD, rfcomm->chan, ext->version,
 								ext->name);
 }
+
 #ifdef TIZEN_BT_HID_DEVICE_ENABLE
 static char *get_hid_device_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
@@ -2244,6 +2320,7 @@ static char *get_hid_device_record(struct ext_profile *ext, struct ext_io *l2cap
 	return g_strdup(HID_DEVICE_RECORD);
 }
 #endif
+
 static char *get_opp_record(struct ext_profile *ext, struct ext_io *l2cap,
 							struct ext_io *rfcomm)
 {
@@ -2437,6 +2514,8 @@ static struct default_settings {
 		.uuid		= OBEX_PSE_UUID,
 		.name		= "Phone Book Access",
 		.channel	= PBAP_DEFAULT_CHANNEL,
+		.psm		= BTD_PROFILE_PSM_AUTO,
+		.mode		= BT_IO_MODE_ERTM,
 		.authorize	= true,
 		.get_record	= get_pse_record,
 		.version	= 0x0101,
@@ -2451,6 +2530,8 @@ static struct default_settings {
 		.uuid		= OBEX_MAS_UUID,
 		.name		= "Message Access",
 		.channel	= MAS_DEFAULT_CHANNEL,
+		.psm		= BTD_PROFILE_PSM_AUTO,
+		.mode		= BT_IO_MODE_ERTM,
 		.authorize	= true,
 		.get_record	= get_mas_record,
 		.version	= 0x0100
@@ -2573,10 +2654,32 @@ static int parse_ext_opt(struct ext_profile *ext, const char *key,
 			return -EINVAL;
 
 		dbus_message_iter_get_basic(value, &b);
+#ifndef __TIZEN_PATCH__
 		if (b)
 			ext->sec_level = BT_IO_SEC_MEDIUM;
 		else
 			ext->sec_level = BT_IO_SEC_LOW;
+#else
+#ifdef TIZEN_BT_IO_CAPA_NO_INPUT_OUTPUT
+		/*
+		 * NoInputOut device should have another authentication method.
+		 * So turn off force authentication setting for that device.
+		 */
+		if (b)
+			ext->sec_level = BT_IO_SEC_MEDIUM;
+		else
+			ext->sec_level = BT_IO_SEC_LOW;
+#else
+		if (!strcasecmp(ext->uuid, WEARABLE_OLD_SAP_UUID) ||
+		    !strcasecmp(ext->uuid, WEARABLE_NEW_SAP_UUID)) {
+			DBG("Set SAP UUID's sec_level to HIGH");
+			ext->sec_level = BT_IO_SEC_HIGH;
+		} else if (b)
+			ext->sec_level = BT_IO_SEC_MEDIUM;
+		else
+			ext->sec_level = BT_IO_SEC_LOW;
+#endif
+#endif
 	} else if (strcasecmp(key, "RequireAuthorization") == 0) {
 		if (type != DBUS_TYPE_BOOLEAN)
 			return -EINVAL;
@@ -2797,6 +2900,7 @@ static struct ext_profile *create_ext(const char *owner, const char *path,
 	p->name = ext->name;
 	p->local_uuid = ext->service ? ext->service : ext->uuid;
 	p->remote_uuid = ext->remote_uuid;
+	p->external = true;
 
 	if (ext->enable_server) {
 		p->adapter_probe = ext_adapter_probe;
@@ -3074,11 +3178,22 @@ void btd_profile_cleanup(void)
 		g_slist_free_full(ext->conns, ext_io_destroy);
 		ext->conns = NULL;
 
+#ifdef __TIZEN_PATCH__
+		if (ext->destination == NULL) {
+			msg = dbus_message_new_method_call(ext->owner,
+							ext->path,
+							"org.bluez.Profile1",
+							"Release");
+			if (msg)
+				g_dbus_send_message(conn, msg);
+		}
+#else
 		msg = dbus_message_new_method_call(ext->owner, ext->path,
 							"org.bluez.Profile1",
 							"Release");
 		if (msg)
 			g_dbus_send_message(conn, msg);
+#endif
 
 		g_dbus_remove_watch(conn, ext->id);
 		remove_ext(ext);

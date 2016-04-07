@@ -34,6 +34,7 @@ struct l2cap_frame {
 	uint16_t psm;
 	uint16_t chan;
 	uint8_t mode;
+	uint8_t seq_num;
 	const void *data;
 	uint16_t size;
 };
@@ -149,6 +150,22 @@ static inline bool l2cap_frame_get_le64(struct l2cap_frame *frame,
 		*value = get_le64(frame->data);
 
 	l2cap_frame_pull(frame, frame, sizeof(*value));
+
+	return true;
+}
+
+static inline bool l2cap_frame_get_be128(struct l2cap_frame *frame,
+					uint64_t *lvalue, uint64_t *rvalue)
+{
+	if (frame->size < (sizeof(*lvalue) + sizeof(*rvalue)))
+		return false;
+
+	if (lvalue && rvalue) {
+		*lvalue = get_be64(frame->data);
+		*rvalue = get_be64(frame->data);
+	}
+
+	l2cap_frame_pull(frame, frame, (sizeof(*lvalue) + sizeof(*rvalue)));
 
 	return true;
 }

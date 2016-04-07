@@ -332,39 +332,29 @@ static void test_dummy(gconstpointer data)
 
 static bool handle_play(struct avrcp *session, bool pressed, void *user_data)
 {
-	DBG("");
-
 	return true;
 }
 
 static bool handle_volume_up(struct avrcp *session, bool pressed,
 							void *user_data)
 {
-	DBG("");
-
 	return true;
 }
 
 static bool handle_channel_up(struct avrcp *session, bool pressed,
 							void *user_data)
 {
-	DBG("");
-
 	return true;
 }
 
 static bool handle_select(struct avrcp *session, bool pressed, void *user_data)
 {
-	DBG("");
-
 	return true;
 }
 
 static bool handle_vendor_uniq(struct avrcp *session, bool pressed,
 								void *user_data)
 {
-	DBG("");
-
 	return true;
 }
 
@@ -386,8 +376,6 @@ static int get_capabilities(struct avrcp *session, uint8_t transaction,
 static int list_attributes(struct avrcp *session, uint8_t transaction,
 							void *user_data)
 {
-	DBG("");
-
 	avrcp_list_player_attributes_rsp(session, transaction, 0, NULL);
 
 	return 0;
@@ -398,8 +386,6 @@ static int get_attribute_text(struct avrcp *session, uint8_t transaction,
 					void *user_data)
 {
 	const char *text[number];
-
-	DBG("");
 
 	if (number) {
 		memset(text, 0, number);
@@ -415,8 +401,6 @@ static int get_attribute_text(struct avrcp *session, uint8_t transaction,
 static int list_values(struct avrcp *session, uint8_t transaction,
 						uint8_t attr, void *user_data)
 {
-	DBG("");
-
 	avrcp_list_player_values_rsp(session, transaction, 0, NULL);
 
 	return -EINVAL;
@@ -427,8 +411,6 @@ static int get_value_text(struct avrcp *session, uint8_t transaction,
 				void *user_data)
 {
 	const char *text[number];
-
-	DBG("");
 
 	if (number) {
 		memset(text, 0, number);
@@ -446,8 +428,6 @@ static int get_value(struct avrcp *session, uint8_t transaction,
 {
 	uint8_t values[number];
 
-	DBG("");
-
 	memset(values, 0, number);
 
 	avrcp_get_current_player_value_rsp(session, transaction, number, attrs,
@@ -460,8 +440,6 @@ static int set_value(struct avrcp *session, uint8_t transaction,
 			uint8_t number, uint8_t *attrs, uint8_t *values,
 			void *user_data)
 {
-	DBG("");
-
 	avrcp_set_player_value_rsp(session, transaction);
 
 	return 0;
@@ -470,8 +448,6 @@ static int set_value(struct avrcp *session, uint8_t transaction,
 static int get_play_status(struct avrcp *session, uint8_t transaction,
 							void *user_data)
 {
-	DBG("");
-
 	avrcp_get_play_status_rsp(session, transaction, 0xaaaaaaaa, 0xbbbbbbbb,
 									0x00);
 
@@ -483,8 +459,6 @@ static int get_element_attributes(struct avrcp *session, uint8_t transaction,
 					uint32_t *attrs, void *user_data)
 {
 	struct context *context = user_data;
-
-	DBG("");
 
 	if (g_str_has_prefix(context->data->test_name, "/TP/RCR")) {
 		uint8_t params[1024];
@@ -505,8 +479,6 @@ static int track_changed(struct avrcp *session, uint8_t transaction,
 {
 	struct context *context = user_data;
 	uint64_t track;
-
-	DBG("");
 
 	if (g_str_equal(context->data->test_name, "/TP/NFY/BV-05-C") ||
 		g_str_equal(context->data->test_name, "/TP/NFY/BV-08-C"))
@@ -530,8 +502,6 @@ static int settings_changed(struct avrcp *session, uint8_t transaction,
 {
 	uint8_t settings[3];
 
-	DBG("");
-
 	settings[0] = 0x01;
 	settings[1] = 0x01;
 	settings[2] = 0x02;
@@ -550,8 +520,6 @@ static int settings_changed(struct avrcp *session, uint8_t transaction,
 static int available_players_changed(struct avrcp *session, uint8_t transaction,
 					uint32_t interval, void *user_data)
 {
-	DBG("");
-
 	avrcp_register_notification_rsp(session, transaction, AVC_CTYPE_INTERIM,
 					AVRCP_EVENT_AVAILABLE_PLAYERS_CHANGED,
 					NULL, 0);
@@ -567,8 +535,6 @@ static int addressed_player_changed(struct avrcp *session, uint8_t transaction,
 					uint32_t interval, void *user_data)
 {
 	uint16_t player[2];
-
-	DBG("");
 
 	player[0] = 0x0001;
 	player[1] = 0x0001;
@@ -592,8 +558,6 @@ static int uids_changed(struct avrcp *session, uint8_t transaction,
 {
 	struct context *context = user_data;
 	uint16_t counter;
-
-	DBG("");
 
 	if (g_str_equal(context->data->test_name, "/TP/MCN/CB/BV-09-C"))
 		counter = 0x0000;
@@ -621,8 +585,6 @@ static int now_playing_content_changed(struct avrcp *session,
 					uint8_t transaction, uint32_t interval,
 					void *user_data)
 {
-	DBG("");
-
 	avrcp_register_notification_rsp(session, transaction, AVC_CTYPE_INTERIM,
 					AVRCP_EVENT_NOW_PLAYING_CONTENT_CHANGED,
 					NULL, 0);
@@ -638,8 +600,6 @@ static int volume_changed(struct avrcp *session, uint8_t transaction,
 					uint32_t interval, void *user_data)
 {
 	uint8_t volume = 0x00;
-
-	DBG("");
 
 	avrcp_register_notification_rsp(session, transaction, AVC_CTYPE_INTERIM,
 					AVRCP_EVENT_VOLUME_CHANGED,
@@ -658,8 +618,6 @@ static int register_notification(struct avrcp *session, uint8_t transaction,
 					uint8_t event, uint32_t interval,
 					void *user_data)
 {
-	DBG("");
-
 	switch (event) {
 	case AVRCP_EVENT_TRACK_CHANGED:
 		return track_changed(session, transaction, interval, user_data);
@@ -688,8 +646,6 @@ static int register_notification(struct avrcp *session, uint8_t transaction,
 static int set_volume(struct avrcp *session, uint8_t transaction,
 					uint8_t volume, void *user_data)
 {
-	DBG("");
-
 	avrcp_set_volume_rsp(session, transaction, volume);
 
 	return 0;
@@ -700,8 +656,6 @@ static int set_addressed(struct avrcp *session, uint8_t transaction,
 {
 	struct context *context = user_data;
 	uint8_t status;
-
-	DBG("");
 
 	if (g_str_equal(context->data->test_name, "/TP/MPS/BI-01-C"))
 		status = AVRCP_STATUS_INVALID_PLAYER_ID;
@@ -718,8 +672,6 @@ static int set_browsed(struct avrcp *session, uint8_t transaction,
 {
 	struct context *context = user_data;
 	const char *folders[1] = { "Filesystem" };
-
-	DBG("");
 
 	if (g_str_equal(context->data->test_name, "/TP/MPS/BI-02-C"))
 		avrcp_set_browsed_player_rsp(session, transaction,
@@ -740,8 +692,6 @@ static int get_folder_items(struct avrcp *session, uint8_t transaction,
 {
 	struct context *context = user_data;
 
-	DBG("");
-
 	if (g_str_equal(context->data->test_name, "/TP/MCN/CB/BI-02-C"))
 		return -ERANGE;
 
@@ -758,8 +708,6 @@ static int change_path(struct avrcp *session, uint8_t transaction,
 					uint16_t counter, uint8_t direction,
 					uint64_t uid, void *user_data)
 {
-	DBG("");
-
 	if (!uid)
 		return -ENOTDIR;
 
@@ -776,8 +724,6 @@ static int get_item_attributes(struct avrcp *session, uint8_t transaction,
 	struct context *context = user_data;
 	uint8_t status;
 
-	DBG("");
-
 	if (g_str_equal(context->data->test_name, "/TP/MCN/CB/BI-05-C"))
 		status = AVRCP_STATUS_UID_CHANGED;
 	else
@@ -792,8 +738,6 @@ static int get_item_attributes(struct avrcp *session, uint8_t transaction,
 static int play_item(struct avrcp *session, uint8_t transaction, uint8_t scope,
 			uint64_t uid, uint16_t counter, void *user_data)
 {
-	DBG("");
-
 	if (!uid)
 		return -ENOENT;
 
@@ -805,8 +749,6 @@ static int play_item(struct avrcp *session, uint8_t transaction, uint8_t scope,
 static int search(struct avrcp *session, uint8_t transaction,
 					const char *string, void *user_data)
 {
-	DBG("");
-
 	avrcp_search_rsp(session, transaction, AVRCP_STATUS_SUCCESS, 0xaabb, 0);
 
 	return 0;
@@ -816,8 +758,6 @@ static int add_to_now_playing(struct avrcp *session, uint8_t transaction,
 				uint8_t scope, uint64_t uid, uint16_t counter,
 				void *user_data)
 {
-	DBG("");
-
 	if (!uid)
 		return -ENOENT;
 
@@ -858,8 +798,6 @@ static void test_server(gconstpointer data)
 	avrcp_register_player(context->session, &control_ind, NULL, context);
 
 	g_idle_add(send_pdu, context);
-
-	execute_context(context);
 }
 
 static void get_folder_items_rsp(struct avrcp *session, int err,
@@ -867,8 +805,6 @@ static void get_folder_items_rsp(struct avrcp *session, int err,
 					uint8_t *params, void *user_data)
 {
 	struct context *context = user_data;
-
-	DBG("");
 
 	g_assert_cmpint(err, ==, 0);
 	g_assert_cmpint(counter, ==, 0xabcd);
@@ -890,24 +826,23 @@ static void set_volume_rsp(struct avrcp *session, int err, uint8_t volume,
 
 static bool register_notification_rsp(struct avrcp *session, int err,
 					uint8_t code, uint8_t event,
-					uint8_t *params, void *user_data)
+					void *params, void *user_data)
 {
 	struct context *context = user_data;
-
-	DBG("");
+	uint8_t *p = params;
 
 	g_assert_cmpint(err, ==, 0);
 
 	switch (event) {
 	case AVRCP_EVENT_VOLUME_CHANGED:
 		if (g_str_equal(context->data->test_name, "/TP/VLH/BV-03-C")) {
-			g_assert_cmpint(params[0], ==, 0);
+			g_assert_cmpint(p[0], ==, 0);
 			break;
 		} else if (code == AVC_CTYPE_INTERIM) {
-			g_assert_cmpint(params[0], ==, 0);
+			g_assert_cmpint(p[0], ==, 0);
 			return true;
 		}
-		g_assert_cmpint(params[0], ==, 1);
+		g_assert_cmpint(p[0], ==, 1);
 		break;
 	}
 

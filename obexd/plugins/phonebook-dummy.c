@@ -525,6 +525,11 @@ void *phonebook_get_entry(const char *folder, const char *id,
 	filename = g_build_filename(root_folder, folder, id, NULL);
 
 	fd = open(filename, O_RDONLY);
+
+#ifdef __TIZEN_PATCH__
+	g_free(filename);
+#endif
+
 	if (fd < 0) {
 		DBG("open(): %s(%d)", strerror(errno), errno);
 		if (err)

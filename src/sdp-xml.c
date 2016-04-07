@@ -530,6 +530,7 @@ static void element_end(GMarkupParseContext *context,
 {
 	struct context_data *ctx_data = user_data;
 	struct sdp_xml_data *elem;
+
 #ifdef __TIZEN_PATCH__
 	if (element_name == NULL)
 		return;

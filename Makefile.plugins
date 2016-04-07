@@ -40,7 +40,7 @@ builtin_sources += profiles/sap/main.c profiles/sap/manager.h \
 			profiles/sap/sap-u8500.c
 
 #noinst_LIBRARIES += profiles/sap/libsap.a
-#profiles_sap_libsap_a_SOURCES = profiles/sap/sap.h profiles/sap/sap-u8500
+#profiles_sap_libsap_a_SOURCES = profiles/sap/sap.h profiles/sap/sap-u8500.c
 endif
 endif
 
@@ -80,7 +80,13 @@ builtin_sources += profiles/input/manager.c \
 if TIZEN_UNUSED_PLUGIN
 builtin_modules += hog
 builtin_sources += profiles/input/hog.c profiles/input/uhid_copy.h \
-			profiles/input/suspend.h profiles/input/suspend-dummy.c
+			profiles/input/hog-lib.c profiles/input/hog-lib.h \
+			profiles/deviceinfo/dis.c profiles/deviceinfo/dis.h \
+			profiles/battery/bas.c profiles/battery/bas.h \
+			profiles/scanparam/scpp.c profiles/scanparam/scpp.h \
+			profiles/input/suspend.h profiles/input/suspend-none.c
+
+EXTRA_DIST += profiles/input/suspend-dummy.c
 endif
 endif
 endif

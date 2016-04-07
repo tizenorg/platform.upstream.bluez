@@ -80,7 +80,7 @@ include_HEADERS += $(lib_headers)
 lib_LTLIBRARIES += lib/libbluetooth.la
 
 lib_libbluetooth_la_SOURCES = $(lib_headers) $(lib_sources)
-lib_libbluetooth_la_LDFLAGS = $(AM_LDFLAGS) -version-info 21:3:18
+lib_libbluetooth_la_LDFLAGS = $(AM_LDFLAGS) -version-info 21:10:18
 lib_libbluetooth_la_DEPENDENCIES = $(local_headers)
 endif
 
@@ -111,6 +111,7 @@ shared_sources = src/shared/io.h src/shared/timeout.h \
 			src/shared/uhid.h src/shared/uhid.c \
 			src/shared/pcap.h src/shared/pcap.c \
 			src/shared/btsnoop.h src/shared/btsnoop.c \
+			src/shared/ad.h src/shared/ad.c \
 			src/shared/att-types.h \
 			src/shared/att.h src/shared/att.c \
 			src/shared/gatt-helpers.h src/shared/gatt-helpers.c \
@@ -162,6 +163,7 @@ src_bluetoothd_SOURCES = $(builtin_sources) \
 			$(attrib_sources) $(btio_sources) \
 			src/bluetooth.ver \
 			src/main.c src/log.h src/log.c \
+			src/backtrace.h src/backtrace.c \
 			src/systemd.h src/systemd.c \
 			src/rfkill.c src/hcid.h src/sdpd.h \
 			src/sdpd-server.c src/sdpd-request.c \
@@ -182,8 +184,6 @@ src_bluetoothd_SOURCES = $(builtin_sources) \
 			src/adapter_le_vsc_features.h src/adapter_le_vsc_features.c \
 			src/profile.h src/profile.c \
 			src/service.h src/service.c \
-			src/gatt-dbus.h src/gatt-dbus.c \
-			src/gatt.h src/gatt.c \
 			src/gatt-client.h src/gatt-client.c \
 			src/device.h src/device.c src/attio.h \
 			src/dbus-common.c src/dbus-common.h \
@@ -191,7 +191,7 @@ src_bluetoothd_SOURCES = $(builtin_sources) \
 src_bluetoothd_LDADD = lib/libbluetooth-internal.la \
 			gdbus/libgdbus-internal.la \
 			src/libshared-glib.la \
-			@GLIB_LIBS@ @DBUS_LIBS@ -ldl -lrt
+			@BACKTRACE_LIBS@ @GLIB_LIBS@ @DBUS_LIBS@ -ldl -lrt
 src_bluetoothd_LDFLAGS = $(AM_LDFLAGS) -Wl,--export-dynamic \
 				-Wl,--version-script=$(srcdir)/src/bluetooth.ver
 
@@ -247,7 +247,9 @@ endif
 EXTRA_DIST += $(test_scripts)
 
 EXTRA_DIST += doc/assigned-numbers.txt doc/supported-features.txt \
-				doc/test-coverage.txt doc/settings-storage.txt
+				doc/test-coverage.txt \
+				doc/test-runner.txt \
+				doc/settings-storage.txt
 
 EXTRA_DIST += doc/mgmt-api.txt \
 		doc/adapter-api.txt doc/device-api.txt \
@@ -263,6 +265,9 @@ EXTRA_DIST += doc/alert-api.txt \
 
 EXTRA_DIST += doc/obex-api.txt doc/obex-agent-api.txt
 
+EXTRA_DIST += doc/pics-opp.txt doc/pixit-opp.txt \
+		doc/pts-opp.txt
+
 EXTRA_DIST += tools/magic.btsnoop
 
 AM_CFLAGS += @DBUS_CFLAGS@ @GLIB_CFLAGS@
@@ -273,22 +278,24 @@ AM_CPPFLAGS = -I$(builddir)/lib
 unit_tests += unit/test-eir
 
 unit_test_eir_SOURCES = unit/test-eir.c src/eir.c src/uuid-helper.c
-unit_test_eir_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
+unit_test_eir_LDADD = src/libshared-glib.la lib/libbluetooth-internal.la \
+								@GLIB_LIBS@
 
 unit_tests += unit/test-uuid
 
 unit_test_uuid_SOURCES = unit/test-uuid.c
-unit_test_uuid_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
+unit_test_uuid_LDADD = src/libshared-glib.la lib/libbluetooth-internal.la \
+								@GLIB_LIBS@
 
 unit_tests += unit/test-textfile
 
 unit_test_textfile_SOURCES = unit/test-textfile.c src/textfile.h src/textfile.c
-unit_test_textfile_LDADD = @GLIB_LIBS@
+unit_test_textfile_LDADD = src/libshared-glib.la @GLIB_LIBS@
 
 unit_tests += unit/test-crc
 
 unit_test_crc_SOURCES = unit/test-crc.c monitor/crc.h monitor/crc.c
-unit_test_crc_LDADD = @GLIB_LIBS@
+unit_test_crc_LDADD = src/libshared-glib.la @GLIB_LIBS@
 
 unit_tests += unit/test-crypto
 
@@ -359,7 +366,7 @@ unit_tests += unit/test-gdbus-client
 
 unit_test_gdbus_client_SOURCES = unit/test-gdbus-client.c
 unit_test_gdbus_client_LDADD = gdbus/libgdbus-internal.la \
-				@GLIB_LIBS@ @DBUS_LIBS@
+				src/libshared-glib.la @GLIB_LIBS@ @DBUS_LIBS@
 
 unit_tests += unit/test-gobex-header unit/test-gobex-packet unit/test-gobex \
 			unit/test-gobex-transfer unit/test-gobex-apparam
@@ -387,7 +394,8 @@ unit_test_gobex_apparam_LDADD = @GLIB_LIBS@
 unit_tests += unit/test-lib
 
 unit_test_lib_SOURCES = unit/test-lib.c
-unit_test_lib_LDADD = lib/libbluetooth-internal.la @GLIB_LIBS@
+unit_test_lib_LDADD = src/libshared-glib.la \
+				lib/libbluetooth-internal.la @GLIB_LIBS@
 
 unit_tests += unit/test-gatt
 
@@ -399,10 +407,10 @@ unit_tests += unit/test-hog
 
 unit_test_hog_SOURCES = unit/test-hog.c \
 			$(btio_sources) \
-			android/hog.h android/hog.c \
-			android/scpp.h android/scpp.c \
-			android/bas.h android/bas.c \
-			android/dis.h android/dis.c \
+			profiles/input/hog-lib.h profiles/input/hog-lib.c \
+			profiles/scanparam/scpp.h profiles/scanparam/scpp.c \
+			profiles/battery/bas.h profiles/battery/bas.c \
+			profiles/deviceinfo/dis.h profiles/deviceinfo/dis.c \
 			src/log.h src/log.c \
 			attrib/att.h attrib/att.c \
 			attrib/gatt.h attrib/gatt.c \

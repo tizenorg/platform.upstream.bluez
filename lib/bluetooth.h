@@ -119,6 +119,16 @@ struct bt_voice {
 #define BT_SNDMTU		12
 #define BT_RCVMTU		13
 
+#ifdef __TIZEN_PATCH__
+#define BT_LE_CONN_PARAM	14
+struct le_conn_param {
+	uint16_t min;
+	uint16_t max;
+	uint16_t latency;
+	uint16_t to_multiplier;
+};
+#endif
+
 #define BT_VOICE_TRANSPARENT			0x0003
 #define BT_VOICE_CVSD_16BIT			0x0060
 

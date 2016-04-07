@@ -1201,23 +1201,6 @@ guint gatt_discover_desc(GAttrib *attrib, uint16_t start, uint16_t end,
 	return dd->id;
 }
 
-#ifdef __TIZEN_PATCH__
-guint gatt_find_info(GAttrib *attrib, uint16_t start, uint16_t end,
-				GAttribResultFunc func, gpointer user_data)
-{
-	uint8_t *buf;
-	size_t buflen;
-	guint16 plen;
-
-	buf = g_attrib_get_buffer(attrib, &buflen);
-	plen = enc_find_info_req(start, end, buf, buflen);
-	if (plen == 0)
-		return 0;
-
-	return g_attrib_send(attrib, 0, buf, plen, func, user_data, NULL);
-}
-#endif
-
 guint gatt_write_cmd(GAttrib *attrib, uint16_t handle, const uint8_t *value,
 			int vlen, GDestroyNotify notify, gpointer user_data)
 {

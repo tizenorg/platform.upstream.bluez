@@ -50,6 +50,9 @@ struct hci_version {
 
 int hci_open_dev(int dev_id);
 int hci_close_dev(int dd);
+#ifdef __TIZEN_PATCH__
+int hci_send_data(int dd, uint16_t handle, uint8_t len, void *data);
+#endif
 int hci_send_cmd(int dd, uint16_t ogf, uint16_t ocf, uint8_t plen, void *param);
 int hci_send_req(int dd, struct hci_request *req, int timeout);
 
