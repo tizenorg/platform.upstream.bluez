@@ -631,33 +631,3 @@ fail:
 	g_slist_free_full(chrs, free_gatt_info);
 	return FALSE;
 }
-
-#if 0
-guint gatt_char_value_notify(GAttrib *attrib, uint16_t handle, uint8_t *value,
-					int vlen, GAttribResultFunc func,	gpointer user_data)
-{
-	size_t buflen;
-	uint8_t *buf = g_attrib_get_buffer(attrib, &buflen);
-	guint16 plen;
-
-	plen = enc_notification(handle, value, vlen, buf, buflen);
-	if (plen == 0)
-		return 0;
-
-	return g_attrib_send(attrib, 0, buf, plen, func, user_data, NULL);
-}
-
-guint gatt_char_value_indicate(GAttrib *attrib, uint16_t handle, uint8_t *value,
-					int vlen, GAttribResultFunc func,	gpointer user_data)
-{
-	size_t buflen;
-	uint8_t *buf = g_attrib_get_buffer(attrib, &buflen);
-	guint16 plen;
-
-	plen = enc_indication(handle, value, vlen, buf, buflen);
-	if (plen == 0)
-		return 0;
-
-	return g_attrib_send(attrib, 0, buf, plen, func, user_data, NULL);
-}
-#endif

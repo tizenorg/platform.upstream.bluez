@@ -181,6 +181,14 @@ static void print_eir(const uint8_t *eir, uint16_t eir_len)
 			print("Class of Device: 0x%02x%02x%02x",
 						eir[4], eir[3], eir[2]);
 			break;
+		case 0x0e:
+			bin2hex(eir + 2, 16, str, sizeof(str));
+			print("SSP Hash C-192: %s", str);
+			break;
+		case 0x0f:
+			bin2hex(eir + 2, 16, str, sizeof(str));
+			print("SSP Rand R-192: %s", str);
+			break;
 		case 0x1b:
 			ba2str((bdaddr_t *) (eir + 2), str);
 			print("LE Device Address: %s (%s)", str,
@@ -188,6 +196,14 @@ static void print_eir(const uint8_t *eir, uint16_t eir_len)
 			break;
 		case 0x1c:
 			print("LE Role: 0x%02x", eir[2]);
+			break;
+		case 0x1d:
+			bin2hex(eir + 2, 16, str, sizeof(str));
+			print("SSP Hash C-256: %s", str);
+			break;
+		case 0x1e:
+			bin2hex(eir + 2, 16, str, sizeof(str));
+			print("SSP Rand R-256: %s", str);
 			break;
 		case 0x22:
 			bin2hex(eir + 2, 16, str, sizeof(str));
@@ -1474,12 +1490,14 @@ static void ext_index_rsp(uint8_t status, uint16_t len, const void *param,
 
 	for (i = 0; i < count; i++) {
 		uint16_t index = le16_to_cpu(rp->entry[i].index);
+		char *busstr = hci_bustostr(rp->entry[i].bus);
 
 		if (index_filter != MGMT_INDEX_NONE && index_filter != index)
 			continue;
 
 		switch (rp->entry[i].type) {
 		case 0x00:
+			print("Primary controller (hci%u,%s)", index, busstr);
 			if (!mgmt_send(mgmt, MGMT_OP_READ_INFO,
 						index, 0, NULL, info_rsp,
 						UINT_TO_PTR(index), NULL)) {
@@ -1489,6 +1507,8 @@ static void ext_index_rsp(uint8_t status, uint16_t len, const void *param,
 			pending_index++;
 			break;
 		case 0x01:
+			print("Unconfigured controller (hci%u,%s)",
+								index, busstr);
 			if (!mgmt_send(mgmt, MGMT_OP_READ_CONFIG_INFO,
 						index, 0, NULL, config_info_rsp,
 						UINT_TO_PTR(index), NULL)) {
@@ -1498,15 +1518,16 @@ static void ext_index_rsp(uint8_t status, uint16_t len, const void *param,
 			pending_index++;
 			break;
 		case 0x02:
-			print("hci%u:\tAMP controller (%u)", index,
-							rp->entry[i].bus);
+			print("AMP controller (hci%u,%s)", index, busstr);
 			break;
 		default:
-			print("hci%u:\tType %u controller (%u)", index,
-					rp->entry[i].type, rp->entry[i].bus);
+			print("Type %u controller (hci%u,%s)",
+					rp->entry[i].type, index, busstr);
 			break;
 		}
 	}
+
+	print("");
 
 	if (!count)
 		noninteractive_quit(EXIT_SUCCESS);
@@ -1519,6 +1540,137 @@ static void cmd_extinfo(struct mgmt *mgmt, uint16_t index,
 				MGMT_INDEX_NONE, 0, NULL,
 				ext_index_rsp, UINT_TO_PTR(index), NULL)) {
 		error("Unable to send ext_index_list cmd");
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
+static void auto_power_enable_rsp(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index = PTR_TO_UINT(user_data);
+
+	print("Successfully enabled controller with index %u", index);
+
+	noninteractive_quit(EXIT_SUCCESS);
+}
+
+static void auto_power_info_rsp(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	const struct mgmt_rp_read_info *rp = param;
+	uint16_t index = PTR_TO_UINT(user_data);
+	uint32_t supported_settings, current_settings, missing_settings;
+	uint8_t val = 0x01;
+
+	if (status) {
+		error("Reading info failed with status 0x%02x (%s)",
+						status, mgmt_errstr(status));
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	supported_settings = le32_to_cpu(rp->supported_settings);
+	current_settings = le32_to_cpu(rp->current_settings);
+	missing_settings = current_settings ^ supported_settings;
+
+	if (missing_settings & MGMT_SETTING_BREDR)
+		mgmt_send(mgmt, MGMT_OP_SET_BREDR, index, sizeof(val), &val,
+							NULL, NULL, NULL);
+
+	if (missing_settings & MGMT_SETTING_SSP)
+		mgmt_send(mgmt, MGMT_OP_SET_SSP, index, sizeof(val), &val,
+							NULL, NULL, NULL);
+
+	if (missing_settings & MGMT_SETTING_LE)
+		mgmt_send(mgmt, MGMT_OP_SET_LE, index, sizeof(val), &val,
+							NULL, NULL, NULL);
+
+	if (missing_settings & MGMT_SETTING_SECURE_CONN)
+		mgmt_send(mgmt, MGMT_OP_SET_SECURE_CONN, index,
+							sizeof(val), &val,
+							NULL, NULL, NULL);
+
+	if (missing_settings & MGMT_SETTING_BONDABLE)
+		mgmt_send(mgmt, MGMT_OP_SET_BONDABLE, index, sizeof(val), &val,
+							NULL, NULL, NULL);
+
+	if (current_settings & MGMT_SETTING_POWERED)
+		return noninteractive_quit(EXIT_SUCCESS);
+
+	if (!mgmt_send(mgmt, MGMT_OP_SET_POWERED, index, sizeof(val), &val,
+						auto_power_enable_rsp,
+						UINT_TO_PTR(index), NULL)) {
+		error("Unable to send set powerd cmd");
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
+static void auto_power_index_evt(uint16_t index, uint16_t len,
+					const void *param, void *user_data)
+{
+	uint16_t index_filter = PTR_TO_UINT(user_data);
+
+	if (index != index_filter)
+		return;
+
+	print("New controller with index %u", index);
+
+	if (!mgmt_send(mgmt, MGMT_OP_READ_INFO, index, 0, NULL,
+						auto_power_info_rsp,
+						UINT_TO_PTR(index), NULL)) {
+		error("Unable to send read info cmd");
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
+static void auto_power_index_rsp(uint8_t status, uint16_t len,
+					const void *param, void *user_data)
+{
+	const struct mgmt_rp_read_index_list *rp = param;
+	uint16_t index = PTR_TO_UINT(user_data);
+	uint16_t i, count;
+	bool found = false;
+
+	if (status) {
+		error("Reading index list failed with status 0x%02x (%s)",
+						status, mgmt_errstr(status));
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	count = le16_to_cpu(rp->num_controllers);
+	for (i = 0; i < count; i++) {
+		if (le16_to_cpu(rp->index[i]) == index)
+			found = true;
+	}
+
+	if (!found) {
+		print("Waiting for index %u to appear", index);
+
+		mgmt_register(mgmt, MGMT_EV_INDEX_ADDED, index,
+						auto_power_index_evt,
+						UINT_TO_PTR(index), NULL);
+		return;
+	}
+
+	print("Found controller with index %u", index);
+
+	if (!mgmt_send(mgmt, MGMT_OP_READ_INFO, index, 0, NULL,
+						auto_power_info_rsp,
+						UINT_TO_PTR(index), NULL)) {
+		error("Unable to send read info cmd");
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
+static void cmd_auto_power(struct mgmt *mgmt, uint16_t index,
+						int argc, char **argv)
+{
+	if (index == MGMT_INDEX_NONE)
+		index = 0;
+
+	if (!mgmt_send(mgmt, MGMT_OP_READ_INDEX_LIST, MGMT_INDEX_NONE, 0, NULL,
+						auto_power_index_rsp,
+						UINT_TO_PTR(index), NULL)) {
+		error("Unable to send read index list cmd");
 		return noninteractive_quit(EXIT_FAILURE);
 	}
 }
@@ -2102,19 +2254,21 @@ static struct option find_options[] = {
 	{ "help",	0, 0, 'h' },
 	{ "le-only",	1, 0, 'l' },
 	{ "bredr-only",	1, 0, 'b' },
+	{ "limited",	1, 0, 'L' },
 	{ 0, 0, 0, 0 }
 };
 
 static void cmd_find(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 {
 	struct mgmt_cp_start_discovery cp;
+	uint8_t op = MGMT_OP_START_DISCOVERY;
 	uint8_t type = SCAN_TYPE_DUAL;
 	int opt;
 
 	if (index == MGMT_INDEX_NONE)
 		index = 0;
 
-	while ((opt = getopt_long(argc, argv, "+lbh", find_options,
+	while ((opt = getopt_long(argc, argv, "+lbLh", find_options,
 								NULL)) != -1) {
 		switch (opt) {
 		case 'l':
@@ -2124,6 +2278,9 @@ static void cmd_find(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 		case 'b':
 			type |= SCAN_TYPE_BREDR;
 			type &= ~SCAN_TYPE_LE;
+			break;
+		case 'L':
+			op = MGMT_OP_START_LIMITED_DISCOVERY;
 			break;
 		case 'h':
 			find_usage();
@@ -2143,8 +2300,8 @@ static void cmd_find(struct mgmt *mgmt, uint16_t index, int argc, char **argv)
 	memset(&cp, 0, sizeof(cp));
 	cp.type = type;
 
-	if (mgmt_send(mgmt, MGMT_OP_START_DISCOVERY, index, sizeof(cp), &cp,
-						find_rsp, NULL, NULL) == 0) {
+	if (mgmt_send(mgmt, op, index, sizeof(cp), &cp, find_rsp,
+							NULL, NULL) == 0) {
 		error("Unable to send start_discovery cmd");
 		return noninteractive_quit(EXIT_FAILURE);
 	}
@@ -2157,8 +2314,7 @@ static void stop_find_rsp(uint8_t status, uint16_t len, const void *param,
 		fprintf(stderr,
 			"Stop Discovery failed: status 0x%02x (%s)\n",
 						status, mgmt_errstr(status));
-		mainloop_quit();
-		return;
+		return noninteractive_quit(EXIT_SUCCESS);
 	}
 
 	printf("Discovery stopped\n");
@@ -3715,6 +3871,110 @@ static void cmd_advinfo(struct mgmt *mgmt, uint16_t index,
 	}
 }
 
+static void adv_size_info_rsp(uint8_t status, uint16_t len, const void *param,
+							void *user_data)
+{
+	const struct mgmt_rp_get_adv_size_info *rp = param;
+	uint32_t flags;
+
+	if (status != 0) {
+		error("Reading adv size info failed with status 0x%02x (%s)",
+						status, mgmt_errstr(status));
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	if (len < sizeof(*rp)) {
+		error("Too small adv size info reply (%u bytes)", len);
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	flags = le32_to_cpu(rp->flags);
+	print("Instance: %u", rp->instance);
+	print("Flags: %s", adv_flags2str(flags));
+	print("Max advertising data len: %u", rp->max_adv_data_len);
+	print("Max scan response data len: %u", rp->max_scan_rsp_len);
+
+	return noninteractive_quit(EXIT_SUCCESS);
+}
+
+static void advsize_usage(void)
+{
+	print("Usage: advsize [options] <instance_id>\nOptions:\n"
+		"\t -c, --connectable         \"connectable\" flag\n"
+		"\t -g, --general-discov      \"general-discoverable\" flag\n"
+		"\t -l, --limited-discov      \"limited-discoverable\" flag\n"
+		"\t -m, --managed-flags       \"managed-flags\" flag\n"
+		"\t -p, --tx-power            \"tx-power\" flag");
+}
+
+static struct option advsize_options[] = {
+	{ "help",		0, 0, 'h' },
+	{ "connectable",	0, 0, 'c' },
+	{ "general-discov",	0, 0, 'g' },
+	{ "limited-discov",	0, 0, 'l' },
+	{ "managed-flags",	0, 0, 'm' },
+	{ "tx-power",		0, 0, 'p' },
+	{ 0, 0, 0, 0}
+};
+
+static void cmd_advsize(struct mgmt *mgmt, uint16_t index,
+						int argc, char **argv)
+{
+	struct mgmt_cp_get_adv_size_info cp;
+	uint8_t instance;
+	uint32_t flags = 0;
+	int opt;
+
+	while ((opt = getopt_long(argc, argv, "+cglmph",
+						advsize_options, NULL)) != -1) {
+		switch (opt) {
+		case 'c':
+			flags |= MGMT_ADV_FLAG_CONNECTABLE;
+			break;
+		case 'g':
+			flags |= MGMT_ADV_FLAG_DISCOV;
+			break;
+		case 'l':
+			flags |= MGMT_ADV_FLAG_LIMITED_DISCOV;
+			break;
+		case 'm':
+			flags |= MGMT_ADV_FLAG_MANAGED_FLAGS;
+			break;
+		case 'p':
+			flags |= MGMT_ADV_FLAG_TX_POWER;
+			break;
+		default:
+			advsize_usage();
+			return noninteractive_quit(EXIT_FAILURE);
+		}
+	}
+
+	argc -= optind;
+	argv += optind;
+	optind = 0;
+
+	if (argc != 1) {
+		advsize_usage();
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+
+	instance = strtol(argv[0], NULL, 0);
+
+	if (index == MGMT_INDEX_NONE)
+		index = 0;
+
+	memset(&cp, 0, sizeof(cp));
+
+	cp.instance = instance;
+	cp.flags = cpu_to_le32(flags);
+
+	if (!mgmt_send(mgmt, MGMT_OP_GET_ADV_SIZE_INFO, index, sizeof(cp), &cp,
+					adv_size_info_rsp, NULL, NULL)) {
+		error("Unable to send advertising size info command");
+		return noninteractive_quit(EXIT_FAILURE);
+	}
+}
+
 static void add_adv_rsp(uint8_t status, uint16_t len, const void *param,
 								void *user_data)
 {
@@ -3739,15 +3999,16 @@ static void add_adv_rsp(uint8_t status, uint16_t len, const void *param,
 static void add_adv_usage(void)
 {
 	print("Usage: add-adv [options] <instance_id>\nOptions:\n"
-		"\t -u, --uuid <uuid>        Service UUID\n"
-		"\t -d, --adv-data <data>    Advertising Data bytes\n"
-		"\t -s, --scan-rsp <data>    Scan Response Data bytes\n"
-		"\t -t, --timeout <timeout>  Timeout in seconds\n"
-		"\t -c, --connectable        \"connectable\" flag\n"
-		"\t -g, --general-discov     \"general-discoverable\" flag\n"
-		"\t -l, --limited-discov     \"limited-discoverable\" flag\n"
-		"\t -m, --managed-flags      \"managed-flags\" flag\n"
-		"\t -p, --tx-power           \"tx-power\" flag\n"
+		"\t -u, --uuid <uuid>         Service UUID\n"
+		"\t -d, --adv-data <data>     Advertising Data bytes\n"
+		"\t -s, --scan-rsp <data>     Scan Response Data bytes\n"
+		"\t -t, --timeout <timeout>   Timeout in seconds\n"
+		"\t -D, --duration <duration> Duration in seconds\n"
+		"\t -c, --connectable         \"connectable\" flag\n"
+		"\t -g, --general-discov      \"general-discoverable\" flag\n"
+		"\t -l, --limited-discov      \"limited-discoverable\" flag\n"
+		"\t -m, --managed-flags       \"managed-flags\" flag\n"
+		"\t -p, --tx-power            \"tx-power\" flag\n"
 		"e.g.:\n"
 		"\tadd-adv -u 180d -u 180f -d 080954657374204C45 1");
 }
@@ -3758,6 +4019,7 @@ static struct option add_adv_options[] = {
 	{ "adv-data",		1, 0, 'd' },
 	{ "scan-rsp",		1, 0, 's' },
 	{ "timeout",		1, 0, 't' },
+	{ "duration",		1, 0, 'D' },
 	{ "connectable",	0, 0, 'c' },
 	{ "general-discov",	0, 0, 'g' },
 	{ "limited-discov",	0, 0, 'l' },
@@ -3819,14 +4081,14 @@ static void cmd_add_adv(struct mgmt *mgmt, uint16_t index,
 	uint8_t uuids[MAX_AD_UUID_BYTES];
 	size_t uuid_bytes = 0;
 	uint8_t uuid_type = 0;
-	uint16_t timeout = 0;
+	uint16_t timeout = 0, duration = 0;
 	uint8_t instance;
 	uuid_t uuid;
 	bool success = false;
 	bool quit = true;
 	uint32_t flags = 0;
 
-	while ((opt = getopt_long(argc, argv, "+u:d:s:t:cglmph",
+	while ((opt = getopt_long(argc, argv, "+u:d:s:t:D:cglmph",
 						add_adv_options, NULL)) != -1) {
 		switch (opt) {
 		case 'u':
@@ -3887,6 +4149,9 @@ static void cmd_add_adv(struct mgmt *mgmt, uint16_t index,
 		case 't':
 			timeout = strtol(optarg, NULL, 0);
 			break;
+		case 'D':
+			duration = strtol(optarg, NULL, 0);
+			break;
 		case 'c':
 			flags |= MGMT_ADV_FLAG_CONNECTABLE;
 			break;
@@ -3935,6 +4200,7 @@ static void cmd_add_adv(struct mgmt *mgmt, uint16_t index,
 	cp->instance = instance;
 	put_le32(flags, &cp->flags);
 	put_le16(timeout, &cp->timeout);
+	put_le16(duration, &cp->duration);
 	cp->adv_data_len = adv_len + uuid_bytes;
 	cp->scan_rsp_len = scan_rsp_len;
 
@@ -4038,6 +4304,7 @@ static struct cmd_info all_cmd[] = {
 	{ "config",	cmd_config,	"Show configuration info"	},
 	{ "info",	cmd_info,	"Show controller info"		},
 	{ "extinfo",	cmd_extinfo,	"Show extended controller info"	},
+	{ "auto-power",	cmd_auto_power,	"Power all available features"	},
 	{ "power",	cmd_power,	"Toggle powered state"		},
 	{ "discov",	cmd_discov,	"Toggle discoverable state"	},
 	{ "connectable",cmd_connectable,"Toggle connectable state"	},
@@ -4087,6 +4354,7 @@ static struct cmd_info all_cmd[] = {
 	{ "bredr-oob",	cmd_bredr_oob,	"Local OOB data (BR/EDR)"	},
 	{ "le-oob",	cmd_le_oob,	"Local OOB data (LE)"		},
 	{ "advinfo",	cmd_advinfo,	"Show advertising features"	},
+	{ "advsize",	cmd_advsize,	"Show advertising size info"	},
 	{ "add-adv",	cmd_add_adv,	"Add advertising instance"	},
 	{ "rm-adv",	cmd_rm_adv,	"Remove advertising instance"	},
 	{ "clr-adv",	cmd_clr_adv,	"Clear advertising instances"	},
@@ -4377,6 +4645,13 @@ static struct io *setup_stdin(void)
 	return io;
 }
 
+static void mgmt_debug(const char *str, void *user_data)
+{
+	const char *prefix = user_data;
+
+	print("%s%s", prefix, str);
+}
+
 int main(int argc, char *argv[])
 {
 	struct io *input;
@@ -4411,6 +4686,9 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "Unable to open mgmt_socket\n");
 		return EXIT_FAILURE;
 	}
+
+	if (getenv("MGMT_DEBUG"))
+		mgmt_set_debug(mgmt, mgmt_debug, "mgmt: ", NULL);
 
 	if (argc > 0) {
 		struct cmd_info *c;

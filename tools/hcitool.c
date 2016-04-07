@@ -1098,6 +1098,66 @@ static void cmd_epinq(int dev_id, int argc, char **argv)
 	hci_close_dev(dd);
 }
 
+#ifdef __TIZEN_PATCH__
+/* Send arbitrary ACL data */
+static struct option data_options[] = {
+	{ "help",	0, 0, 'h' },
+	{ 0, 0, 0, 0 }
+};
+
+static const char *data_help =
+	"Usage:\n"
+	"\tcmd <handle> <data>\n"
+	"Example:\n"
+	"\tcmd 0x0064 0x41 0x42 0x43 0x44\n";
+
+static void cmd_data(int dev_id, int argc, char **argv)
+{
+	unsigned char buf[HCI_MAX_ACL_SIZE], *ptr = buf;
+	struct hci_filter flt;
+	int i, opt, len, dd;
+	uint16_t handle;
+
+	for_each_opt(opt, data_options, NULL) {
+		switch (opt) {
+		default:
+			printf("%s", data_help);
+			return;
+		}
+	}
+	helper_arg(2, -1, &argc, &argv, data_help);
+
+	if (dev_id < 0)
+		dev_id = hci_get_route(NULL);
+
+	handle = atoi(argv[0]);
+
+	for (i = 1, len = 0; i < argc && len < (int) sizeof(buf); i++, len++)
+		*ptr++ = (uint8_t) strtol(argv[i], NULL, 16);
+
+	dd = hci_open_dev(dev_id);
+	if (dd < 0) {
+		perror("Device open failed");
+		exit(EXIT_FAILURE);
+	}
+
+	/* Setup filter */
+	hci_filter_clear(&flt);
+	hci_filter_all_events(&flt);
+	if (setsockopt(dd, SOL_HCI, HCI_FILTER, &flt, sizeof(flt)) < 0) {
+		perror("HCI filter setup failed");
+		exit(EXIT_FAILURE);
+	}
+
+	if (hci_send_data(dd, handle, len, buf) < 0) {
+		perror("Send failed");
+		exit(EXIT_FAILURE);
+	}
+
+	hci_close_dev(dd);
+}
+#endif
+
 /* Send arbitrary HCI commands */
 
 static struct option cmd_options[] = {
@@ -3388,6 +3448,9 @@ static struct {
 	{ "spinq",    cmd_spinq,   "Start periodic inquiry"               },
 	{ "epinq",    cmd_epinq,   "Exit periodic inquiry"                },
 	{ "cmd",      cmd_cmd,     "Submit arbitrary HCI commands"        },
+#ifdef __TIZEN_PATCH__
+	{ "acl",      cmd_data,    "Submit arbitrary ACL data"            },
+#endif
 	{ "con",      cmd_con,     "Display active connections"           },
 	{ "cc",       cmd_cc,      "Create connection to remote device"   },
 	{ "dc",       cmd_dc,      "Disconnect from remote device"        },

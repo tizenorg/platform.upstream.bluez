@@ -534,7 +534,83 @@ static DBusMessage *media_player_previous(DBusConnection *conn,
 
 	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
 }
+#ifdef __TIZEN_PATCH__
+static DBusMessage *media_player_press_fast_forward(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	DBG("+");
+	struct media_player *mp = data;
+	struct player_callback *cb = mp->cb;
+	int err;
 
+	if (cb->cbs->press_fast_forward == NULL)
+		return btd_error_not_supported(msg);
+
+	err = cb->cbs->press_fast_forward(mp, cb->user_data);
+	if (err < 0)
+		return btd_error_failed(msg, strerror(-err));
+
+	DBG("-");
+	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
+}
+
+static DBusMessage *media_player_release_fast_forward(DBusConnection *conn,
+						DBusMessage *msg, void *data)
+{
+	DBG("+");
+	struct media_player *mp = data;
+	struct player_callback *cb = mp->cb;
+	int err;
+
+	if (cb->cbs->release_fast_forward == NULL)
+		return btd_error_not_supported(msg);
+
+	err = cb->cbs->release_fast_forward(mp, cb->user_data);
+	if (err < 0)
+		return btd_error_failed(msg, strerror(-err));
+
+	DBG("-");
+	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
+}
+
+static DBusMessage *media_player_press_rewind(DBusConnection *conn, DBusMessage *msg,
+								void *data)
+{
+	DBG("+");
+	struct media_player *mp = data;
+	struct player_callback *cb = mp->cb;
+	int err;
+
+	if (cb->cbs->press_rewind == NULL)
+		return btd_error_not_supported(msg);
+
+	err = cb->cbs->press_rewind(mp, cb->user_data);
+	if (err < 0)
+		return btd_error_failed(msg, strerror(-err));
+
+	DBG("-");
+	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
+}
+
+static DBusMessage *media_player_release_rewind(DBusConnection *conn, DBusMessage *msg,
+								void *data)
+{
+	DBG("+");
+	struct media_player *mp = data;
+	struct player_callback *cb = mp->cb;
+	int err;
+
+	if (cb->cbs->release_rewind == NULL)
+		return btd_error_not_supported(msg);
+
+	err = cb->cbs->release_rewind(mp, cb->user_data);
+	if (err < 0)
+		return btd_error_failed(msg, strerror(-err));
+
+	DBG("-");
+	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
+}
+#else
 static DBusMessage *media_player_fast_forward(DBusConnection *conn,
 						DBusMessage *msg, void *data)
 {
@@ -568,7 +644,7 @@ static DBusMessage *media_player_rewind(DBusConnection *conn, DBusMessage *msg,
 
 	return g_dbus_create_reply(msg, DBUS_TYPE_INVALID);
 }
-
+#endif
 static void parse_folder_list(gpointer data, gpointer user_data)
 {
 	struct media_item *item = data;
@@ -702,14 +778,38 @@ done:
 	folder->msg = NULL;
 }
 
+void media_player_total_items_complete(struct media_player *mp,
+							uint32_t num_of_items)
+{
+	struct media_folder *folder = mp->scope;
+
+	if (folder == NULL || folder->msg == NULL)
+		return;
+
+	if (folder->number_of_items != num_of_items) {
+		folder->number_of_items = num_of_items;
+
+		g_dbus_emit_property_changed(btd_get_dbus_connection(),
+				mp->path, MEDIA_FOLDER_INTERFACE,
+				"NumberOfItems");
+	}
+}
+
 static const GDBusMethodTable media_player_methods[] = {
 	{ GDBUS_METHOD("Play", NULL, NULL, media_player_play) },
 	{ GDBUS_METHOD("Pause", NULL, NULL, media_player_pause) },
 	{ GDBUS_METHOD("Stop", NULL, NULL, media_player_stop) },
 	{ GDBUS_METHOD("Next", NULL, NULL, media_player_next) },
 	{ GDBUS_METHOD("Previous", NULL, NULL, media_player_previous) },
+#ifdef __TIZEN_PATCH__
+	{ GDBUS_METHOD("PressFastForward", NULL, NULL, media_player_press_fast_forward) },
+	{ GDBUS_METHOD("ReleaseFastForward", NULL, NULL, media_player_release_fast_forward) },
+	{ GDBUS_METHOD("PressRewind", NULL, NULL, media_player_press_rewind) },
+	{ GDBUS_METHOD("ReleaseRewind", NULL, NULL, media_player_release_rewind) },
+#else
 	{ GDBUS_METHOD("FastForward", NULL, NULL, media_player_fast_forward) },
 	{ GDBUS_METHOD("Rewind", NULL, NULL, media_player_rewind) },
+#endif
 	{ }
 };
 
@@ -891,6 +991,9 @@ static void media_folder_destroy(void *data)
 static void media_player_change_scope(struct media_player *mp,
 						struct media_folder *folder)
 {
+	struct player_callback *cb = mp->cb;
+	int err;
+
 	if (mp->scope == folder)
 		return;
 
@@ -920,10 +1023,19 @@ cleanup:
 done:
 	mp->scope = folder;
 
+	if (cb->cbs->total_items) {
+		err = cb->cbs->total_items(mp, folder->item->name,
+							cb->user_data);
+		if (err < 0)
+			DBG("Failed to get total num of items");
+	} else {
+		g_dbus_emit_property_changed(btd_get_dbus_connection(),
+				mp->path, MEDIA_FOLDER_INTERFACE,
+				"NumberOfItems");
+	}
+
 	g_dbus_emit_property_changed(btd_get_dbus_connection(), mp->path,
 				MEDIA_FOLDER_INTERFACE, "Name");
-	g_dbus_emit_property_changed(btd_get_dbus_connection(), mp->path,
-				MEDIA_FOLDER_INTERFACE, "NumberOfItems");
 }
 
 static struct media_folder *find_folder(GSList *folders, const char *pattern)
@@ -1164,6 +1276,11 @@ struct media_player *media_player_controller_create(const char *path,
 	return mp;
 }
 
+const char *media_player_get_path(struct media_player *mp)
+{
+	return mp->path;
+}
+
 void media_player_set_duration(struct media_player *mp, uint32_t duration)
 {
 	char *value, *curval;
@@ -1297,17 +1414,34 @@ void media_player_set_metadata(struct media_player *mp,
 				void *data, size_t len)
 {
 	char *value, *curval;
+#ifdef __TIZEN_PATCH__
+	char *end, *temp;
+#endif
 
 	value = g_strndup(data, len);
+
+#ifdef __TIZEN_PATCH__
+	temp = value;
+	while (g_utf8_validate(temp, -1, &end) == FALSE) {
+		temp = g_utf8_find_next_char(end, NULL);
+		if (temp == NULL) {
+			*end = '\0';
+			break;
+		}
+		strcpy(end, temp);
+		temp = end;
+	}
+#endif
 
 	DBG("%s: %s", key, value);
 
 	curval = g_hash_table_lookup(mp->track, key);
+#ifndef __TIZEN_PATCH__
 	if (g_strcmp0(curval, value) == 0) {
 		g_free(value);
 		return;
 	}
-
+#endif
 	if (mp->process_id == 0) {
 		g_hash_table_remove_all(mp->track);
 		mp->process_id = g_idle_add(process_metadata_changed, mp);

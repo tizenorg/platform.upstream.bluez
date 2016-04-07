@@ -39,10 +39,10 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES := \
 	bluez/android/main.c \
 	bluez/android/bluetooth.c \
-	bluez/android/scpp.c \
-	bluez/android/dis.c \
-	bluez/android/bas.c \
-	bluez/android/hog.c \
+	bluez/profiles/scanparam/scpp.c \
+	bluez/profiles/deviceinfo/dis.c \
+	bluez/profiles/battery/bas.c \
+	bluez/profiles/input/hog-lib.c \
 	bluez/android/hidhost.c \
 	bluez/android/socket.c \
 	bluez/android/ipc.c \
@@ -339,7 +339,10 @@ LOCAL_SRC_FILES := \
 	bluez/monitor/packet.c \
 	bluez/monitor/l2cap.c \
 	bluez/monitor/avctp.c \
+	bluez/monitor/avdtp.c \
+	bluez/monitor/a2dp.c \
 	bluez/monitor/rfcomm.c \
+	bluez/monitor/bnep.c \
 	bluez/monitor/uuid.c \
 	bluez/monitor/sdp.c \
 	bluez/monitor/vendor.c \
@@ -350,6 +353,8 @@ LOCAL_SRC_FILES := \
 	bluez/monitor/keys.c \
 	bluez/monitor/ellisys.c \
 	bluez/monitor/analyze.c \
+	bluez/monitor/intel.c \
+	bluez/monitor/broadcom.c \
 	bluez/src/shared/util.c \
 	bluez/src/shared/queue.c \
 	bluez/src/shared/crypto.c \
@@ -384,6 +389,7 @@ LOCAL_SRC_FILES := \
 	bluez/tools/btproxy.c \
 	bluez/src/shared/mainloop.c \
 	bluez/src/shared/util.c \
+	bluez/src/shared/ecc.c \
 
 LOCAL_C_INCLUDES := \
 	$(LOCAL_PATH)/bluez \
@@ -539,6 +545,7 @@ include $(CLEAR_VARS)
 LOCAL_SRC_FILES := \
 	bluez/tools/btmgmt.c \
 	bluez/lib/bluetooth.c \
+	bluez/lib/hci.c \
 	bluez/lib/sdp.c \
 	bluez/src/shared/mainloop.c \
 	bluez/src/shared/io-mainloop.c \

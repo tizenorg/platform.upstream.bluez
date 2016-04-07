@@ -2,7 +2,7 @@
 %define _libpath /usr/lib
 Name:       	bluez
 Summary:    	Bluetooth Stack for Linux
-Version:    	5.28
+Version:    	5.37
 Release:    	0
 Group:      	Network & Connectivity/Bluetooth
 License:    	GPL-2.0+ and LGPL-2.1+ and Apache-2.0
@@ -282,6 +282,7 @@ ln -sf bluetooth.service %{buildroot}%{_libpath}/systemd/system/dbus-org.bluez.s
 %{_bindir}/bluemoon
 %{_bindir}/gatttool
 %{_bindir}/hex2hcd
+%{_bindir}/btattach
 %exclude /usr/lib/debug/*
 
 %docs_package

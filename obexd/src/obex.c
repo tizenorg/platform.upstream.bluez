@@ -642,7 +642,17 @@ static void parse_name(struct obex_session *os, GObexPacket *req)
 
 	if (!g_obex_header_get_unicode(hdr, &name))
 		return;
-
+#ifdef __TIZEN_PATCH__
+	DBG("TYPE===>: %s", os->type);
+	if (name && strcmp(os->type, "x-bt/phonebook")) {
+		char *new_name;
+		new_name = strrchr(name, '/');
+		if (new_name) {
+			name = new_name + 1;
+			DBG("FileName %s", name);
+		}
+	}
+#endif
 	os->name = g_strdup(name);
 	DBG("NAME: %s", os->name);
 }

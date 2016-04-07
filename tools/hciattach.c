@@ -65,21 +65,23 @@ struct uart_t {
 	int  (*post) (int fd, struct uart_t *u, struct termios *ti);
 
 /* __TIZEN_PATCH__ */
-#ifdef __TI_PATCH__
+#if defined __TIZEN_PATCH__ && defined __TI_PATCH__
 	uint16_t device_param;
 #endif
 };
 
-#ifdef __TI_PATCH__
+#if defined __TIZEN_PATCH__ && defined __TI_PATCH__
 	int firmware_path = 0;
 #endif
 
+#ifdef __TIZEN_PATCH__
 #if defined(__TI_PATCH__) || defined(__BROADCOM_PATCH__)
 #define TIOSETBRFPOWER		0x6000
 #define BRF_DEEP_SLEEP_OPCODE_BYTE_1	0x0c
 #define BRF_DEEP_SLEEP_OPCODE_BYTE_2	0xfd
 #define BRF_DEEP_SLEEP_OPCODE		\
 	(BRF_DEEP_SLEEP_OPCODE_BYTE_1 | (BRF_DEEP_SLEEP_OPCODE_BYTE_2 << 8))
+#endif
 #endif
 #define FLOW_CTL	0x0001
 #define AMP_DEV		0x0002
@@ -1021,7 +1023,7 @@ static int bcm2035(int fd, struct uart_t *u, struct termios *ti)
 	memset(resp, 0, sizeof(resp));
 
 /* __TIZEN_PATCH__ */
-#ifndef __BROADCOM_PATCH__
+#if defined(__TIZEN_PATCH__) && !defined(__BROADCOM_PATCH__)
 	cmd[0] = HCI_COMMAND_PKT;
 	cmd[1] = 0x18;
 	cmd[2] = 0xfc;
@@ -1140,7 +1142,7 @@ struct uart_t uart[] = {
 				FLOW_CTL, DISABLE_PM, NULL, swave    },
 
 /* __TIZEN_PATCH__ */
-#ifdef __TI_PATCH__
+#if defined __TIZEN_PATCH__ && defined __TI_PATCH__
 	/* Texas Instruments BRF63xx modules */
 	{ "texas",      0x0000, 0x0000, HCI_UART_LL,   115200,3000000, FLOW_CTL, NULL, texas,    NULL/*texas_continue_script*/,    BRF_DEEP_SLEEP_OPCODE},
 #else
@@ -1258,7 +1260,7 @@ static struct uart_t * get_by_type(char *type)
 	return NULL;
 }
 
-#ifdef __BROADCOM_PATCH__
+#if defined __TIZEN_PATCH__ && defined __BROADCOM_PATCH__
 static int enable_hci(char *dev, struct uart_t *u)
 {
 	int fd, i;
@@ -1307,8 +1309,10 @@ static int init_uart(char *dev, struct uart_t *u, int send_break, int raw)
 	unsigned long flags = 0;
 
 /* __TIZEN_PATCH__ */
+#ifdef __TIZEN_PATCH__
 #if defined(__TI_PATCH__) || defined(__BROADCOM_PATCH__)
 	int power;
+#endif
 #endif
 
 	if (raw)
@@ -1333,7 +1337,7 @@ static int init_uart(char *dev, struct uart_t *u, int send_break, int raw)
 	cfmakeraw(&ti);
 
 /* __TIZEN_PATCH__ */
-#ifndef __BROADCOM_PATCH__
+#if defined(__TIZEN_PATCH__) && !defined(__BROADCOM_PATCH__)
 	ti.c_cflag |= CLOCAL;
 	if (u->flags & FLOW_CTL)
 		ti.c_cflag |= CRTSCTS;
@@ -1360,6 +1364,7 @@ static int init_uart(char *dev, struct uart_t *u, int send_break, int raw)
 	}
 
 /* __TIZEN_PATCH__ */
+#ifdef __TIZEN_PATCH__
 #if defined(__TI_PATCH__) || defined(__BROADCOM_PATCH__)
 	/* Power up the BRF chip */
 	power = 1;
@@ -1367,6 +1372,7 @@ static int init_uart(char *dev, struct uart_t *u, int send_break, int raw)
 #endif
 #ifdef __TI_PATCH__
 	usleep(500000);
+#endif
 #endif
 
 	if (u->init && u->init(fd, u, &ti) < 0)
@@ -1397,7 +1403,7 @@ static int init_uart(char *dev, struct uart_t *u, int send_break, int raw)
 		goto fail;
 	}
 
-#if 0
+#ifndef __TIZEN_PATCH__
 	if (u->post && u->post(fd, u, &ti) < 0)
 		goto fail;
 #endif
@@ -1417,7 +1423,7 @@ static void usage(void)
 	printf("Usage:\n");
 
 /* __TIZEN_PATCH__ */
-#ifdef __TI_PATCH__
+#if defined(__TIZEN_PATCH__) && !defined(__TI_PATCH__)
 /* This commented code was present before bluez 5.25 upgrade
  * printf("\thciattach [-n] [-p] [-b] [-g device_param] [-r] [-f] [-t timeout] [-s initial_speed] <tty> <type | id> [speed] [flow|noflow] [bdaddr]\n");*/
 	printf("\thciattach [-n] [-p] [-b] [-g device_param] [-r] [-f]"
@@ -1435,14 +1441,14 @@ static void usage(void)
 int main(int argc, char *argv[])
 {
 	struct uart_t *u = NULL;
-#ifndef __BROADCOM_PATCH__
+#if defined(__TIZEN_PATCH__) && !defined(__BROADCOM_PATCH__)
 	int detach, printpid, raw, opt, i, n, ld, err;
 #else
 	int detach, printpid, opt, i, n, ld, err;
 #endif
 	int to = 10;
 	int init_speed = 0;
-#ifndef __BROADCOM_PATCH__
+#if defined(__TIZEN_PATCH__) && !defined(__BROADCOM_PATCH__)
 	int send_break = 0;
 #endif
 	pid_t pid;
@@ -1451,9 +1457,11 @@ int main(int argc, char *argv[])
 	sigset_t sigs;
 	char dev[PATH_MAX];
 
+#ifdef __TIZEN_PATCH__
 /* __TIZEN_PATCH__ */
 #if defined(__TI_PATCH__) || defined(__BROADCOM_PATCH__)
 	int power;
+#endif
 #endif
 #ifdef __TI_PATCH__
 	uint16_t device_param = 0;
@@ -1462,17 +1470,17 @@ int main(int argc, char *argv[])
 #endif
 	detach = 1;
 	printpid = 0;
-#ifndef __BROADCOM_PATCH__
+#if defined(__TIZEN_PATCH__) && !defined(__BROADCOM_PATCH__)
 	raw = 0;
 #endif
-#ifdef __TI_PATCH__
+#if defined(__TIZEN_PATCH__) && !defined(__TI_PATCH__)
 	while ((opt=getopt(argc, argv, "bnprft:g:s:l")) != EOF) {
 #else
 	while ((opt=getopt(argc, argv, "bnpt:s:lr")) != EOF) {
 #endif
 		switch(opt) {
 		case 'b':
-#ifndef __BROADCOM_PATCH__
+#if defined(__TIZEN_PATCH__) && !defined(__BROADCOM_PATCH__)
 			send_break = 1;
 #endif
 			break;
@@ -1490,7 +1498,7 @@ int main(int argc, char *argv[])
 			break;
 
 /* __TIZEN_PATCH__ */
-#ifdef __TI_PATCH__
+#if defined(__TIZEN_PATCH__) && defined(__TI_PATCH__)
 		case 'g':
 			device_param = (uint16_t)strtol(optarg, NULL, 16);
 			break;
@@ -1515,7 +1523,7 @@ int main(int argc, char *argv[])
 			exit(0);
 
 		case 'r':
-#ifndef __BROADCOM_PATCH__
+#if defined(__TIZEN_PATCH__) && !defined(__BROADCOM_PATCH__)
 			raw = 1;
 #endif
 			break;
@@ -1528,7 +1536,7 @@ int main(int argc, char *argv[])
 
 	n = argc - optind;
 /* __TIZEN_PATCH__ */
-#ifdef __TI_PATCH__
+#if defined(__TIZEN_PATCH__) && defined(__TI_PATCH__)
 	if (!reset_device || (reset_device && n < 1))
 #endif
 	if (n < 2) {
@@ -1595,7 +1603,7 @@ int main(int argc, char *argv[])
 		}
 	}
 /* __TIZEN_PATCH__ */
-#ifdef __TI_PATCH__
+#if defined(__TIZEN_PATCH__) && defined(__TI_PATCH__)
 	if (reset_device)
 	{
 		// Reset row device
@@ -1624,7 +1632,7 @@ int main(int argc, char *argv[])
 	   the hardware's default */
 	if (init_speed)
 		u->init_speed = init_speed;
-#ifdef __TI_PATCH__
+#if defined(__TIZEN_PATCH__) && defined(__TI_PATCH__)
 	/* If user specified a device parameter, use that instead of
 	   the hardware's default */
 	if (device_param)
@@ -1639,7 +1647,7 @@ int main(int argc, char *argv[])
 	/* 10 seconds should be enough for initialization */
 	alarm(to);
 	bcsp_max_retries = to;
-#ifdef __BROADCOM_PATCH__
+#if defined __TIZEN_PATCH__ && defined __BROADCOM_PATCH__
 	n = enable_hci(dev, u);
 #else
 	n = init_uart(dev, u, send_break, raw);
@@ -1705,10 +1713,12 @@ int main(int argc, char *argv[])
 	}
 
 /* __TIZEN_PATCH__ */
+#ifdef __TIZEN_PATCH__
 #if defined(__TI_PATCH__) || defined(__BROADCOM_PATCH__)
 	/* Power down the BRF or BCMchip */
 	power = 0;
 	ioctl(n, TIOSETBRFPOWER, &power);
+#endif
 #endif
 	return 0;
 }

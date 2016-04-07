@@ -320,15 +320,30 @@ static void send_key(int fd, uint16_t key, int pressed)
 static gboolean auto_release(gpointer user_data)
 {
 	struct avctp *session = user_data;
-
-	session->key.timer = 0;
+#ifdef __TIZEN_PATCH__
+	uint16_t op = session->key.op;
+#endif
 
 	DBG("AV/C: key press timeout");
 
+#ifdef __TIZEN_PATCH__
+	if (op != KEY_FASTFORWARD && op != KEY_REWIND) {
+		session->key.timer = 0;
+		send_key(session->uinput, op, 0);
+	} else {
+		return TRUE;
+	}
+#else
+	session->key.timer = 0;
 	send_key(session->uinput, session->key.op, 0);
+#endif
 
 	return FALSE;
 }
+
+#ifdef __TIZEN_PATCH__
+extern void avrcp_stop_position_timer(void);
+#endif
 
 static void handle_press(struct avctp *session, uint16_t op)
 {
@@ -338,8 +353,9 @@ static void handle_press(struct avctp *session, uint16_t op)
 		/* Only auto release if keys are different */
 		if (session->key.op == op)
 			goto done;
-
+#ifndef __TIZEN_PATCH__
 		send_key(session->uinput, session->key.op, 0);
+#endif
 	}
 
 	session->key.op = op;
@@ -797,7 +813,11 @@ static gboolean process_queue(void *user_data)
 		return FALSE;
 
 	chan->p = p;
+#ifdef __TIZEN_PATCH__
+	p->timeout = g_timeout_add_seconds(5, req_timeout, chan);
+#else
 	p->timeout = g_timeout_add_seconds(2, req_timeout, chan);
+#endif
 
 	return FALSE;
 
@@ -1446,6 +1466,16 @@ static void avctp_confirm_cb(GIOChannel *chan, gpointer data)
 	if (!device)
 		return;
 
+#ifdef __TIZEN_PATCH__
+	char name[10];
+	device_get_name(device, name, sizeof(name));
+	DBG("name : %s", name);
+	if (g_str_equal(name, "PLT_M50")) {
+		DBG("Don't accept avrcp connection with this headset");
+		return;
+	}
+#endif
+
 	session = avctp_get_internal(device);
 	if (session == NULL)
 		return;
@@ -1702,13 +1732,20 @@ static gboolean repeat_timeout(gpointer user_data)
 	struct avctp *session = user_data;
 
 	avctp_passthrough_release(session, session->key.op);
+#ifndef __TIZEN_PATCH__
 	avctp_passthrough_press(session, session->key.op);
 
 	return TRUE;
+#else
+	return FALSE;
+#endif
 }
 
 static void release_pressed(struct avctp *session)
 {
+#ifdef __TIZEN_PATCH__
+	if (session->key.op != AVC_FAST_FORWARD && session->key.op != AVC_REWIND)
+#endif
 	avctp_passthrough_release(session, session->key.op);
 
 	if (session->key.timer > 0)
@@ -1759,7 +1796,23 @@ int avctp_send_passthrough(struct avctp *session, uint8_t op)
 
 	return avctp_passthrough_press(session, op);
 }
+#ifdef __TIZEN_PATCH__
+int avctp_send_release_passthrough(struct avctp *session, uint8_t op)
+{
+	DBG("+");
 
+	if (op != AVC_FAST_FORWARD && op != AVC_REWIND)
+		return FALSE;
+
+	/* Auto release if key pressed */
+	if (session->key.timer > 0)
+		g_source_remove(session->key.timer);
+	session->key.timer = 0;
+
+	DBG("-");
+	return avctp_passthrough_release(session, op);
+}
+#endif
 int avctp_send_vendordep(struct avctp *session, uint8_t transaction,
 				uint8_t code, uint8_t subunit,
 				uint8_t *operands, size_t operand_count)
