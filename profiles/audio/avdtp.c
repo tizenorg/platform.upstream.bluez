@@ -42,7 +42,7 @@
 #include "lib/uuid.h"
 
 #ifdef __TIZEN_PATCH__
-#ifdef __BROADCOM_QOS_PATCH__
+#if defined(__BROADCOM_QOS_PATCH__) || defined(__SPRD_QOS_PATCH__)
 #include <sys/ioctl.h>
 #include <bluetooth/hci.h>
 #endif	/* __BROADCOM_QOS_PATCH__ */
@@ -961,7 +961,7 @@ static void handle_unanswered_req(struct avdtp *session,
 
 #ifdef __TIZEN_PATCH__
 #ifdef __BROADCOM_QOS_PATCH__
-static gboolean send_broadcom_a2dp_qos(bdaddr_t *dst, gboolean qos_high)
+static gboolean send_broadcom_a2dp_qos(const bdaddr_t *dst, gboolean qos_high)
 {
 	int dd;
 	int err = 0;
@@ -1007,8 +1007,64 @@ static gboolean send_broadcom_a2dp_qos(bdaddr_t *dst, gboolean qos_high)
 	return TRUE;
 }
 #endif	/* __BROADCOM_QOS_PATCH__ */
+
+#ifdef __SPRD_QOS_PATCH__
+static gboolean send_sprd_a2dp_qos(bdaddr_t *dst, gboolean qos_high)
+{
+	int dd;
+	int err = 0;
+	struct hci_conn_info_req *cr;
+	qos_setup_cp cp;
+
+	dd = hci_open_dev(0);
+
+	cr = g_malloc0(sizeof(*cr) + sizeof(struct hci_conn_info));
+
+	cr->type = ACL_LINK;
+	bacpy(&cr->bdaddr, dst);
+
+	err = ioctl(dd, HCIGETCONNINFO, cr);
+	if (err < 0) {
+		error("Fail to get HCIGETCOINFO");
+		g_free(cr);
+		hci_close_dev(dd);
+		return FALSE;
+	}
+
+	cp.handle = cr->conn_info->handle;
+	cp.flags = 0x00;
+	DBG("Handle %d", cp.handle);
+	g_free(cr);
+
+	if (qos_high) {
+		cp.qos.service_type = 0x02;
+		cp.qos.token_rate = 0X000000C8;
+		cp.qos.peak_bandwidth = 0X000000C8;
+		cp.qos.latency = 0x00000001;
+		cp.qos.delay_variation = 0xFFFFFFFF;
+	} else {
+		cp.qos.service_type = 0x01;
+		cp.qos.token_rate = 0X00000000;
+		cp.qos.peak_bandwidth = 0X00000000;
+		cp.qos.latency = 0x00000001;
+		cp.qos.delay_variation = 0xFFFFFFFF;
+	}
+
+	if (hci_send_cmd(dd, OGF_LINK_POLICY, OCF_QOS_SETUP,
+				QOS_SETUP_CP_SIZE, &cp) < 0) {
+		hci_close_dev(dd);
+		return FALSE;
+	}
+	DBG("Send Spreadtrum Qos Patch %s", qos_high ? "High" : "Low");
+
+	hci_close_dev(dd);
+
+	return TRUE;
+}
+#endif	/* __SPRD_QOS_PATCH__ */
+
 #ifdef TIZEN_WEARABLE
-static gboolean fix_role_to_master(bdaddr_t *dst, gboolean fix_to_master)
+static gboolean fix_role_to_master(const bdaddr_t *dst, gboolean fix_to_master)
 {
 	int dd;
 	int err = 0;
@@ -1074,11 +1130,12 @@ static void avdtp_sep_set_state(struct avdtp *session,
 				avdtp_state_t state)
 {
 	struct avdtp_stream *stream = sep->stream;
-#ifdef __TIZEN_PATCH__
-#if defined(__BROADCOM_QOS_PATCH__) || defined(TIZEN_WEARABLE)
-	bdaddr_t *dst;
 
-	dst = (bdaddr_t*)device_get_address(session->device);
+#ifdef __TIZEN_PATCH__
+#if (defined(__BROADCOM_QOS_PATCH__) || defined(TIZEN_WEARABLE)) || \
+	defined(__SPRD_QOS_PATCH__)
+	const bdaddr_t *dst;
+	dst = device_get_address(session->device);
 #endif
 #endif
 	avdtp_state_t old_state;
@@ -1114,7 +1171,10 @@ static void avdtp_sep_set_state(struct avdtp *session,
 #ifdef __TIZEN_PATCH__
 #ifdef __BROADCOM_QOS_PATCH__
 		send_broadcom_a2dp_qos(dst, FALSE);
-#endif	/* __BROADCOM_QOS_PATCH__ */
+#elif defined(__SPRD_QOS_PATCH__)
+		if (old_state == AVDTP_STATE_STREAMING)
+			send_sprd_a2dp_qos(dst, FALSE);
+#endif
 #ifdef TIZEN_WEARABLE
 		fix_role_to_master(dst, FALSE);
 #endif /* TIZEN_WEARABLE */
@@ -1130,7 +1190,10 @@ static void avdtp_sep_set_state(struct avdtp *session,
 #ifdef __TIZEN_PATCH__
 #ifdef __BROADCOM_QOS_PATCH__
 		send_broadcom_a2dp_qos(dst, TRUE);
-#endif	/* __BROADCOM_QOS_PATCH__ */
+#elif defined(__SPRD_QOS_PATCH__)
+		if (old_state == AVDTP_STATE_OPEN)
+			send_sprd_a2dp_qos(dst, TRUE);
+#endif
 #ifdef TIZEN_WEARABLE
 		fix_role_to_master(dst, TRUE);
 #endif	/* TIZEN_WEARABLE */
@@ -1274,6 +1337,7 @@ static void connection_lost(struct avdtp *session, int err)
 	if (service)
 		btd_service_connecting_complete(service, -err);
 #endif
+
 	g_slist_foreach(session->streams, (GFunc) release_stream, session);
 	session->streams = NULL;
 
@@ -1326,6 +1390,7 @@ static gboolean disconnect_timeout(gpointer user_data)
 		return FALSE;
 	}
 #endif
+
 	session->dc_timer = 0;
 
 	stream_setup = session->stream_setup;
@@ -1366,7 +1431,11 @@ static gboolean disconnect_timeout(gpointer user_data)
 	return FALSE;
 }
 
+#if defined __TIZEN_PATCH__ && defined SUPPORT_LOCAL_DEVICE_A2DP_SINK
+static void set_disconnect_timer(struct avdtp *session, gboolean disconn)
+#else
 static void set_disconnect_timer(struct avdtp *session)
+#endif
 {
 #ifdef __TIZEN_PATCH__
 	char name[6];
@@ -1376,15 +1445,31 @@ static void set_disconnect_timer(struct avdtp *session)
 
 #ifdef __TIZEN_PATCH__
 	device_get_name(session->device, name, sizeof(name));
-	DBG("name : %s", name);
-	if (g_str_equal(name, "VW BT"))
+	DBG("name : [%s]", name);
+	if (g_str_equal(name, "VW BT") || g_str_equal(name, "VW MI") ||
+						g_str_equal(name, "Seat ")) {
 		session->dc_timer = g_timeout_add_seconds(3, disconnect_timeout,
 				session);
-	else
+	} else if (g_str_equal(name, "CAR M")) {
+		session->dc_timer = g_timeout_add(200, disconnect_timeout,
+				session);
+	} else {
 #endif
+#if defined __TIZEN_PATCH__ && defined SUPPORT_LOCAL_DEVICE_A2DP_SINK
+		if (disconn == TRUE)
+			session->dc_timer = g_timeout_add(100,
+					disconnect_timeout,
+					session);
+		else
+			session->dc_timer = g_timeout_add_seconds(DISCONNECT_TIMEOUT,
+					disconnect_timeout,
+					session);
+#else
 		session->dc_timer = g_timeout_add_seconds(DISCONNECT_TIMEOUT,
 				disconnect_timeout,
 				session);
+#endif
+	}
 }
 
 void avdtp_unref(struct avdtp *session)
@@ -1399,7 +1484,11 @@ void avdtp_unref(struct avdtp *session)
 	if (session->ref > 0)
 		return;
 
+#if defined __TIZEN_PATCH__ && defined SUPPORT_LOCAL_DEVICE_A2DP_SINK
+	set_disconnect_timer(session, TRUE);
+#else
 	set_disconnect_timer(session);
+#endif
 }
 
 struct avdtp *avdtp_ref(struct avdtp *session)
@@ -2540,7 +2629,11 @@ static void avdtp_connect_cb(GIOChannel *chan, GError *err, gpointer user_data)
 						NULL);
 
 		if (session->stream_setup)
+#if defined __TIZEN_PATCH__ && defined SUPPORT_LOCAL_DEVICE_A2DP_SINK
+			set_disconnect_timer(session, FALSE);
+#else
 			set_disconnect_timer(session);
+#endif
 	} else if (session->pending_open)
 		handle_transport_connect(session, chan, session->imtu,
 								session->omtu);
@@ -2614,6 +2707,9 @@ static GIOChannel *l2cap_connect(struct avdtp *session)
 				device_get_address(session->device),
 				BT_IO_OPT_PSM, AVDTP_PSM,
 				BT_IO_OPT_SEC_LEVEL, BT_IO_SEC_MEDIUM,
+#if defined __TIZEN_PATCH__ && defined SUPPORT_LOCAL_DEVICE_A2DP_SINK
+				BT_IO_OPT_IMTU, 895,
+#endif
 				BT_IO_OPT_INVALID);
 	if (!io) {
 		error("%s", err->message);
@@ -3628,11 +3724,43 @@ int avdtp_start(struct avdtp *session, struct avdtp_stream *stream)
 		/* If timer already active wait it */
 		if (stream->start_timer)
 			return 0;
+#ifdef __TIZEN_PATCH__
+		else {
+			char address[18];
+			uint32_t timeout_sec = START_TIMEOUT;
 
+			ba2str(device_get_address(session->device), address);
+			/* For Bose headset (Bose AE2w) 2 seconds timeout is required to avoid AVDTP ABORT_CMD */
+			if (!strncasecmp(address, "00:0C:8A", 8))
+				timeout_sec = 2;
+			/* For Gear Circle, HS3000 headset, this headset doesn't initiate start command and
+			 * when we add timer for 1 second so idle may trigger callback after 1.2 sec or
+			 * 1.5 sec. So, don't timer for this headset.*/
+			if (!strncasecmp(address, "10:92:66", 8) ||
+				!strncasecmp(address, "A8:9F:BA", 8)) {
+				start_timeout(stream);
+				return 0;
+			}
+			 /* Here we can't use Mac address as there are changing so check for name */
+			char name[10];
+			device_get_name(session->device, name, sizeof(name));
+			DBG("name : %s", name);
+			if (g_str_equal(name, "HS3000")) {
+				start_timeout(stream);
+				return 0;
+			}
+
+			stream->start_timer = g_timeout_add_seconds(timeout_sec,
+									start_timeout,
+									stream);
+			return 0;
+		}
+#else
 		stream->start_timer = g_timeout_add_seconds(START_TIMEOUT,
 								start_timeout,
 								stream);
 		return 0;
+#endif
 	}
 
 	if (stream->close_int == TRUE) {
@@ -3708,6 +3836,13 @@ int avdtp_abort(struct avdtp *session, struct avdtp_stream *stream)
 {
 	struct seid_req req;
 	int ret;
+
+	if (!stream && session->discover) {
+		/* Don't call cb since it being aborted */
+		session->discover->cb = NULL;
+		finalize_discovery(session, -ECANCELED);
+		return -EALREADY;
+	}
 
 	if (!g_slist_find(session->streams, stream))
 		return -EINVAL;

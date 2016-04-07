@@ -109,6 +109,12 @@ extern "C" {
 #define OBEX_MNS_UUID		"00001133-0000-1000-8000-00805f9b34fb"
 #define OBEX_MAP_UUID		"00001134-0000-1000-8000-00805f9b34fb"
 
+#ifdef __TIZEN_PATCH__
+/* Samsung Accessary Protocol UUIDs */
+#define WEARABLE_OLD_SAP_UUID	"a49eb41e-cb06-495c-9f4f-aa80a90cdf4a"
+#define WEARABLE_NEW_SAP_UUID	"a49eb41e-cb06-495c-9f4f-bb80a90cdf00"
+#endif
+
 /* GATT UUIDs section */
 #define GATT_PRIM_SVC_UUID				0x2800
 #define GATT_SND_SVC_UUID				0x2801

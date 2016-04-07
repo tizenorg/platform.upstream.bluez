@@ -38,11 +38,11 @@
 #include <netinet/in.h>
 #include <linux/if_bridge.h>
 
-#include <bluetooth/bluetooth.h>
-#include <bluetooth/hci.h>
-#include <bluetooth/hci_lib.h>
-
 #include <glib.h>
+
+#include "lib/bluetooth.h"
+#include "lib/hci.h"
+#include "lib/hci_lib.h"
 
 #include "src/log.h"
 #include "src/shared/util.h"
@@ -89,7 +89,7 @@ static int set_forward_delay(int sk)
 	struct ifreq ifr;
 
 	memset(&ifr, 0, sizeof(ifr));
-	strncpy(ifr.ifr_name, bridge, IFNAMSIZ);
+	strncpy(ifr.ifr_name, bridge, IFNAMSIZ - 1);
 	ifr.ifr_data = (char *) args;
 
 	if (ioctl(sk, SIOCDEVPRIVATE, &ifr) < 0) {

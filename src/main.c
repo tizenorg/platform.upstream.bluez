@@ -48,6 +48,7 @@
 #include "gdbus/gdbus.h"
 
 #include "log.h"
+#include "backtrace.h"
 
 #include "lib/uuid.h"
 #include "hcid.h"
@@ -58,10 +59,6 @@
 #include "agent.h"
 #include "profile.h"
 #include "systemd.h"
-
-#ifdef __TIZEN_PATCH__
-#include "gatt.h"
-#endif
 
 #define BLUEZ_NAME "org.bluez"
 
@@ -371,11 +368,27 @@ static void init_defaults(void)
 
 	if (sscanf(VERSION, "%hhu.%hhu", &major, &minor) != 2)
 		return;
-
+#ifndef __TIZEN_PATCH__
 	main_opts.did_source = 0x0002;		/* USB */
 	main_opts.did_vendor = 0x1d6b;		/* Linux Foundation */
 	main_opts.did_product = 0x0246;		/* BlueZ */
 	main_opts.did_version = (major << 8 | minor);
+#endif
+}
+
+static void log_handler(const gchar *log_domain, GLogLevelFlags log_level,
+				const gchar *message, gpointer user_data)
+{
+	int priority;
+
+	if (log_level & (G_LOG_LEVEL_ERROR |
+				G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING))
+		priority = 0x03;
+	else
+		priority = 0x06;
+
+	btd_log(0xffff, priority, "GLib: %s", message);
+	btd_backtrace(0xffff);
 }
 
 static GMainLoop *event_loop;
@@ -394,7 +407,7 @@ static gboolean quit_eventloop(gpointer user_data)
 static gboolean signal_handler(GIOChannel *channel, GIOCondition cond,
 							gpointer user_data)
 {
-	static unsigned int __terminated = 0;
+	static bool terminated = false;
 	struct signalfd_siginfo si;
 	ssize_t result;
 	int fd;
@@ -411,7 +424,7 @@ static gboolean signal_handler(GIOChannel *channel, GIOCondition cond,
 	switch (si.ssi_signo) {
 	case SIGINT:
 	case SIGTERM:
-		if (__terminated == 0) {
+		if (!terminated) {
 			info("Terminating");
 			g_timeout_add_seconds(SHUTDOWN_GRACE_SECONDS,
 							quit_eventloop, NULL);
@@ -420,7 +433,7 @@ static gboolean signal_handler(GIOChannel *channel, GIOCondition cond,
 			adapter_shutdown();
 		}
 
-		__terminated = 1;
+		terminated = true;
 		break;
 	case SIGUSR2:
 		__btd_toggle_debug();
@@ -603,11 +616,17 @@ int main(int argc, char *argv[])
 
 	umask(0077);
 
+	btd_backtrace_init();
+
 	event_loop = g_main_loop_new(NULL, FALSE);
 
 	signal = setup_signalfd();
 
 	__btd_log_init(option_debug, option_detach);
+
+	g_log_set_handler("GLib", G_LOG_LEVEL_MASK | G_LOG_FLAG_FATAL |
+							G_LOG_FLAG_RECURSION,
+							log_handler, NULL);
 
 	sd_notify(0, "STATUS=Starting up");
 
@@ -625,10 +644,6 @@ int main(int argc, char *argv[])
 
 	g_dbus_set_flags(gdbus_flags);
 
-#if 0
-	gatt_init();
-#endif
-
 	if (adapter_init() < 0) {
 		error("Adapter handling initialization failed");
 		exit(1);
@@ -638,14 +653,18 @@ int main(int argc, char *argv[])
 	btd_agent_init();
 	btd_profile_init();
 
-	if (option_compat == TRUE)
-		sdp_flags |= SDP_SERVER_COMPAT;
+	if (main_opts.mode != BT_MODE_LE) {
+		if (option_compat == TRUE)
+			sdp_flags |= SDP_SERVER_COMPAT;
 
-	start_sdp_server(sdp_mtu, sdp_flags);
+		start_sdp_server(sdp_mtu, sdp_flags);
 
-	if (main_opts.did_source > 0)
-		register_device_id(main_opts.did_source, main_opts.did_vendor,
-				main_opts.did_product, main_opts.did_version);
+		if (main_opts.did_source > 0)
+			register_device_id(main_opts.did_source,
+						main_opts.did_vendor,
+						main_opts.did_product,
+						main_opts.did_version);
+	}
 
 	if (mps != MPS_OFF)
 		register_mps(mps == MPS_MULTIPLE);
@@ -694,13 +713,10 @@ int main(int argc, char *argv[])
 
 	adapter_cleanup();
 
-#if 0
-	gatt_cleanup();
-#endif
-
 	rfkill_exit();
 
-	stop_sdp_server();
+	if (main_opts.mode != BT_MODE_LE)
+		stop_sdp_server();
 
 	g_main_loop_unref(event_loop);
 

@@ -41,6 +41,7 @@
 
 #include "btio/btio.h"
 #include "log.h"
+#include "backtrace.h"
 #include "adapter.h"
 #include "device.h"
 #include "src/shared/util.h"
@@ -97,15 +98,6 @@ static bt_uuid_t ccc_uuid = {
 			.type = BT_UUID16,
 			.value.u16 = GATT_CLIENT_CHARAC_CFG_UUID
 };
-
-static inline void put_uuid_le(const bt_uuid_t *src, void *dst)
-{
-	if (src->type == BT_UUID16)
-		put_le16(src->value.u16, dst);
-	else
-		/* Convert from 128-bit BE to LE */
-		bswap_128(&src->value.u128, dst);
-}
 
 static void attrib_free(void *data)
 {
@@ -269,14 +261,7 @@ static int attribute_uuid_cmp(gconstpointer a, gconstpointer b)
 	const struct attribute *attrib1 = a;
 	const bt_uuid_t *uuid = b;
 
-	if (attrib1->uuid.value.u16 != GATT_PRIM_SVC_UUID) {
-		return bt_uuid_cmp(&attrib1->uuid, uuid);
-	} else {
-		bt_uuid_t prim_uuid;
-		prim_uuid = att_get_uuid(attrib1->data, attrib1->len);
-
-		return bt_uuid_cmp(&prim_uuid, uuid);
-	}
+	return bt_uuid_cmp(&attrib1->uuid, uuid);
 }
 
 struct attribute *attribute_find(struct btd_adapter *adapter, const bt_uuid_t *uuid)
@@ -370,14 +355,20 @@ static uint32_t attrib_create_sdp_new(struct gatt_server *server,
 		return 0;
 
 	if (name != NULL)
+#ifdef __TIZEN_PATCH__
+		sdp_set_info_attr(record, name, "Samsung", NULL);
+#else
 		sdp_set_info_attr(record, name, "BlueZ", NULL);
+#endif
 
 	sdp_uuid16_create(&gap_uuid, GENERIC_ACCESS_PROFILE_ID);
+#ifndef __TIZEN_PATCH__
 	if (sdp_uuid_cmp(&svc, &gap_uuid) == 0) {
 		sdp_set_url_attr(record, "http://www.bluez.org/",
 				"http://www.bluez.org/",
 				"http://www.bluez.org/");
 	}
+#endif
 
 	if (adapter_service_add(server->adapter, record) == 0)
 		return record->handle;
@@ -995,6 +986,7 @@ static uint16_t write_value(struct gatt_channel *channel, uint16_t handle,
 		filename = btd_device_get_storage_path(channel->device, "ccc_sc");
 		if (!filename) {
 			warn("Unable to get ccc storage path for device");
+			g_free(data);
 			return enc_error_resp(ATT_OP_WRITE_REQ, handle,
 						ATT_ECODE_WRITE_NOT_PERM,
 						pdu, len);
@@ -1395,12 +1387,12 @@ static gboolean register_core_services(struct gatt_server *server)
 								atval, 2);
 
 	/* GAP service: device name characteristic */
-	server->name_handle = 0x0003;
+	server->name_handle = 0x0006;
 	bt_uuid16_create(&uuid, GATT_CHARAC_UUID);
 	atval[0] = GATT_CHR_PROP_READ;
 	put_le16(server->name_handle, &atval[1]);
 	put_le16(GATT_CHARAC_DEVICE_NAME, &atval[3]);
-	attrib_db_add_new(server, 0x0002, &uuid, ATT_NONE, ATT_NOT_PERMITTED,
+	attrib_db_add_new(server, 0x0004, &uuid, ATT_NONE, ATT_NOT_PERMITTED,
 								atval, 5);
 
 	/* GAP service: device name attribute */
@@ -1409,12 +1401,12 @@ static gboolean register_core_services(struct gatt_server *server)
 						ATT_NOT_PERMITTED, NULL, 0);
 
 	/* GAP service: device appearance characteristic */
-	server->appearance_handle = 0x0005;
+	server->appearance_handle = 0x0008;
 	bt_uuid16_create(&uuid, GATT_CHARAC_UUID);
 	atval[0] = GATT_CHR_PROP_READ;
 	put_le16(server->appearance_handle, &atval[1]);
 	put_le16(GATT_CHARAC_APPEARANCE, &atval[3]);
-	attrib_db_add_new(server, 0x0004, &uuid, ATT_NONE, ATT_NOT_PERMITTED,
+	attrib_db_add_new(server, 0x0007, &uuid, ATT_NONE, ATT_NOT_PERMITTED,
 								atval, 5);
 
 	/* GAP service: device appearance attribute */
@@ -1432,19 +1424,19 @@ static gboolean register_core_services(struct gatt_server *server)
 	/* GATT service: primary service definition */
 	bt_uuid16_create(&uuid, GATT_PRIM_SVC_UUID);
 	put_le16(GENERIC_ATTRIB_PROFILE_ID, &atval[0]);
-	attrib_db_add_new(server, 0x0006, &uuid, ATT_NONE, ATT_NOT_PERMITTED,
+	attrib_db_add_new(server, 0x0010, &uuid, ATT_NONE, ATT_NOT_PERMITTED,
 								atval, 2);
 
 #ifdef __TIZEN_PATCH__
 	/* GATT service: service changed characteristic */
-	service_changed_handle = 0x0008;
+	service_changed_handle = 0x0012;
 	bt_uuid16_create(&uuid, GATT_CHARAC_UUID);
 
 	atval[0] = GATT_CHR_PROP_INDICATE;
 	put_le16(service_changed_handle, &atval[1]);
 	put_le16(GATT_CHARAC_SERVICE_CHANGED, &atval[3]);
 
-	attrib_db_add_new(server, 0x0007, &uuid, ATT_NONE, ATT_NOT_PERMITTED,
+	attrib_db_add_new(server, 0x0011, &uuid, ATT_NONE, ATT_NOT_PERMITTED,
 			atval, 5);
 
 	/* GATT service: service changed attribute */
@@ -1455,10 +1447,10 @@ static gboolean register_core_services(struct gatt_server *server)
 	bt_uuid16_create(&uuid, GATT_CLIENT_CHARAC_CFG_UUID);
 	atval[0] = GATT_CHR_PROP_READ | GATT_CHR_PROP_WRITE;
 	atval[1] = 0;
-	attrib_db_add_new(server, 0x0009, &uuid, ATT_NONE, ATT_NONE, atval, 2);
+	attrib_db_add_new(server, 0x0013, &uuid, ATT_NONE, ATT_NONE, atval, 2);
 #endif
 
-	server->gatt_sdp_handle = attrib_create_sdp_new(server, 0x0006,
+	server->gatt_sdp_handle = attrib_create_sdp_new(server, 0x0010,
 						"Generic Attribute Profile");
 	if (server->gatt_sdp_handle == 0) {
 		error("Failed to register GATT service record");
@@ -1643,7 +1635,7 @@ static uint16_t find_uuid128_avail(struct btd_adapter *adapter, uint16_t nitems)
 uint16_t attrib_db_find_avail(struct btd_adapter *adapter, bt_uuid_t *svc_uuid,
 								uint16_t nitems)
 {
-	g_assert(nitems > 0);
+	btd_assert(nitems > 0);
 
 	if (svc_uuid->type == BT_UUID16)
 		return find_uuid16_avail(adapter, nitems);
@@ -1745,6 +1737,27 @@ int attrib_db_del(struct btd_adapter *adapter, uint16_t handle)
 }
 
 #ifdef __TIZEN_PATCH__
+uint16_t send_sc_indication(uint16_t start_handle, uint16_t end_handle, size_t vlen,
+						uint8_t *pdu, size_t len)
+{
+	const uint16_t min_len = sizeof(pdu[0]) + sizeof(uint16_t);
+
+	if (pdu == NULL)
+		return 0;
+
+	if (len < (vlen + min_len))
+		return 0;
+
+	pdu[0] = ATT_OP_HANDLE_IND;
+/*	API replaced by put_le16 in bluez 5.25
+	att_put_u16(start_handle, &pdu[1]);
+	att_put_u16(end_handle, &pdu[3]);*/
+	put_le16(start_handle, &pdu[1]);
+	put_le16(end_handle, &pdu[3]);
+
+	return vlen + min_len;
+}
+
 static uint8_t attrib_get_ccc_info(struct btd_device *device, uint16_t handle)
 {
 	uint16_t cccval = 0;

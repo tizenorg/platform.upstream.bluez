@@ -31,11 +31,6 @@ extern "C" {
 #include <dbus/dbus.h>
 #include <glib.h>
 
-typedef enum GDBusMethodFlags GDBusMethodFlags;
-typedef enum GDBusSignalFlags GDBusSignalFlags;
-typedef enum GDBusPropertyFlags GDBusPropertyFlags;
-typedef enum GDBusSecurityFlags GDBusSecurityFlags;
-
 typedef struct GDBusArgInfo GDBusArgInfo;
 typedef struct GDBusMethodTable GDBusMethodTable;
 typedef struct GDBusSignalTable GDBusSignalTable;
@@ -114,6 +109,16 @@ enum GDBusSecurityFlags {
 	G_DBUS_SECURITY_FLAG_BUILTIN           = (1 << 1),
 	G_DBUS_SECURITY_FLAG_ALLOW_INTERACTION = (1 << 2),
 };
+
+enum GDbusPropertyChangedFlags {
+	G_DBUS_PROPERTY_CHANGED_FLAG_FLUSH = (1 << 0),
+};
+
+typedef enum GDBusMethodFlags GDBusMethodFlags;
+typedef enum GDBusSignalFlags GDBusSignalFlags;
+typedef enum GDBusPropertyFlags GDBusPropertyFlags;
+typedef enum GDBusSecurityFlags GDBusSecurityFlags;
+typedef enum GDbusPropertyChangedFlags GDbusPropertyChangedFlags;
 
 struct GDBusArgInfo {
 	const char *name;
@@ -216,6 +221,7 @@ struct GDBusSecurityTable {
 	.flags = G_DBUS_SIGNAL_FLAG_EXPERIMENTAL
 
 void g_dbus_set_flags(int flags);
+int g_dbus_get_flags(void);
 
 gboolean g_dbus_register_interface(DBusConnection *connection,
 					const char *path, const char *name,
@@ -305,6 +311,10 @@ void g_dbus_pending_property_error(GDBusPendingReply id, const char *name,
 void g_dbus_emit_property_changed(DBusConnection *connection,
 				const char *path, const char *interface,
 				const char *name);
+void g_dbus_emit_property_changed_full(DBusConnection *connection,
+				const char *path, const char *interface,
+				const char *name,
+				GDbusPropertyChangedFlags flags);
 gboolean g_dbus_get_properties(DBusConnection *connection, const char *path,
 				const char *interface, DBusMessageIter *iter);
 

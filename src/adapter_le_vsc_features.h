@@ -128,8 +128,6 @@ typedef struct {
 	uint8_t service_data_len;
 }adapter_le_service_data_params_t;
 
-#ifdef __BROADCOM_PATCH__
-
 /*****************************************************************************
 **  Defentions for HCI Error Codes that are past in the events
 */
@@ -167,7 +165,15 @@ typedef struct {
 #define SUB_CMD_LE_META_PF_SRVC_DATA       0x07
 #define SUB_CMD_LE_META_PF_ALL             0x08
 
+/* Offloaded resolution of private address */
+#define OCF_BCM_LE_RPA_OFFLOAD     0x0155     /* RPA Offload OCF */
 
+/* subcode for rpa offloading feature */
+#define SUB_CMD_LE_ENABLE_OFFLOADING       0x01
+#define SUB_CMD_LE_ADD_IRK_TO_LIST         0x02
+#define SUB_CMD_LE_REMOVE_IRK_TO_LIST      0x03
+#define SUB_CMD_LE_CLEAR_IRK_TO_LIST       0x04
+#define SUB_CMD_LE_READ_IRK_TO_LIST        0x05
 
 /*****************************************************************************
 **                          CP & RP for OCF_BCM_LE_GET_VENDOR_CAP
@@ -386,6 +392,66 @@ typedef struct {
 } __attribute__ ((packed)) adapter_le_vsc_rp_apcf_set_scan_filter;
 
 
+/*****************************************************************************
+**                          CP & RP for OCF_BCM_LE_RPA_OFFLOAD
+**
+*/
+
+/**
+*
+* CP for  SUB_CMD_ENABLE_RPA_OFFLOAD
+*
+* (1 octet) subcode    : SUB_CMD_ENABLE_RPA_OFFLOAD (0x01)
+* (2 octet) enable      : When set to 1, it means enable, otherwise disable.
+*/
+typedef struct {
+	uint8_t subcode;
+	uint8_t enable;
+} __attribute__ ((packed)) adapter_le_vsc_cp_enable_rpa_offload;
+
+/* RP for SUB_CMD_ENABLE_RPA_OFFLOAD */
+typedef struct {
+	uint8_t status;
+	uint8_t subcode;
+} __attribute__ ((packed)) adapter_le_vsc_rp_enable_rpa_offload;
+
+/**
+*
+* CP for  SUB_CMD_ADD_IRK_TO_LIST
+*
+* (1 octet) subcode    : SUB_CMD_ADD_IRK_TO_LIST (0x02)
+* (16 octet) le_irk      : LE IRK (1st byte LSB)
+* (1 octet) bdaddr_type : per spec
+* (6 octet) bdaddr : per spec
+*/
+typedef struct {
+	uint8_t subcode;
+	uint8_t le_irk[16];
+	uint8_t bdaddr_type;
+	bdaddr_t bdaddr;
+} __attribute__ ((packed)) adapter_le_vsc_cp_add_irk_to_list;
+
+/**
+*
+* CP for  SUB_CMD_REMOVE_IRK_TO_LIST
+*
+* (1 octet) subcode    : SUB_CMD_REMOVE_IRK_TO_LIST (0x03)
+* (16 octet) le_irk      : LE IRK (1st byte LSB)
+* (1 octet) bdaddr_type : per spec
+* (6 octet) bdaddr : per spec
+*/
+typedef struct {
+	uint8_t subcode;
+	uint8_t bdaddr_type;
+	bdaddr_t bdaddr;
+} __attribute__ ((packed)) adapter_le_vsc_cp_remove_irk_to_list;
+
+/* RP for SUB_CMD_ADD_IRK_TO_LIST & SUB_CMD_REMOVE_IRK_TO_LIST */
+typedef struct {
+	uint8_t status;
+	uint8_t subcode;
+	uint8_t available_space;
+} __attribute__ ((packed)) adapter_le_vsc_rp_irk_to_list;
 
 
 /*****************************************************************************
@@ -427,35 +493,11 @@ gboolean adapter_le_set_scan_filter_data(int client_if, int action,
 							int data_len, uint8_t *p_data,
 							int mask_len, uint8_t *p_mask);
 gboolean adapter_le_clear_scan_filter_data(int client_if, int filter_index);
-#else /* __BROADCOM_PATCH__ */
 
-gboolean adapter_le_read_ble_feature_info(void) { return FALSE; }
-gboolean adapter_le_is_supported_multi_advertising(void)  { return FALSE; }
-gboolean adapter_le_is_supported_offloading(void) { return FALSE; }
-int adapter_le_get_max_adv_instance(void) { return 0; }
-int adapter_le_get_scan_filter_size(void) { return 0; }
+gboolean adapter_le_enable_offloading(gboolean enable);
 
-gboolean adapter_le_set_multi_adv_params (adapter_le_adv_inst_info_t *p_inst,
-					adapter_le_adv_param_t *p_params) { return FALSE; }
-gboolean adapter_le_set_multi_adv_data(uint8_t inst_id, gboolean is_scan_rsp,
-					uint8_t data_len, uint8_t *p_data) { return FALSE; }
-gboolean adapter_le_enable_multi_adv (gboolean enable, uint8_t inst_id)
-					{ return FALSE; }
+gboolean adapter_le_add_irk_to_list(uint8_t *le_irk, const bdaddr_t *bdaddr, uint8_t bdaddr_type);
 
-gboolean adapter_le_enable_scan_filtering (gboolean enable) { return FALSE; }
-gboolean adapter_le_set_scan_filter_params(adapter_le_scan_filter_param_t *params)
-					{ return FALSE; }
-gboolean adapter_le_set_scan_filter_data(int client_if, int action,
-							int filt_type, int filter_index,
-							int company_id,
-							int company_id_mask,
-							int uuid_len, uint8_t *p_uuid,
-							int uuid_mask_len, uint8_t *p_uuid_mask,
-							gchar *string, int addr_type,
-							int data_len, uint8_t *p_data,
-							int mask_len, uint8_t *p_mask)
-					{ return FALSE; }
-gboolean adapter_le_clear_scan_filter_data(int client_if, int filter_index)
-					{ return FALSE; }
-#endif /* __BROADCOM_PATCH__ */
+gboolean adapter_le_remove_irk_to_list(const bdaddr_t *bdaddr, uint8_t bdaddr_type);
+
 #endif /* __TIZEN_PATCH__ */

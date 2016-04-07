@@ -1161,6 +1161,30 @@ static void evt_le_conn_complete(struct bthost *bthost, const void *data,
 	init_conn(bthost, le16_to_cpu(ev->handle), ev->peer_addr, addr_type);
 }
 
+static void evt_le_conn_update_complete(struct bthost *bthost, const void *data,
+								uint8_t len)
+{
+	const struct bt_hci_evt_le_conn_update_complete *ev = data;
+
+	if (len < sizeof(*ev))
+		return;
+
+	if (ev->status)
+		return;
+}
+
+static void evt_le_remote_features_complete(struct bthost *bthost,
+						const void *data, uint8_t len)
+{
+	const struct bt_hci_evt_le_remote_features_complete *ev = data;
+
+	if (len < sizeof(*ev))
+		return;
+
+	if (ev->status)
+		return;
+}
+
 static void evt_le_ltk_request(struct bthost *bthost, const void *data,
 								uint8_t len)
 {
@@ -1206,6 +1230,12 @@ static void evt_le_meta_event(struct bthost *bthost, const void *data,
 	switch (*event) {
 	case BT_HCI_EVT_LE_CONN_COMPLETE:
 		evt_le_conn_complete(bthost, evt_data, len - 1);
+		break;
+	case BT_HCI_EVT_LE_CONN_UPDATE_COMPLETE:
+		evt_le_conn_update_complete(bthost, evt_data, len - 1);
+		break;
+	case BT_HCI_EVT_LE_REMOTE_FEATURES_COMPLETE:
+		evt_le_remote_features_complete(bthost, evt_data, len - 1);
 		break;
 	case BT_HCI_EVT_LE_LONG_TERM_KEY_REQUEST:
 		evt_le_ltk_request(bthost, evt_data, len - 1);
@@ -2228,6 +2258,12 @@ void bthost_hci_connect(struct bthost *bthost, const uint8_t *bdaddr,
 		if (addr_type == BDADDR_LE_RANDOM)
 			cc.peer_addr_type = 0x01;
 
+		cc.scan_interval = cpu_to_le16(0x0060);
+		cc.scan_window = cpu_to_le16(0x0030);
+		cc.min_interval = cpu_to_le16(0x0028);
+		cc.max_interval = cpu_to_le16(0x0038);
+		cc.supv_timeout = cpu_to_le16(0x002a);
+
 		send_command(bthost, BT_HCI_CMD_LE_CREATE_CONN,
 							&cc, sizeof(cc));
 	}
@@ -2249,30 +2285,29 @@ void bthost_write_scan_enable(struct bthost *bthost, uint8_t scan)
 	send_command(bthost, BT_HCI_CMD_WRITE_SCAN_ENABLE, &scan, 1);
 }
 
-void bthost_set_adv_enable(struct bthost *bthost, uint8_t enable, uint8_t flags)
+void bthost_set_adv_data(struct bthost *bthost, const uint8_t *data,
+								uint8_t len)
+{
+	struct bt_hci_cmd_le_set_adv_data adv_cp;
+
+	memset(adv_cp.data, 0, 31);
+
+	if (len) {
+		adv_cp.len = len;
+		memcpy(adv_cp.data, data, len);
+	}
+
+	send_command(bthost, BT_HCI_CMD_LE_SET_ADV_DATA, &adv_cp,
+							sizeof(adv_cp));
+}
+
+void bthost_set_adv_enable(struct bthost *bthost, uint8_t enable)
 {
 	struct bt_hci_cmd_le_set_adv_parameters cp;
 
 	memset(&cp, 0, sizeof(cp));
 	send_command(bthost, BT_HCI_CMD_LE_SET_ADV_PARAMETERS,
 							&cp, sizeof(cp));
-
-	if (flags) {
-		struct bt_hci_cmd_le_set_adv_data adv_cp;
-
-		memset(adv_cp.data, 0, 31);
-
-		adv_cp.data[0] = 0x02;	/* Field length */
-		adv_cp.data[1] = 0x01;	/* Flags */
-		adv_cp.data[2] = flags;
-
-		adv_cp.data[3] = 0x00;	/* Field terminator */
-
-		adv_cp.len = 1 + adv_cp.data[0];
-
-		send_command(bthost, BT_HCI_CMD_LE_SET_ADV_DATA, &adv_cp,
-								sizeof(adv_cp));
-	}
 
 	send_command(bthost, BT_HCI_CMD_LE_SET_ADV_ENABLE, &enable, 1);
 }

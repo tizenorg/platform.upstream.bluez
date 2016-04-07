@@ -160,9 +160,7 @@ static int bnep_connadd(int sk, uint16_t role, char *dev)
 
 	req.sock = sk;
 	req.role = role;
-#ifdef  __TIZEN_PATCH__
 	req.flags = (1 << BNEP_SETUP_RESPONSE);
-#endif
 	if (ioctl(ctl, BNEPCONNADD, &req) < 0) {
 		int err = -errno;
 		error("bnep: Failed to add device %s: %s(%d)",
@@ -174,7 +172,6 @@ static int bnep_connadd(int sk, uint16_t role, char *dev)
 	return 0;
 }
 
-#ifdef  __TIZEN_PATCH__
 static uint32_t bnep_getsuppfeat(void)
 {
 	uint32_t feat;
@@ -186,7 +183,6 @@ static uint32_t bnep_getsuppfeat(void)
 
 	return feat;
 }
-#endif
 
 static int bnep_if_up(const char *devname)
 {
@@ -599,13 +595,9 @@ static uint16_t bnep_setup_decode(int sk, struct bnep_setup_conn_req *req,
 	uint8_t *dest, *source;
 	uint32_t val;
 
-#ifdef  __TIZEN_PATCH__
 	if (((req->type != BNEP_CONTROL) &&
 		(req->type != (BNEP_CONTROL | BNEP_EXT_HEADER)))  ||
 					req->ctrl != BNEP_SETUP_CONN_REQ)
-#else
-	if (req->type != BNEP_CONTROL || req->ctrl != BNEP_SETUP_CONN_REQ)
-#endif
 		return BNEP_CONN_NOT_ALLOWED;
 
 	dest = req->service;
@@ -676,7 +668,6 @@ int bnep_conndel_wrapper(const bdaddr_t *dst)
 }
 #endif
 
-#ifdef  __TIZEN_PATCH__
 static int bnep_server_add_legacy(int sk, uint16_t dst, char *bridge,
 					char *iface, const bdaddr_t *addr,
 					uint8_t *setup_data, int len)
@@ -697,6 +688,15 @@ static int bnep_server_add_legacy(int sk, uint16_t dst, char *bridge,
 		goto reply;
 	}
 
+#ifndef  __TIZEN_PATCH__
+	err = bnep_add_to_bridge(iface, bridge);
+	if (err < 0) {
+		bnep_conndel(addr);
+		rsp = BNEP_CONN_NOT_ALLOWED;
+		goto reply;
+	}
+#endif
+
 	err = bnep_if_up(iface);
 	if (err < 0) {
 		bnep_del_from_bridge(iface, bridge);
@@ -710,21 +710,18 @@ static int bnep_server_add_legacy(int sk, uint16_t dst, char *bridge,
 reply:
 	if (bnep_send_ctrl_rsp(sk, BNEP_SETUP_CONN_RSP, rsp) < 0) {
 		err = -errno;
-		error("bnep: send ctrl rsp error: %s (%d)", strerror(errno),
-								errno);
+		error("bnep: send ctrl rsp error: %s (%d)", strerror(-err),
+									-err);
 	}
 
 	return err;
 }
-#endif
 
 int bnep_server_add(int sk, char *bridge, char *iface, const bdaddr_t *addr,
 						uint8_t *setup_data, int len)
 {
 	int err;
-#ifdef  __TIZEN_PATCH__
 	uint32_t feat;
-#endif
 	uint16_t rsp, dst;
 	struct bnep_setup_conn_req *req = (void *) setup_data;
 
@@ -748,14 +745,9 @@ int bnep_server_add(int sk, char *bridge, char *iface, const bdaddr_t *addr,
 		err = -rsp;
 		error("bnep: error while decoding setup connection request: %d",
 									rsp);
-#ifdef  __TIZEN_PATCH__
 		goto failed;
-#else
-		goto reply;
-#endif
 	}
 
-#ifdef  __TIZEN_PATCH__
 	feat = bnep_getsuppfeat();
 
 	/*
@@ -766,40 +758,29 @@ int bnep_server_add(int sk, char *bridge, char *iface, const bdaddr_t *addr,
 	if (!feat || !(feat & (1 << BNEP_SETUP_RESPONSE)))
 		return bnep_server_add_legacy(sk, dst, bridge, iface, addr,
 							setup_data, len);
-#endif
 
 	err = bnep_connadd(sk, dst, iface);
 	if (err < 0) {
 		rsp = BNEP_CONN_NOT_ALLOWED;
-#ifdef  __TIZEN_PATCH__
 		goto failed;
-#else
-		goto reply;
-#endif
 	}
 
 #ifndef  __TIZEN_PATCH__
 	err = bnep_add_to_bridge(iface, bridge);
-	if (err < 0) {
-		bnep_conndel(addr);
-		return err;
-	}
+	if (err < 0)
+		goto failed_conn;
 #endif
 
 	err = bnep_if_up(iface);
 	if (err < 0)
-#ifdef  __TIZEN_PATCH__
 		goto failed_bridge;
-#else
-		rsp = BNEP_CONN_NOT_ALLOWED;
-#endif
 
-#ifdef  __TIZEN_PATCH__
 	return 0;
 
 failed_bridge:
 	bnep_del_from_bridge(iface, bridge);
 
+failed_conn:
 	bnep_conndel(addr);
 
 	return err;
@@ -810,14 +791,6 @@ failed:
 		error("bnep: send ctrl rsp error: %s (%d)", strerror(-err),
 									-err);
 	}
-#else
-reply:
-	if (bnep_send_ctrl_rsp(sk, BNEP_SETUP_CONN_RSP, rsp) < 0) {
-		err = -errno;
-		error("bnep: send ctrl rsp error: %s (%d)", strerror(errno),
-									errno);
-	}
-#endif
 
 	return err;
 }

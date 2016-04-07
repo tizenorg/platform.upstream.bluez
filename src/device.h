@@ -86,6 +86,8 @@ void btd_device_gatt_set_service_changed(struct btd_device *device,
 bool device_attach_att(struct btd_device *dev, GIOChannel *io);
 void btd_device_add_uuid(struct btd_device *device, const char *uuid);
 void device_add_eir_uuids(struct btd_device *dev, GSList *uuids);
+void device_set_manufacturer_data(struct btd_device *dev, GSList *list);
+void device_set_service_data(struct btd_device *dev, GSList *list);
 void device_probe_profile(gpointer a, gpointer b);
 void device_remove_profile(gpointer a, gpointer b);
 struct btd_adapter *device_get_adapter(struct btd_device *device);
@@ -100,6 +102,18 @@ void device_set_attrib(struct btd_device *device, guint attachid, GAttrib *attri
 void device_unset_attrib(struct btd_device *device);
 void device_unpair(struct btd_device *device, gboolean remove_stored);
 gboolean device_get_gatt_connected(const struct btd_device *device);
+void device_set_rpa(struct btd_device *device, const bdaddr_t *rpa_addr);
+const bdaddr_t *device_get_rpa(struct btd_device *device);
+bool device_get_rpa_exist(struct btd_device *device);
+int device_rpa_cmp(gconstpointer a, gconstpointer b);
+int device_addr_cmp(gconstpointer a, gconstpointer b);
+void device_remove_stored_folder(struct btd_device *device);
+const uint8_t *device_get_irk_value(struct btd_device *device);
+void device_set_irk_value(struct btd_device *device, const char *val);
+void device_set_conn_update_state(struct btd_device *device, bool state);
+bool device_get_conn_update_state(struct btd_device *device);
+void btd_device_set_trusted_profiles(struct btd_device *device,
+		uint32_t pbap, uint32_t map, uint32_t sap);
 #endif
 gboolean device_is_temporary(struct btd_device *device);
 bool device_is_paired(struct btd_device *device, uint8_t bdaddr_type);
@@ -111,7 +125,10 @@ void btd_device_set_temporary(struct btd_device *device, bool temporary);
 void btd_device_set_trusted(struct btd_device *device, gboolean trusted);
 void device_set_bonded(struct btd_device *device, uint8_t bdaddr_type);
 void device_set_legacy(struct btd_device *device, bool legacy);
+void device_set_rssi_with_delta(struct btd_device *device, int8_t rssi,
+							int8_t delta_threshold);
 void device_set_rssi(struct btd_device *device, int8_t rssi);
+void device_set_tx_power(struct btd_device *device, int8_t tx_power);
 bool btd_device_is_connected(struct btd_device *dev);
 uint8_t btd_device_get_bdaddr_type(struct btd_device *dev);
 bool device_is_retrying(struct btd_device *device);
@@ -133,10 +150,15 @@ int device_notify_passkey(struct btd_device *device, uint32_t passkey,
 int device_notify_pincode(struct btd_device *device, gboolean secure,
 							const char *pincode);
 void device_cancel_authentication(struct btd_device *device, gboolean aborted);
+#ifdef __TIZEN_PATCH__
+gboolean device_is_authenticating(struct btd_device *dev, uint8_t bdaddr_type);
+#else
 gboolean device_is_authenticating(struct btd_device *device);
+#endif
 void device_add_connection(struct btd_device *dev, uint8_t bdaddr_type);
 void device_remove_connection(struct btd_device *device, uint8_t bdaddr_type);
 void device_request_disconnect(struct btd_device *device, DBusMessage *msg);
+bool device_is_disconnecting(struct btd_device *device);
 
 typedef void (*disconnect_watch) (struct btd_device *device, gboolean removal,
 					void *user_data);
@@ -152,9 +174,10 @@ void device_set_appearance(struct btd_device *device, uint16_t value);
 struct eir_data;
 void device_set_manufacturer_info(struct btd_device *dev, struct eir_data *eir);
 void device_set_adv_report_info(struct btd_device *device, void *data,
-			uint8_t data_len, uint8_t adv_info);
+			uint8_t data_len, uint8_t adv_info, int8_t rssi);
 void device_set_payload_timeout(struct btd_device *device,
 			uint16_t payload_timeout);
+void device_set_auth_addr_type(struct btd_device *device, uint8_t type);
 void device_set_last_addr_type(struct btd_device *device, uint8_t type);
 gboolean device_is_ipsp_connected(struct btd_device * device);
 void device_set_ipsp_connected(struct btd_device *device, gboolean connected);
@@ -189,8 +212,15 @@ struct btd_service *btd_device_get_service(struct btd_device *dev,
 						const char *remote_uuid);
 
 #ifdef __TIZEN_PATCH__
+gboolean device_is_profile_trusted(struct btd_device *device,
+		const char *uuid);
+gboolean device_is_profile_blocked(struct btd_device *device,
+		const char *uuid);
 void btd_device_disconnect(struct btd_device *dev);
 void btd_device_set_legacy_pairing(struct btd_device *dev, bool legacy_pairing);
+#ifdef TIZEN_WEARABLE
+void device_change_pkt_type(gpointer data, gpointer user_data);
+#endif	/* TIZEN_WEARABLE */
 #endif
 
 int device_discover_services(struct btd_device *device);

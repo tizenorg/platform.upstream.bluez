@@ -21,6 +21,10 @@
  *
  */
 
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #include <stdbool.h>
 #include <errno.h>
 
@@ -170,8 +174,6 @@ static struct gatt_db_attribute *new_attribute(struct gatt_db_service *service,
 	struct gatt_db_attribute *attribute;
 
 	attribute = new0(struct gatt_db_attribute, 1);
-	if (!attribute)
-		return NULL;
 
 	attribute->service = service;
 	attribute->handle = handle;
@@ -186,12 +188,7 @@ static struct gatt_db_attribute *new_attribute(struct gatt_db_service *service,
 	}
 
 	attribute->pending_reads = queue_new();
-	if (!attribute->pending_reads)
-		goto failed;
-
 	attribute->pending_writes = queue_new();
-	if (!attribute->pending_reads)
-		goto failed;
 
 	return attribute;
 
@@ -215,22 +212,8 @@ struct gatt_db *gatt_db_new(void)
 	struct gatt_db *db;
 
 	db = new0(struct gatt_db, 1);
-	if (!db)
-		return NULL;
-
 	db->services = queue_new();
-	if (!db->services) {
-		free(db);
-		return NULL;
-	}
-
 	db->notify_list = queue_new();
-	if (!db->notify_list) {
-		queue_destroy(db->services, NULL);
-		free(db);
-		return NULL;
-	}
-
 	db->next_handle = 0x0001;
 
 	return gatt_db_ref(db);
@@ -390,14 +373,7 @@ static struct gatt_db_service *gatt_db_service_create(const bt_uuid_t *uuid,
 		return NULL;
 
 	service = new0(struct gatt_db_service, 1);
-	if (!service)
-		return NULL;
-
 	service->attributes = new0(struct gatt_db_attribute *, num_handles);
-	if (!service->attributes) {
-		free(service);
-		return NULL;
-	}
 
 	if (primary)
 		type = &primary_service_uuid;
@@ -490,7 +466,8 @@ bool gatt_db_clear_range(struct gatt_db *db, uint16_t start_handle,
 	return true;
 }
 
-static bool find_insert_loc(struct gatt_db *db, uint16_t start, uint16_t end,
+static struct gatt_db_service *find_insert_loc(struct gatt_db *db,
+						uint16_t start, uint16_t end,
 						struct gatt_db_service **after)
 {
 	const struct queue_entry *services_entry;
@@ -507,19 +484,19 @@ static bool find_insert_loc(struct gatt_db *db, uint16_t start, uint16_t end,
 		gatt_db_service_get_handles(service, &cur_start, &cur_end);
 
 		if (start >= cur_start && start <= cur_end)
-			return false;
+			return service;
 
 		if (end >= cur_start && end <= cur_end)
-			return false;
+			return service;
 
 		if (end < cur_start)
-			return true;
+			return NULL;
 
 		*after = service;
 		services_entry = services_entry->next;
 	}
 
-	return true;
+	return NULL;
 }
 
 struct gatt_db_attribute *gatt_db_insert_service(struct gatt_db *db,
@@ -538,8 +515,28 @@ struct gatt_db_attribute *gatt_db_insert_service(struct gatt_db *db,
 	if (num_handles < 1 || (handle + num_handles - 1) > UINT16_MAX)
 		return NULL;
 
-	if (!find_insert_loc(db, handle, handle + num_handles - 1, &after))
+	service = find_insert_loc(db, handle, handle + num_handles - 1, &after);
+	if (service) {
+		const bt_uuid_t *type;
+		bt_uuid_t value;
+
+		if (primary)
+			type = &primary_service_uuid;
+		else
+			type = &secondary_service_uuid;
+
+		gatt_db_attribute_get_service_uuid(service->attributes[0],
+									&value);
+
+		/* Check if service match */
+		if (!bt_uuid_cmp(&service->attributes[0]->uuid, type) &&
+				!bt_uuid_cmp(&value, uuid) &&
+				service->num_handles == num_handles &&
+				service->attributes[0]->handle == handle)
+			return service->attributes[0];
+
 		return NULL;
+	}
 
 	service = gatt_db_service_create(uuid, handle, primary, num_handles);
 
@@ -588,9 +585,6 @@ unsigned int gatt_db_register(struct gatt_db *db,
 		return 0;
 
 	notify = new0(struct notify, 1);
-	if (!notify)
-		return 0;
-
 	notify->service_added = service_added;
 	notify->service_removed = service_removed;
 	notify->destroy = destroy;
@@ -689,6 +683,18 @@ service_insert_characteristic(struct gatt_db_service *service,
 	if (handle && handle <= service->attributes[0]->handle)
 		return NULL;
 
+	/*
+	 * It is not possible to allocate last handle for a Characteristic
+	 * since it would not have space for its value:
+	 * 3.3.2 Characteristic Value Declaration
+	 * The Characteristic Value declaration contains the value of the
+	 * characteristic. It is the first Attribute after the characteristic
+	 * declaration. All characteristic definitions shall have a
+	 * Characteristic Value declaration.
+	 */
+	if (handle == UINT16_MAX)
+		return NULL;
+
 	i = get_attribute_index(service, 1);
 	if (!i)
 		return NULL;
@@ -715,6 +721,9 @@ service_insert_characteristic(struct gatt_db_service *service,
 	service->attributes[i] = new_attribute(service, handle, uuid, NULL, 0);
 	if (!service->attributes[i]) {
 		free(service->attributes[i - 1]);
+#ifdef __TIZEN_PATCH__
+		service->attributes[i - 1] = NULL;
+#endif
 		return NULL;
 	}
 
@@ -1562,9 +1571,6 @@ bool gatt_db_attribute_read(struct gatt_db_attribute *attrib, uint16_t offset,
 		struct pending_read *p;
 
 		p = new0(struct pending_read, 1);
-		if (!p)
-			return false;
-
 		p->attrib = attrib;
 		p->id = ++attrib->read_id;
 		p->timeout_id = timeout_add(ATTRIBUTE_TIMEOUT, read_timeout,
@@ -1646,9 +1652,6 @@ bool gatt_db_attribute_write(struct gatt_db_attribute *attrib, uint16_t offset,
 		struct pending_write *p;
 
 		p = new0(struct pending_write, 1);
-		if (!p)
-			return false;
-
 		p->attrib = attrib;
 		p->id = ++attrib->write_id;
 		p->timeout_id = timeout_add(ATTRIBUTE_TIMEOUT, write_timeout,
@@ -1752,7 +1755,7 @@ void set_ccc_unicast_address(const struct gatt_db_attribute *ccc,
 bdaddr_t *get_ccc_unicast_address(const struct gatt_db_attribute *ccc)
 {
 	if (ccc)
-		return (bdaddr_t *)&ccc->unicast_addr;
+		return &ccc->unicast_addr;
 	return NULL;
 }
 #endif

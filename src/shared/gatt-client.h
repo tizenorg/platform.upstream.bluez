@@ -70,6 +70,7 @@ bool bt_gatt_client_set_debug(struct bt_gatt_client *client,
 					bt_gatt_client_destroy_func_t destroy);
 
 uint16_t bt_gatt_client_get_mtu(struct bt_gatt_client *client);
+struct gatt_db *bt_gatt_client_get_db(struct bt_gatt_client *client);
 
 bool bt_gatt_client_cancel(struct bt_gatt_client *client, unsigned int id);
 bool bt_gatt_client_cancel_all(struct bt_gatt_client *client);
@@ -89,6 +90,17 @@ unsigned int bt_gatt_client_read_multiple(struct bt_gatt_client *client,
 					bt_gatt_client_read_callback_t callback,
 					void *user_data,
 					bt_gatt_client_destroy_func_t destroy);
+
+#ifdef __TIZEN_PATCH__
+unsigned int bt_gatt_client_write_without_response_async(
+					struct bt_gatt_client *client,
+					uint16_t value_handle,
+					bool signed_write,
+					const uint8_t *value, uint16_t length,
+					bt_gatt_client_callback_t callback,
+					void *user_data,
+					bt_gatt_client_destroy_func_t destroy);
+#endif
 
 unsigned int bt_gatt_client_write_without_response(
 					struct bt_gatt_client *client,
@@ -130,9 +142,16 @@ unsigned int bt_gatt_client_register_notify(struct bt_gatt_client *client,
 bool bt_gatt_client_unregister_notify(struct bt_gatt_client *client,
 							unsigned int id);
 
-bool bt_gatt_client_set_sec_level(struct bt_gatt_client *client, int level);
-int bt_gatt_client_get_sec_level(struct bt_gatt_client *client);
+bool bt_gatt_client_set_security(struct bt_gatt_client *client, int level);
+int bt_gatt_client_get_security(struct bt_gatt_client *client);
 
-#ifdef BLUEZ5_27_GATT_CLIENT
+#if defined __TIZEN_PATCH__ && defined BLUEZ5_27_GATT_CLIENT
 bool bt_gatt_discover_services(struct bt_gatt_client *client);
+#endif
+
+#ifdef __TIZEN_PATCH__
+char *bt_gatt_client_get_gap_device_name(struct bt_gatt_client *client);
+bool bt_gatt_request_att_mtu(struct bt_gatt_client *client, uint16_t mtu,
+					void *callback, void *user_data);
+bool bt_gatt_client_svc_changed_received(struct bt_gatt_client *client);
 #endif
