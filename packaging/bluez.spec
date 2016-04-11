@@ -44,7 +44,6 @@ BuildRequires:  pkg-config
 BuildRequires:  readline-devel
 BuildRequires:  udev
 BuildRequires:  pkgconfig(libnl-1)
-BuildRequires:  libical-devel
 BuildRequires:  pkgconfig(libtzplatform-config)
 
 %description
