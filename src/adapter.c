@@ -4321,7 +4321,6 @@ static  void adapter_get_adv_tx_power(void *data)
 }
 #endif
 
-#ifdef __BROADCOM_PATCH__
 static DBusMessage *set_wbs_parameters(DBusConnection *conn,
 				DBusMessage *msg, void *data)
 {
@@ -4406,7 +4405,6 @@ static DBusMessage *set_nb_parameters(DBusConnection *conn,
 
 	return dbus_message_new_method_return(msg);
 }
-#endif /* __BROADCOM_PATCH__ */
 
 #ifdef __TIZEN_PATCH__
 void btd_adapter_set_read_le_data_length_handler(
@@ -6143,7 +6141,6 @@ static const GDBusMethodTable adapter_methods[] = {
 			GDBUS_ARGS({ "device", "o" }),
 			find_device) },
 #ifdef __TIZEN_PATCH__
-#ifdef __BROADCOM_PATCH__
 	{ GDBUS_METHOD("SetWbsParameters",
 			GDBUS_ARGS({ "role", "s" }, { "bt_address", "s" }),
 			NULL,
@@ -6152,7 +6149,6 @@ static const GDBusMethodTable adapter_methods[] = {
 			GDBUS_ARGS({ "role", "s" }, { "bt_address", "s" }),
 			NULL,
 			set_nb_parameters) },
-#endif
 	{ GDBUS_METHOD("SetManufacturerData",
 			GDBUS_ARGS({ "value", "ay" }), NULL,
 			adapter_set_manufacturer_data) },
