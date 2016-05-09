@@ -2194,6 +2194,10 @@ void btd_gatt_client_ready(struct btd_gatt_client *client)
 	client->ready = true;
 
 	DBG("GATT client ready");
+#ifdef __TIZEN_PATCH__
+	if (queue_isempty(client->services)) {
+		DBG("Exporting services");
+#endif
 
 	create_services(client);
 #ifdef __TIZEN_PATCH__
@@ -2209,7 +2213,17 @@ void btd_gatt_client_ready(struct btd_gatt_client *client)
 
 	client->wait_charcs_id = g_timeout_add(100,
 			check_all_chrcs_ready, client);
+	return;
+	}
+
+	/*
+	 * Services have already been created before. Re-enable notifications
+	 * for any pre-registered notification sessions.
+	 */
+	queue_foreach(client->all_notify_clients, register_notify, client);
+	device_set_gatt_connected(client->device, TRUE);
 #endif
+
 }
 
 void btd_gatt_client_connected(struct btd_gatt_client *client)
