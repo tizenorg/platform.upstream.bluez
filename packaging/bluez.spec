@@ -96,6 +96,8 @@ autoreconf -fiv
 
 %if "%{?tizen_target_name}" == "TM1"
 export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -DBLUEZ5_27_GATT_CLIENT"
+%elseif "%{?profile}" == "wearable"
+export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__ -DBLUEZ5_27_GATT_CLIENT -DTIZEN_BT_HID_DEVICE_ENABLE"
 %else
 export CFLAGS="${CFLAGS} -D__TIZEN_PATCH__ -D__BROADCOM_PATCH__ -DBLUEZ5_27_GATT_CLIENT"
 %endif
@@ -135,11 +137,11 @@ export CFLAGS+=" -DPBAP_SIM_ENABLE -DSUPPORT_AVRCP_TARGET"
 			--enable-experimental \
 			--enable-autopair=no \
 %if "%{?profile}" == "wearable"
-                        --enable-wearable \
+			--enable-wearable \
+			--enable-hid=no \
 %else
 			--enable-network \
 %endif
-			--enable-hid=yes \
 			--enable-tizenunusedplugin=no
 
 
