@@ -2183,14 +2183,19 @@ static gboolean check_all_chrcs_ready(gpointer user_data)
 
 void btd_gatt_client_ready(struct btd_gatt_client *client)
 {
+	struct bt_gatt_client *gatt;
+
 	if (!client)
 		return;
 
-	if (!client->gatt) {
+	gatt = btd_device_get_gatt_client(client->device);
+	if (!gatt) {
 		error("GATT client not initialized");
 		return;
 	}
 
+	bt_gatt_client_unref(client->gatt);
+	client->gatt = bt_gatt_client_ref(gatt);
 	client->ready = true;
 
 	DBG("GATT client ready");

@@ -6454,10 +6454,6 @@ static void gatt_client_init(struct btd_device *device)
 		gatt_client_cleanup(device);
 		return;
 	}
-
-	device->gatt_cache_used = !gatt_db_isempty(device->db);
-
-	btd_gatt_client_connected(device->client_dbus);
 }
 
 static void gatt_server_init(struct btd_device *device, struct gatt_db *db)
