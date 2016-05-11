@@ -644,7 +644,7 @@ static void parse_name(struct obex_session *os, GObexPacket *req)
 		return;
 #ifdef __TIZEN_PATCH__
 	DBG("TYPE===>: %s", os->type);
-	if (name && strcmp(os->type, "x-bt/phonebook")) {
+	if (name && os->type && strcmp(os->type, "x-bt/phonebook")) {
 		char *new_name;
 		new_name = strrchr(name, '/');
 		if (new_name) {
