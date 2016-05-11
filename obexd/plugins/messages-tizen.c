@@ -1,23 +1,22 @@
 /*
  *
- * OBEX Server
+ *  OBEX Server
  *
- * Copyright (c) 2000-2016 Samsung Electronics Co., Ltd. All rights reserved.
- *
+ *  Copyright (C) 2012 Samsung Electronics Co., Ltd.
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
  *  the Free Software Foundation; either version 2 of the License, or
  *  (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
  *
  */
 
@@ -1013,6 +1012,28 @@ int messages_get_folder_listing(void *s, const char *name,
 	return 0;
 }
 
+
+static void append_variant(DBusMessageIter *iter, int type, void *val)
+{
+	DBusMessageIter value;
+	char sig[2] = { type, '\0' };
+
+	dbus_message_iter_open_container(iter, DBUS_TYPE_VARIANT, sig, &value);
+	dbus_message_iter_append_basic(&value, type, val);
+	dbus_message_iter_close_container(iter, &value);
+}
+
+static void dict_append_entry(DBusMessageIter *dict, const char *key,
+					int type, void *val)
+{
+	DBusMessageIter entry;
+
+	dbus_message_iter_open_container(dict, DBUS_TYPE_DICT_ENTRY, NULL, &entry);
+	dbus_message_iter_append_basic(&entry, DBUS_TYPE_STRING, &key);
+	append_variant(&entry, type, val);
+	dbus_message_iter_close_container(dict, &entry);
+}
+
 int messages_get_messages_listing(void *session, const char *name,
 				uint16_t max, uint16_t offset,
 				uint8_t subject_len,
@@ -1023,6 +1044,8 @@ int messages_get_messages_listing(void *session, const char *name,
 	DBusPendingCall *call;
 	DBusMessage *message;
 	struct session *s = session;
+	DBusMessageIter iter;
+	DBusMessageIter dict;
 
 	if (name != NULL && strlen(name))
 		s->name = g_strdup(name);
@@ -1058,7 +1081,43 @@ int messages_get_messages_listing(void *session, const char *name,
 
 	dbus_message_append_args(message, DBUS_TYPE_STRING, &s->name,
 						DBUS_TYPE_UINT16, &s->max,
+						DBUS_TYPE_UINT16, &s->offset,
+						DBUS_TYPE_BYTE, &subject_len,
 						DBUS_TYPE_INVALID);
+
+	dbus_message_iter_init_append(message, &iter);
+	dbus_message_iter_open_container(&iter, DBUS_TYPE_ARRAY,
+			DBUS_DICT_ENTRY_BEGIN_CHAR_AS_STRING
+			DBUS_TYPE_STRING_AS_STRING
+			DBUS_TYPE_VARIANT_AS_STRING
+			DBUS_DICT_ENTRY_END_CHAR_AS_STRING, &dict);
+
+	if (filter->parameter_mask)
+		dict_append_entry(&dict, "ParameterMask", DBUS_TYPE_UINT32,
+					&filter->parameter_mask);
+	if (filter->type)
+		dict_append_entry(&dict, "FilterMessageType", DBUS_TYPE_BYTE,
+					&filter->type);
+	if (filter->period_begin)
+		dict_append_entry(&dict, "FilterPeriodBegin", DBUS_TYPE_STRING,
+					&filter->period_begin);
+	if (filter->period_end)
+		dict_append_entry(&dict, "FilterPeriodEnd", DBUS_TYPE_STRING,
+					&filter->period_end);
+	if (filter->read_status)
+		dict_append_entry(&dict, "FilterReadStatus", DBUS_TYPE_BYTE,
+					&filter->read_status);
+	if (filter->recipient)
+		dict_append_entry(&dict, "FilterRecipient", DBUS_TYPE_STRING,
+					&filter->recipient);
+	if (filter->originator)
+		dict_append_entry(&dict, "FilterOriginator", DBUS_TYPE_STRING,
+					&filter->originator);
+	if (filter->priority)
+		dict_append_entry(&dict, "FilterPriority", DBUS_TYPE_BYTE,
+					&filter->priority);
+
+	dbus_message_iter_close_container(&iter, &dict);
 
 	if (dbus_connection_send_with_reply(g_conn, message, &call,
 					DBUS_TIMEOUT_INFINITE) == FALSE) {

@@ -36,6 +36,7 @@
 #include "driver.h"
 #include "map_ap.h"
 #include "mns-tizen.h"
+#include "gobex/gobex-apparam.h"
 
 #define OBEX_MNS_UUID \
 	"\xBB\x58\x2B\x41\x42\x0C\x11\xDB\xB0\xDE\x08\x00\x20\x0C\x9A\x66"
@@ -57,12 +58,6 @@ enum msg_event_type {
 	EVENT_TYPE_MESSAGE_SHIFT,
 	EVENT_TYPE_UNKNOWN,
 };
-
-struct sendevent_apparam {
-	uint8_t     masinstanceid_tag;
-	uint8_t     masinstanceid_len;
-	uint8_t     masinstanceid;
-} __attribute__ ((packed));
 
 struct mns_data {
 	struct obc_session *session;
@@ -135,7 +130,7 @@ static DBusMessage *send_event(DBusConnection *connection,
 {
 	struct mns_data *mns = user_data;
 	struct obc_transfer *transfer;
-	struct sendevent_apparam apparam;
+	GObexApparam *apparam;
 	gchar *event_type;
 	gchar *folder;
 	gchar *old_folder;
@@ -170,12 +165,10 @@ static DBusMessage *send_event(DBusConnection *connection,
 	if (transfer == NULL)
 		goto fail;
 
-	apparam.masinstanceid_tag = MAP_AP_MASINSTANCEID;
-	apparam.masinstanceid_len = 1;
 	/* Obexd currently supports single SDP for MAS */
-	apparam.masinstanceid = 0;
+	apparam = g_obex_apparam_set_uint8(NULL, MAP_AP_MASINSTANCEID, 0);
 
-	obc_transfer_set_apparam(transfer, &apparam);
+	obc_transfer_set_apparam(transfer, apparam);
 
 	if (obc_session_queue(mns->session, transfer, NULL, NULL, &err))
 		return dbus_message_new_method_return(message);

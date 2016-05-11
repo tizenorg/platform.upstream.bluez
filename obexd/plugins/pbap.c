@@ -969,8 +969,15 @@ static ssize_t vobject_pull_get_next_header(void *object, void *buf, size_t mtu,
 
 	if (obj->firstpacket) {
 		obj->firstpacket = FALSE;
-
+#ifdef __TIZEN_PATCH__
+		gsize count = 0;
+		count = g_obex_apparam_encode(obj->apparam, buf, mtu);
+		DBG("APPARAM Processed remove tags");
+		g_obex_apparam_remove_all(obj->apparam);
+		return count;
+#else
 		return g_obex_apparam_encode(obj->apparam, buf, mtu);
+#endif
 	}
 
 	return 0;
@@ -1025,8 +1032,13 @@ static ssize_t vobject_list_get_next_header(void *object, void *buf, size_t mtu,
 
 	return 0;
 #else
-	if (obj->apparam != NULL)
-		return g_obex_apparam_encode(obj->apparam, buf, mtu);
+	if (obj->apparam != NULL) {
+		gsize count = 0;
+		count = g_obex_apparam_encode(obj->apparam, buf, mtu);
+		DBG("APPARAM Processed remove tags");
+		g_obex_apparam_remove_all(obj->apparam);
+		return count;
+	}
 	else
 		return 0;
 #endif /* __TIZEN_PATCH__ */

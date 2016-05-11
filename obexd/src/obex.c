@@ -643,8 +643,8 @@ static void parse_name(struct obex_session *os, GObexPacket *req)
 	if (!g_obex_header_get_unicode(hdr, &name))
 		return;
 #ifdef __TIZEN_PATCH__
-	DBG("TYPE===>: %s", os->type);
-	if (name && strcmp(os->type, "x-bt/phonebook")) {
+	DBG("Obex Session For: %s", os->service->name);
+	if (name && g_strcmp0(os->service->name, "Object Push server") == 0) {
 		char *new_name;
 		new_name = strrchr(name, '/');
 		if (new_name) {
