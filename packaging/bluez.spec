@@ -43,7 +43,6 @@ BuildRequires:  libusb-devel
 BuildRequires:  pkg-config
 BuildRequires:  readline-devel
 BuildRequires:  udev
-BuildRequires:  pkgconfig(libnl-1)
 BuildRequires:  pkgconfig(libtzplatform-config)
 
 %description
