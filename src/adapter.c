@@ -1430,7 +1430,7 @@ static void adapter_service_insert(struct btd_adapter *adapter, sdp_record_t *re
 	/* skip record without a browse group */
 	if (sdp_get_browse_groups(rec, &browse_list) < 0) {
 		DBG("skipping record without browse group");
-		return;
+		goto done;
 	}
 
 	sdp_uuid16_create(&browse_uuid, PUBLIC_BROWSE_GROUP);
