@@ -2908,8 +2908,14 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 			return btd_error_already_exists(msg);
 		else if (device_is_bonded(device, DEV_CONN_LE))
 			return btd_error_already_exists(msg);
-	}
-	else {
+
+		if (device->bredr)
+			conn_type = DEV_CONN_BREDR;
+		else if (device->le)
+			conn_type = DEV_CONN_LE;
+		else
+			conn_type = DEV_CONN_BREDR;
+	} else {
 		if (device_is_bonded(device, conn_type))
 			return btd_error_already_exists(msg);
 	}
@@ -2929,9 +2935,9 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 #endif
 
 #ifdef __TIZEN_PATCH__
-	if ((device_is_bredrle(device) || bdaddr_type != BDADDR_BREDR) &&
-				conn_type == DEV_CONN_LE) {
-		DBG("Le Connect request");
+	if (conn_type == DEV_CONN_LE &&
+	    (device_is_bredrle(device) || bdaddr_type != BDADDR_BREDR)) {
+		DBG("LE Connect request");
 		connect_le = TRUE;
 	}
 #endif
@@ -2945,8 +2951,8 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 		io_cap = IO_CAPABILITY_NOINPUTNOOUTPUT;
 
 #ifdef __TIZEN_PATCH__
-	if (((conn_type == DEV_CONN_DEFAULT  && bdaddr_type != BDADDR_BREDR) ||
-		(connect_le)))
+	if ((conn_type == DEV_CONN_LE && bdaddr_type != BDADDR_BREDR) ||
+			connect_le)
 		bonding = bonding_request_new(msg, device, bdaddr_type, agent);
 	else
 		bonding = bonding_request_new(msg, device, BDADDR_BREDR, agent);
@@ -2970,7 +2976,7 @@ static DBusMessage *pair_device(DBusConnection *conn, DBusMessage *msg,
 	 * this in the ATT connect callback)
 	 */
 #ifdef __TIZEN_PATCH__
-	if (((conn_type == DEV_CONN_DEFAULT  && bdaddr_type != BDADDR_BREDR) ||
+	if (((conn_type == DEV_CONN_LE && bdaddr_type != BDADDR_BREDR) ||
 		(connect_le)) && !device->le_state.connected)
 		err = device_connect_le(device);
 	else if (connect_le) /* Send bonding request if LE is already connected*/
