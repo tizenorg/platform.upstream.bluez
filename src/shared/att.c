@@ -67,6 +67,10 @@ struct bt_att {
 
 	bool in_req;			/* There's a pending incoming request */
 
+#ifdef __TIZEN_PATCH__
+	bool service_change_indication; /* Service changed indication status */
+#endif
+
 	uint8_t *buf;
 	uint16_t mtu;
 
@@ -1467,3 +1471,23 @@ bool bt_att_has_crypto(struct bt_att *att)
 
 	return att->crypto ? true : false;
 }
+
+#ifdef __TIZEN_PATCH__
+bool bt_att_set_svc_changed_indication_registered(struct bt_att *att, bool value)
+{
+	if (!att)
+		return false;
+
+	att->service_change_indication = value;
+
+	return true;
+}
+
+bool bt_att_get_svc_changed_indication_registered(struct bt_att *att)
+{
+	if (!att)
+		return false;
+
+	return att->service_change_indication;
+}
+#endif

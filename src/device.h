@@ -219,6 +219,8 @@ gboolean device_is_profile_blocked(struct btd_device *device,
 		const char *uuid);
 void btd_device_disconnect(struct btd_device *dev);
 void btd_device_set_legacy_pairing(struct btd_device *dev, bool legacy_pairing);
+void btd_device_set_svc_changed_indication(struct btd_device *dev, bool value);
+bool btd_device_get_svc_changed_indication(struct btd_device *dev);
 #ifdef TIZEN_WEARABLE
 void device_change_pkt_type(gpointer data, gpointer user_data);
 #endif	/* TIZEN_WEARABLE */

@@ -515,6 +515,9 @@ static gboolean store_device_info_cb(gpointer user_data)
 	char class[9];
 	char **uuids = NULL;
 	gsize length = 0;
+#ifdef __TIZEN_PATCH__
+	gboolean svc_change_regd = false;
+#endif
 
 	device->store_id = 0;
 
@@ -640,6 +643,12 @@ static gboolean store_device_info_cb(gpointer user_data)
 	} else {
 		g_key_file_remove_group(key_file, "DeviceID", NULL);
 	}
+
+#ifdef __TIZEN_PATCH__
+	svc_change_regd = bt_att_get_svc_changed_indication_registered(device->att);
+	g_key_file_set_boolean(key_file, "Att", "SvcChangeRegd",
+						svc_change_regd);
+#endif
 
 	if (device->local_csrk)
 		store_csrk(device->local_csrk, key_file, "LocalSignatureKey");
@@ -4235,6 +4244,7 @@ static void load_info(struct btd_device *device, const char *local,
 	int source, vendor, product, version;
 	char **techno, **t;
 #ifdef __TIZEN_PATCH__
+	gboolean svc_change_regd;
 	char buf[DEV_MAX_MANUFACTURER_DATA_LEN] = { 0, };
 #endif
 	/* Load device name from storage info file, if that fails fall back to
@@ -4401,6 +4411,15 @@ next:
 
 		btd_device_set_pnpid(device, source, vendor, product, version);
 	}
+
+#ifdef __TIZEN_PATCH__
+	/* Load Service changed Registered flag */
+	svc_change_regd = g_key_file_get_boolean(key_file, "Att",
+						"SvcChangeRegd", NULL);
+
+	bt_att_set_svc_changed_indication_registered(device->att,
+						svc_change_regd);
+#endif
 
 	if (store_needed)
 		store_device_info(device);
@@ -6521,6 +6540,33 @@ static bool remote_counter(uint32_t *sign_cnt, void *user_data)
 	return true;
 }
 
+#ifdef __TIZEN_PATCH__
+static bool load_svc_change_indication_status(struct btd_device *device, const char *local,
+				const char *peer)
+{
+	char filename[PATH_MAX];
+	GKeyFile *key_file;
+	gboolean svc_change_regd = false;
+	snprintf(filename, PATH_MAX, STORAGEDIR "/%s/%s/info", local, peer);
+
+	key_file = g_key_file_new();
+	if (!g_key_file_load_from_file(key_file, filename, 0, NULL))
+		goto failed;
+
+	/* Load Service changed Registered flag */
+	svc_change_regd = g_key_file_get_boolean(key_file, "Att",
+						"SvcChangeRegd", NULL);
+	bt_att_set_svc_changed_indication_registered(device->att,
+						svc_change_regd);
+
+
+failed:
+	g_key_file_free(key_file);
+
+	return svc_change_regd;
+}
+#endif
+
 bool device_attach_att(struct btd_device *dev, GIOChannel *io)
 {
 	GError *gerr = NULL;
@@ -6611,6 +6657,11 @@ bool device_attach_att(struct btd_device *dev, GIOChannel *io)
 	 * other devices in the connect_list.
 	 */
 	adapter_connect_list_remove(dev->adapter, dev);
+
+#ifdef __TIZEN_PATCH__
+	/* load the service changed indication status on connection */
+	load_svc_change_indication_status(dev, srcaddr, dstaddr);
+#endif
 
 	return true;
 }
@@ -8451,5 +8502,16 @@ void btd_device_cleanup(void)
 void btd_device_set_legacy_pairing(struct btd_device *dev, bool legacy_pairing)
 {
 	dev->legacy_pairing = legacy_pairing;
+}
+
+void btd_device_set_svc_changed_indication(struct btd_device *dev, bool value)
+{
+	bt_att_set_svc_changed_indication_registered(dev->att, value);
+	store_device_info(dev);
+}
+
+bool btd_device_get_svc_changed_indication(struct btd_device *dev)
+{
+	return bt_att_get_svc_changed_indication_registered(dev->att);
 }
 #endif

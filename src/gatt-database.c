@@ -167,6 +167,10 @@ struct device_info {
 	uint8_t bdaddr_type;
 };
 
+#ifdef __TIZEN_PATCH__
+static void conf_cb(void *user_data);
+#endif
+
 static void ccc_cb_free(void *data)
 {
 	struct ccc_cb_data *ccc_cb = data;
@@ -221,6 +225,31 @@ find_device_state(struct btd_gatt_database *database, bdaddr_t *bdaddr,
 }
 
 #ifdef __TIZEN_PATCH__
+static void send_service_changed_indication_on_reconnect(
+					struct btd_device *device,
+					struct bt_gatt_server *server)
+{
+	struct btd_gatt_database *database;
+	uint16_t start_handle = 0X0001, end_handle = 0xFFFF;
+	uint8_t value[4];
+	uint16_t svc_chngd_handle;
+	DBG("");
+
+	database = btd_adapter_get_database(device_get_adapter(device));
+
+	if (!database)
+		return;
+
+	svc_chngd_handle = gatt_db_attribute_get_handle(database->svc_chngd_ccc);
+
+	put_le16(start_handle, value);
+	put_le16(end_handle, value + 2);
+
+	bt_gatt_server_send_indication(server, svc_chngd_handle,
+				value, sizeof(value), conf_cb,
+				NULL, NULL);
+}
+
 static bool dev_addr_match(const void *a, const void *b)
 {
 	const struct device_state *dev_state = a;
@@ -529,6 +558,13 @@ static void connect_cb(GIOChannel *io, GError *gerr, gpointer user_data)
 		return;
 
 	device_attach_att(device, io);
+
+#ifdef __TIZEN_PATCH__
+	if (btd_device_get_svc_changed_indication(device)) {
+		send_service_changed_indication_on_reconnect(device,
+					btd_device_get_gatt_server(device));
+	}
+#endif
 }
 
 #ifdef __TIZEN_PATCH__
@@ -895,6 +931,23 @@ static void gatt_ccc_write_cb(struct gatt_db_attribute *attrib,
 
 done:
 	gatt_db_attribute_write_result(attrib, id, ecode);
+#ifdef __TIZEN_PATCH__
+	if (!ecode) {
+		uint16_t svc_chngd_handle = gatt_db_attribute_get_handle(database->svc_chngd_ccc);
+		if (handle == svc_chngd_handle) {
+			if (ccc->value[0] != 0) {
+				struct btd_device *device = NULL;
+				device = btd_adapter_get_device(
+							database->adapter,
+							&bdaddr, bdaddr_type);
+
+				if (!device)
+					return;
+				btd_device_set_svc_changed_indication(device, true);
+			}
+		}
+	}
+#endif
 }
 
 static struct gatt_db_attribute *
