@@ -152,7 +152,7 @@ make check
 
 # bluez-test
 rm -rvf $RPM_BUILD_ROOT/%{_libdir}/gstreamer-*
-install --mode=0755 -D %{S:4} $RPM_BUILD_ROOT/usr/lib/udev/bluetooth.sh
+#install --mode=0755 -D %{S:4} $RPM_BUILD_ROOT/usr/lib/udev/bluetooth.sh
 install --mode=0644 -D %{S:7} $RPM_BUILD_ROOT/%{_sysconfdir}/modprobe.d/50-bluetooth.conf
 
 # no idea why this is suddenly necessary...
@@ -173,9 +173,9 @@ install -D -m 0644 src/main_m.conf %{buildroot}%{_sysconfdir}/bluetooth/main.con
 #install -D -m 0644 COPYING %{buildroot}%{_datadir}/license/libbluetooth3
 #install -D -m 0644 COPYING %{buildroot}%{_datadir}/license/libbluetooth-devel
 
-install -D -m 0755 %SOURCE101 %{buildroot}%{_bindir}/obex-root-setup
-install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
-install -D -m 0755 %SOURCE103 %{buildroot}%{_bindir}/obex.sh
+#install -D -m 0755 %SOURCE101 %{buildroot}%{_bindir}/obex-root-setup
+#install -D -m 0755 %SOURCE102 %{buildroot}%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
+#install -D -m 0755 %SOURCE103 %{buildroot}%{_bindir}/obex.sh
 install -D -m 0755 tools/btiotest $RPM_BUILD_ROOT/%{_bindir}/
 install -D -m 0755 tools/bluetooth-player $RPM_BUILD_ROOT/%{_bindir}/
 #install -D -m 0755 tools/mpris-player $RPM_BUILD_ROOT/%{_bindir}/
@@ -258,9 +258,9 @@ ln -sf bluetooth.service %{buildroot}%{_libpath}/systemd/system/dbus-org.bluez.s
 %{_libexecdir}/bluetooth/obexd
 %{_libpath}/systemd/user/obex.service
 %{_datadir}/dbus-1/services/org.bluez.obex.service
-%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
-%{_bindir}/obex-root-setup
-%{_bindir}/obex.sh
+#%{_sysconfdir}/obex/root-setup.d/000_create-symlinks
+#%{_bindir}/obex-root-setup
+#%{_bindir}/obex.sh
 
 
 %files test
