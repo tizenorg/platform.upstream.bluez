@@ -53,6 +53,10 @@
 #define ATT_PSM 31
 #endif
 
+#ifdef __TIZEN_PATCH__
+#define HPS_PTS_TEST
+#endif
+
 #define GATT_MANAGER_IFACE	"org.bluez.GattManager1"
 #define GATT_SERVICE_IFACE	"org.bluez.GattService1"
 #define GATT_CHRC_IFACE		"org.bluez.GattCharacteristic1"
@@ -60,6 +64,9 @@
 
 #define UUID_GAP	0x1800
 #define UUID_GATT	0x1801
+#ifdef HPS_PTS_TEST
+#define UUID_HPS	0x1823
+#endif
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -141,6 +148,9 @@ struct pending_op {
 #ifdef __TIZEN_PATCH__
 	bdaddr_t bdaddr;
 	uint8_t bdaddr_type;
+#ifdef HPS_PTS_TEST
+	uint16_t offset;
+#endif
 #endif
 };
 
@@ -1867,7 +1877,20 @@ static uint8_t dbus_error_to_att_ecode(const char *error_name)
 
 	if (strcmp(error_name, "org.bluez.Error.InProgress") == 0)
 		return BT_ERROR_ALREADY_IN_PROGRESS;
+#ifdef	HPS_PTS_TEST
+	if (strcmp(error_name, "org.freedesktop.DBus.Error.NotSupported") == 0)
+		return BT_ERROR_CCC_IMPROPERLY_CONFIGURED;
 
+	if (strcmp(error_name, "org.freedesktop.DBus.Error.ObjectPathInUse") == 0)
+		return BT_ERROR_ALREADY_IN_PROGRESS;
+
+	if (strcmp(error_name, "org.freedesktop.DBus.Error.NoNetwork") == 0)
+		return BT_ERROR_CCC_IMPROPERLY_CONFIGURED;
+
+	if (strcmp(error_name, "org.freedesktop.DBus.Error.InvalidArgs") == 0)
+		return 0x81;
+
+#endif
 	return 0;
 }
 
@@ -1939,7 +1962,7 @@ static void pending_op_free(void *data)
 static struct pending_op *pending_read_new(struct queue *owner_queue,
 					struct gatt_db_attribute *attrib,
 					struct bt_att *att,
-					unsigned int id)
+					unsigned int id, uint16_t offset)
 #else
 static struct pending_op *pending_read_new(struct queue *owner_queue,
 					struct gatt_db_attribute *attrib,
@@ -1967,6 +1990,9 @@ static struct pending_op *pending_read_new(struct queue *owner_queue,
 #ifdef __TIZEN_PATCH__
 	memcpy(&op->bdaddr, &bdaddr, sizeof(bdaddr_t));
 	op->bdaddr_type = bdaddr_type;
+#ifdef HPS_PTS_TEST
+	op->offset = offset;
+#endif
 #endif
 
 	op->attrib = attrib;
@@ -1986,6 +2012,9 @@ static void read_setup_cb(DBusMessageIter *iter, void *user_data)
 
 	ba2str(&op->bdaddr, dstaddr);
 	addr_value = g_strdup(dstaddr);
+#ifdef HPS_PTS_TEST
+	offset = op->offset;
+#endif
 
 	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING,
 							&addr_value);
@@ -2001,7 +2030,7 @@ static void read_setup_cb(DBusMessageIter *iter, void *user_data)
 #ifdef __TIZEN_PATCH__
 static void send_read(struct gatt_db_attribute *attrib, struct bt_att *att,
 						GDBusProxy *proxy, struct queue *owner_queue,
-						unsigned int id)
+						unsigned int id, uint16_t offset)
 #else
 static void send_read(struct gatt_db_attribute *attrib, GDBusProxy *proxy,
 						struct queue *owner_queue,
@@ -2012,7 +2041,7 @@ static void send_read(struct gatt_db_attribute *attrib, GDBusProxy *proxy,
 	uint8_t ecode = BT_ATT_ERROR_UNLIKELY;
 
 #ifdef __TIZEN_PATCH__
-	op = pending_read_new(owner_queue, attrib, att, id);
+	op = pending_read_new(owner_queue, attrib, att, id, offset);
 #else
 	op = pending_read_new(owner_queue, attrib, id);
 #endif
@@ -2050,6 +2079,9 @@ static void write_setup_cb(DBusMessageIter *iter, void *user_data)
 #ifdef __TIZEN_PATCH__
 	ba2str(&op->bdaddr, dstaddr);
 	addr_value = g_strdup(dstaddr);
+#ifdef HPS_PTS_TEST
+	offset = op->offset;
+#endif
 
 	dbus_message_iter_append_basic(iter, DBUS_TYPE_STRING,
 							&addr_value);
@@ -2108,7 +2140,7 @@ static struct pending_op *pending_write_new(struct queue *owner_queue,
 					struct gatt_db_attribute *attrib, struct bt_att *att,
 					unsigned int id,
 					const uint8_t *value,
-					size_t len)
+					size_t len, uint16_t offset)
 #else
 static struct pending_op *pending_write_new(struct queue *owner_queue,
 					struct gatt_db_attribute *attrib,
@@ -2138,6 +2170,9 @@ static struct pending_op *pending_write_new(struct queue *owner_queue,
 #ifdef __TIZEN_PATCH__
 	memcpy(&op->bdaddr, &bdaddr, sizeof(bdaddr_t));
 	op->bdaddr_type = bdaddr_type;
+#ifdef HPS_PTS_TEST
+	op->offset = offset;
+#endif
 #endif
 
 	op->owner_queue = owner_queue;
@@ -2151,7 +2186,8 @@ static struct pending_op *pending_write_new(struct queue *owner_queue,
 #ifdef __TIZEN_PATCH__
 static void send_write(struct gatt_db_attribute *attrib, struct bt_att *att,
 					GDBusProxy *proxy, struct queue *owner_queue,
-					unsigned int id, const uint8_t *value, size_t len)
+					unsigned int id, const uint8_t *value,
+					size_t len, uint16_t offset)
 #else
 static void send_write(struct gatt_db_attribute *attrib, GDBusProxy *proxy,
 					struct queue *owner_queue,
@@ -2163,7 +2199,7 @@ static void send_write(struct gatt_db_attribute *attrib, GDBusProxy *proxy,
 	uint8_t ecode = BT_ATT_ERROR_UNLIKELY;
 
 #ifdef __TIZEN_PATCH__
-	op = pending_write_new(owner_queue, attrib, att, id, value, len);
+	op = pending_write_new(owner_queue, attrib, att, id, value, len, offset);
 #else
 	op = pending_write_new(owner_queue, attrib, id, value, len);
 #endif
@@ -2458,7 +2494,7 @@ static void desc_read_cb(struct gatt_db_attribute *attrib,
 		return;
 	}
 #ifdef __TIZEN_PATCH__
-	send_read(attrib, att, desc->proxy, desc->pending_reads, id);
+	send_read(attrib, att, desc->proxy, desc->pending_reads, id, offset);
 #else
 	send_read(attrib, desc->proxy, desc->pending_reads, id);
 #endif
@@ -2478,7 +2514,7 @@ static void desc_write_cb(struct gatt_db_attribute *attrib,
 	}
 
 #ifdef __TIZEN_PATCH__
-	send_write(attrib, att, desc->proxy, desc->pending_writes, id, value, len);
+	send_write(attrib, att, desc->proxy, desc->pending_writes, id, value, len, offset);
 #else
 	send_write(attrib, desc->proxy, desc->pending_writes, id, value, len);
 #endif
@@ -2521,7 +2557,7 @@ static void chrc_read_cb(struct gatt_db_attribute *attrib,
 	}
 
 #ifdef __TIZEN_PATCH__
-	send_read(attrib, att, chrc->proxy, chrc->pending_reads, id);
+	send_read(attrib, att, chrc->proxy, chrc->pending_reads, id, offset);
 #else
 	send_read(attrib, chrc->proxy, chrc->pending_reads, id);
 #endif
@@ -2583,7 +2619,7 @@ static void chrc_write_cb(struct gatt_db_attribute *attrib,
 		return;
 	}
 
-	send_write(attrib, att, chrc->proxy, chrc->pending_writes, id, value, len);
+	send_write(attrib, att, chrc->proxy, chrc->pending_writes, id, value, len, offset);
 #else
 	if (chrc->props & BT_GATT_CHRC_PROP_WRITE_WITHOUT_RESP) {
 		send_write_without_response(attrib, chrc->proxy, id, value,
@@ -2701,6 +2737,9 @@ static bool match_desc_unhandled(const void *a, const void *b)
 static bool database_add_service(struct external_service *service)
 {
 	bt_uuid_t uuid;
+#ifdef HPS_PTS_TEST
+	bt_uuid_t hps_uuid;
+#endif
 	bool primary;
 	const struct queue_entry *entry;
 
@@ -2718,6 +2757,13 @@ static bool database_add_service(struct external_service *service)
 						primary, service->attr_cnt);
 	if (!service->attrib)
 		return false;
+#ifdef HPS_PTS_TEST
+	bt_uuid16_create(&hps_uuid, UUID_HPS);
+	if (bt_uuid_cmp(&uuid, &hps_uuid) == 0) {
+		database_add_record(service->app->database, UUID_HPS, service->attrib,
+									"HTTP Proxy Service");
+	}
+#endif
 
 	entry = queue_get_entries(service->chrcs);
 	while (entry) {
