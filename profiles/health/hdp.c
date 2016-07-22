@@ -31,12 +31,6 @@
 
 #include <glib.h>
 
-#ifdef __TIZEN_PATCH__
-#include <sys/types.h>
-#include <sys/xattr.h>
-#include <linux/xattr.h>
-#endif
-
 #include "lib/bluetooth.h"
 #include "lib/l2cap.h"
 #include "lib/sdp.h"
@@ -519,23 +513,6 @@ static void hdp_mdl_reconn_cb(struct mcap_mdl *mdl, GError *err, gpointer data)
 		return;
 	}
 
-#ifdef __TIZEN_PATCH__
-	{
-		DBG("Set smack label!");
-		int ret;
-
-		ret = fsetxattr(fd, XATTR_NAME_SMACKIPIN, "System", sizeof("System"), 0);
-		if (ret != 0) {
-			DBG("Set attr error: %d", ret);
-		}
-
-		ret = fsetxattr(fd, XATTR_NAME_SMACKIPOUT, "System", sizeof("System"), 0);
-		if (ret != 0) {
-			DBG("Set attr error: %d", ret);
-		}
-	}
-#endif
-
 	reply = g_dbus_create_reply(dc_data->msg, DBUS_TYPE_UNIX_FD,
 							&fd, DBUS_TYPE_INVALID);
 	g_dbus_send_message(conn, reply);
@@ -627,29 +604,9 @@ static DBusMessage *channel_acquire_continue(struct hdp_tmp_dc_data *data,
 
 	fd = mcap_mdl_get_fd(data->hdp_chann->mdl);
 
-#ifndef __TIZEN_PATCH__
 	if (fd >= 0)
 		return g_dbus_create_reply(data->msg, DBUS_TYPE_UNIX_FD, &fd,
 							DBUS_TYPE_INVALID);
-#else
-	if (fd >= 0) {
-		int ret;
-
-		DBG("Set smack label!");
-		ret = fsetxattr(fd, XATTR_NAME_SMACKIPIN, "System", sizeof("System"), 0);
-		if (ret != 0) {
-			DBG("Set attr error: %d", ret);
-		}
-
-		ret = fsetxattr(fd, XATTR_NAME_SMACKIPOUT, "System", sizeof("System"), 0);
-		if (ret != 0) {
-			DBG("Set attr error: %d", ret);
-		}
-
-		return g_dbus_create_reply(data->msg, DBUS_TYPE_UNIX_FD, &fd,
-							DBUS_TYPE_INVALID);
-	}
-#endif
 
 	hdp_tmp_dc_data_ref(data);
 	if (mcap_reconnect_mdl(data->hdp_chann->mdl, device_reconnect_mdl_cb,

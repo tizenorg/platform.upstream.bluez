@@ -33,12 +33,6 @@
 #include <glib.h>
 #include <dbus/dbus.h>
 
-#ifdef __TIZEN_PATCH__
-#include <sys/types.h>
-#include <sys/xattr.h>
-#include <linux/xattr.h>
-#endif
-
 #include "lib/bluetooth.h"
 #include "lib/sdp.h"
 #include "lib/sdp_lib.h"
@@ -1265,23 +1259,6 @@ static bool send_new_connection(struct ext_profile *ext, struct ext_io *conn)
 	dbus_message_iter_append_basic(&iter, DBUS_TYPE_OBJECT_PATH, &path);
 
 	fd = g_io_channel_unix_get_fd(conn->io);
-
-#ifdef __TIZEN_PATCH__
-{
-	DBG("Set smack label!");
-	int ret;
-
-	ret = fsetxattr(fd, XATTR_NAME_SMACKIPIN, "System", sizeof("System"), 0);
-	if (ret != 0) {
-		DBG("Set attr error: %d", ret);
-	}
-
-	ret = fsetxattr(fd, XATTR_NAME_SMACKIPOUT, "System", sizeof("System"), 0);
-	if (ret != 0) {
-		DBG("Set attr error: %d", ret);
-	}
-}
-#endif
 
 	dbus_message_iter_append_basic(&iter, DBUS_TYPE_UNIX_FD, &fd);
 
